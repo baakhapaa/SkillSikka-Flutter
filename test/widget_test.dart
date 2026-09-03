@@ -5,16 +5,23 @@
 // gestures. You can also use WidgetTester to find child widgets in the widget
 // tree, read text, and verify that the values of widget properties are correct.
 
+import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:skillsikka/app.dart';
 
 void main() {
-  testWidgets('renders the home route', (WidgetTester tester) async {
+  testWidgets('renders the login screen route', (WidgetTester tester) async {
     await tester.pumpWidget(const ProviderScope(child: SkillSikkaApp()));
 
-    expect(find.text('SkillSikka'), findsOneWidget);
+    expect(find.byType(Image), findsNWidgets(2));
+    expect(find.text('Welcome Back!'), findsOneWidget);
+    expect(find.text('Log In'), findsOneWidget);
+
+    await tester.tap(find.text('Log In'));
+    await tester.pumpAndSettle();
+
     expect(find.text('Learn. Practice. Grow.'), findsOneWidget);
   });
 }

@@ -1,20 +1,41 @@
-# SkillSikka-Flutter
+# SkillSikka Flutter
 
-SkillSikka mobile app — Flutter (Android/iOS), feature-first structure.
+SkillSikka is a Flutter app organized by feature. Shared infrastructure lives
+under `lib/core`, while user-facing slices live under `lib/features`.
 
-A new Flutter project.
+## Architecture
 
-## Getting Started
+- `lib/core/config`: compile-time environment and API configuration
+- `lib/core/network`: the shared Dio client and authentication token provider
+- `lib/core/routing`: the application-level go_router configuration
+- `lib/features/<feature>`: feature presentation, domain, data, and providers
+- `lib/app.dart`: Material 3 app composition and shared providers
 
-This project is a starting point for a Flutter application.
+Riverpod is initialized in `lib/main.dart`. Add feature providers inside their
+feature directory and expose new destinations through the existing router
+provider. Keep API repositories feature-owned and inject the shared `dioProvider`.
 
-A few resources to get you started if this is your first Flutter project:
+## Environments
 
-- [Lab: Write your first Flutter app](https://docs.flutter.dev/get-started/codelab)
-- [Cookbook: Useful Flutter samples](https://docs.flutter.dev/cookbook)
+Environment values are compile-time defines. `APP_ENV` accepts `development`,
+`staging`, or `production`. `API_BASE_URL` overrides the configured URL and
+should be supplied by each deployment pipeline.
 
-For help getting started with Flutter development, view the
-[online documentation](https://docs.flutter.dev/), which offers tutorials,
-samples, guidance on mobile development, and a full API reference.
+```text
+flutter run --dart-define=APP_ENV=development --dart-define=API_BASE_URL=http://10.0.2.2:8000/api
+flutter run --dart-define=APP_ENV=staging --dart-define=API_BASE_URL=https://<staging-host>/api
+flutter run --dart-define=APP_ENV=production --dart-define=API_BASE_URL=https://<production-host>/api
+```
 
-See [docs](../SkillSikka/docs/01-Technical-Documentation.md) in the SkillSikka repo for the full architecture and Flutter app structure (Riverpod, go_router, dio).
+The checked-in defaults are local development plus placeholder SkillSikka
+staging and production hosts. Replace them with the real backend URLs in the
+deployment command or CI configuration; no credentials belong in Dart code.
+
+## Verification
+
+```text
+flutter pub get
+flutter analyze
+flutter test
+flutter build apk --debug --dart-define=APP_ENV=development --dart-define=API_BASE_URL=http://10.0.2.2:8000/api
+```

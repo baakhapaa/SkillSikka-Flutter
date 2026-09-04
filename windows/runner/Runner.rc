@@ -90,12 +90,12 @@ BEGIN
         BLOCK "040904e4"
         BEGIN
             VALUE "CompanyName", "com.baakhapaa" "\0"
-            VALUE "FileDescription", "skillsikka" "\0"
+            VALUE "FileDescription", "Skill Sikka" "\0"
             VALUE "FileVersion", VERSION_AS_STRING "\0"
-            VALUE "InternalName", "skillsikka" "\0"
+            VALUE "InternalName", "Skill Sikka" "\0"
             VALUE "LegalCopyright", "Copyright (C) 2026 com.baakhapaa. All rights reserved." "\0"
-            VALUE "OriginalFilename", "skillsikka.exe" "\0"
-            VALUE "ProductName", "skillsikka" "\0"
+            VALUE "OriginalFilename", "Skill Sikka.exe" "\0"
+            VALUE "ProductName", "Skill Sikka" "\0"
             VALUE "ProductVersion", VERSION_AS_STRING "\0"
         END
     END

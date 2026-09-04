@@ -1,0 +1,20 @@
+flutter_launcher_icons:
+  android: true
+  adaptive_icon_background: "#FAF9F6"
+  adaptive_icon_foreground: assets/figma/app_icon.png
+  adaptive_icon_foreground_inset: 12
+  ios: true
+  web:
+    generate: true
+    image_path: assets/figma/app_icon.png
+    background_color: "#FAF9F6"
+    theme_color: "#FAF9F6"
+  macos:
+    generate: true
+    image_path: assets/figma/app_icon.png
+  windows:
+    generate: true
+    image_path: assets/figma/app_icon.png
+    icon_size: 50
+  image_path: assets/figma/app_icon.png
+  remove_alpha_ios: true

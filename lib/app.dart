@@ -10,7 +10,7 @@ class SkillSikkaApp extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     return MaterialApp.router(
-      title: 'SkillSikka',
+      title: 'Skill Sikka',
       theme: ThemeData(
         colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xFFE6B800)),
         textTheme: GoogleFonts.manropeTextTheme(),

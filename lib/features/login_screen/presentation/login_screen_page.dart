@@ -102,7 +102,7 @@ class _LoginScreenPageState extends State<LoginScreenPage> {
                       width: double.infinity,
                       height: 54,
                       child: FilledButton(
-                        onPressed: () => context.go('/'),
+                        onPressed: () => context.push('/'),
                         style: FilledButton.styleFrom(
                           backgroundColor: const Color(0xFFE6B800),
                           foregroundColor: const Color(0xFF111827),

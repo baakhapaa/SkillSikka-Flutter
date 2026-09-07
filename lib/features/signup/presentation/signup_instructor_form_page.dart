@@ -46,7 +46,7 @@ class _SignupInstructorFormPageState extends State<SignupInstructorFormPage> {
                     _FormField(
                       label: 'Full Name',
                       requiredField: true,
-                      hint: 'e.g. Skill sikka',
+                      hint: 'e.g. Skill Sikka',
                       controller: _controller('name'),
                     ),
                     const SizedBox(height: 16),
@@ -76,8 +76,9 @@ class _SignupInstructorFormPageState extends State<SignupInstructorFormPage> {
                     ),
                     const SizedBox(height: 16),
                     _FormField(
-                      label: 'Email',
+                      label: 'Email Address',
                       hint: 'e.g. skill@email.com',
+                      requiredField: true,
                       leadingAsset: 'assets/figma/signup_mail.svg',
                       controller: _controller('email'),
                     ),
@@ -85,6 +86,7 @@ class _SignupInstructorFormPageState extends State<SignupInstructorFormPage> {
                     _PasswordField(
                       label: 'Password',
                       controller: _controller('password'),
+                      requiredField: true,
                       obscure: _obscurePassword,
                       onToggle: () =>
                           setState(() => _obscurePassword = !_obscurePassword),
@@ -93,6 +95,7 @@ class _SignupInstructorFormPageState extends State<SignupInstructorFormPage> {
                     _PasswordField(
                       label: 'Confirm Password',
                       controller: _controller('confirmPassword'),
+                      requiredField: true,
                       obscure: _obscurePassword,
                       onToggle: () =>
                           setState(() => _obscurePassword = !_obscurePassword),
@@ -101,6 +104,7 @@ class _SignupInstructorFormPageState extends State<SignupInstructorFormPage> {
                     _FormField(
                       label: 'Phone Number',
                       hint: '98XXXXXXXX',
+                      requiredField: true,
                       controller: _controller('phone'),
                       leadingText: '🇳🇵 +977',
                     ),
@@ -269,13 +273,13 @@ class _ProfileUpload extends StatelessWidget {
             shape: BoxShape.circle,
           ),
           child: Container(
-            width: 42,
-            height: 42,
+            width: 60,
+            height: 60,
             decoration: const BoxDecoration(
-              color: Color(0xFFFFFBF0),
+              color: Color.fromARGB(255, 244, 240, 230),
               shape: BoxShape.circle,
             ),
-            padding: const EdgeInsets.all(8),
+            padding: const EdgeInsets.all(10),
             child: SvgPicture.asset('assets/figma/signup_camera.svg'),
           ),
         ),
@@ -284,15 +288,16 @@ class _ProfileUpload extends StatelessWidget {
           'Upload Profile Photo',
           style: GoogleFonts.manrope(
             color: const Color(0xFF111827),
-            fontSize: 14,
+            fontSize: 15,
             fontWeight: FontWeight.w700,
           ),
         ),
         Text(
           'Clear face photo (JPG, PNG • Max 5MB)',
           style: GoogleFonts.manrope(
-            color: const Color(0xFF9CA3AF),
-            fontSize: 11,
+            color: const Color.fromARGB(255, 111, 113, 117),
+            fontSize: 13,
+            fontWeight: FontWeight.w500,
           ),
         ),
       ],
@@ -395,12 +400,14 @@ class _PasswordField extends StatelessWidget {
   const _PasswordField({
     required this.label,
     required this.controller,
+    required this.requiredField,
     required this.obscure,
     required this.onToggle,
   });
 
   final String label;
   final TextEditingController controller;
+  final bool requiredField;
   final bool obscure;
   final VoidCallback onToggle;
 
@@ -408,6 +415,7 @@ class _PasswordField extends StatelessWidget {
   Widget build(BuildContext context) {
     return _FormField(
       label: label,
+      requiredField: requiredField,
       hint: '••••••••••••',
       controller: controller,
       leadingAsset: 'assets/figma/signup_lock.svg',
@@ -427,11 +435,11 @@ class _PasswordField extends StatelessWidget {
                   color: Color(0xFF4B5462),
                   size: 20,
                 )
-              : SvgPicture.asset(
-                  'assets/figma/eye.svg',
-                  key: const ValueKey('password-visible'),
-                  width: 16,
-                  height: 16,
+              : const Icon(
+                  Icons.visibility_outlined,
+                  key: ValueKey('password-visible'),
+                  color: Color(0xFF4B5462),
+                  size: 20,
                 ),
         ),
       ),
@@ -452,8 +460,8 @@ class _Label extends StatelessWidget {
       text: TextSpan(
         style: GoogleFonts.manrope(
           color: const Color(0xFF111827),
-          fontSize: 13,
-          fontWeight: FontWeight.w600,
+          fontSize: 14,
+          fontWeight: FontWeight.w700,
         ),
         children: [
           TextSpan(text: label),

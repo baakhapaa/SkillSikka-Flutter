@@ -308,8 +308,8 @@ class _FormField extends StatelessWidget {
     this.requiredField = false,
     this.leadingAsset,
     this.trailingAsset,
+    this.trailingWidget,
     this.obscureText = false,
-    this.onTrailingTap,
     this.leadingText,
   });
 
@@ -319,9 +319,9 @@ class _FormField extends StatelessWidget {
   final bool requiredField;
   final String? leadingAsset;
   final String? trailingAsset;
+  final Widget? trailingWidget;
   final String? leadingText;
   final bool obscureText;
-  final VoidCallback? onTrailingTap;
 
   @override
   Widget build(BuildContext context) {
@@ -354,16 +354,18 @@ class _FormField extends StatelessWidget {
                       height: 16,
                     ),
                   ),
-            suffixIcon: trailingAsset == null
-                ? null
-                : IconButton(
-                    onPressed: onTrailingTap,
-                    icon: SvgPicture.asset(
-                      trailingAsset!,
-                      width: 16,
-                      height: 16,
-                    ),
-                  ),
+            suffixIcon:
+                trailingWidget ??
+                (trailingAsset == null
+                    ? null
+                    : IconButton(
+                        onPressed: null,
+                        icon: SvgPicture.asset(
+                          trailingAsset!,
+                          width: 16,
+                          height: 16,
+                        ),
+                      )),
             filled: true,
             fillColor: Colors.white,
             contentPadding: const EdgeInsets.symmetric(
@@ -409,9 +411,31 @@ class _PasswordField extends StatelessWidget {
       hint: '••••••••••••',
       controller: controller,
       leadingAsset: 'assets/figma/signup_lock.svg',
-      trailingAsset: 'assets/figma/eye.svg',
+      trailingWidget: IconButton(
+        onPressed: onToggle,
+        tooltip: obscure ? 'Show password' : 'Hide password',
+        icon: AnimatedSwitcher(
+          duration: const Duration(milliseconds: 180),
+          transitionBuilder: (child, animation) => FadeTransition(
+            opacity: animation,
+            child: ScaleTransition(scale: animation, child: child),
+          ),
+          child: obscure
+              ? const Icon(
+                  Icons.visibility_off_outlined,
+                  key: ValueKey('password-hidden'),
+                  color: Color(0xFF4B5462),
+                  size: 20,
+                )
+              : SvgPicture.asset(
+                  'assets/figma/eye.svg',
+                  key: const ValueKey('password-visible'),
+                  width: 16,
+                  height: 16,
+                ),
+        ),
+      ),
       obscureText: obscure,
-      onTrailingTap: onToggle,
     );
   }
 }

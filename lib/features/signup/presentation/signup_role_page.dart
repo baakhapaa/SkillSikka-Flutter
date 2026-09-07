@@ -84,8 +84,8 @@ class _SignupRolePageState extends State<SignupRolePage> {
                           mainAxisSize: MainAxisSize.min,
                           children: [
                             Container(
-                              width: 40,
-                              height: 40,
+                              width: 50,
+                              height: 50,
                               padding: const EdgeInsets.all(5),
                               decoration: BoxDecoration(
                                 color: const Color(0xFF2F2600),
@@ -96,11 +96,11 @@ class _SignupRolePageState extends State<SignupRolePage> {
                                 fit: BoxFit.contain,
                               ),
                             ),
-                            const SizedBox(width: 8),
+                            const SizedBox(width: 2),
                             Image.asset(
                               'assets/figma/skillsikka_wordmark.png',
                               width: 150,
-                              height: 40,
+                              height: 50,
                               fit: BoxFit.contain,
                             ),
                           ],
@@ -111,8 +111,8 @@ class _SignupRolePageState extends State<SignupRolePage> {
                           textAlign: TextAlign.center,
                           style: GoogleFonts.manrope(
                             color: const Color(0xFF111827),
-                            fontSize: 28,
-                            fontWeight: FontWeight.w800,
+                            fontSize: 30,
+                            fontWeight: FontWeight.w900,
                           ),
                         ),
                         const SizedBox(height: 8),
@@ -124,7 +124,7 @@ class _SignupRolePageState extends State<SignupRolePage> {
                             fontSize: 14,
                           ),
                         ),
-                        const SizedBox(height: 84),
+                        const SizedBox(height: 86),
                         _RoleCard(
                           selected: _isStudent,
                           title: 'I am a Student',
@@ -142,7 +142,7 @@ class _SignupRolePageState extends State<SignupRolePage> {
                           iconAsset: 'assets/figma/signup_chart_column.svg',
                           onTap: () => setState(() => _isStudent = false),
                         ),
-                        const SizedBox(height: 84),
+                        const SizedBox(height: 86),
                         SizedBox(
                           width: double.infinity,
                           height: 52,

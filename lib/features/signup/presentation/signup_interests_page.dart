@@ -26,7 +26,7 @@ class _SignupInterestsPageState extends State<SignupInterestsPage> {
     ('3D Design', 'assets/figma/interests_shapes.svg'),
   ];
 
-  late final Set<String> _selected = {'Coding', 'Mathematics', 'Physics'};
+  late final Set<String> _selected = <String>{};
 
   @override
   Widget build(BuildContext context) {
@@ -58,8 +58,8 @@ class _SignupInterestsPageState extends State<SignupInterestsPage> {
                     Row(
                       children: [
                         Container(
-                          width: 32,
-                          height: 32,
+                          width: 50,
+                          height: 45,
                           padding: const EdgeInsets.all(4),
                           decoration: BoxDecoration(
                             color: const Color(0xFF2F2600),
@@ -67,11 +67,11 @@ class _SignupInterestsPageState extends State<SignupInterestsPage> {
                           ),
                           child: Image.asset('assets/figma/academic_cap.png'),
                         ),
-                        const SizedBox(width: 8),
+                        const SizedBox(width: 1),
                         Image.asset(
                           'assets/figma/skillsikka_wordmark.png',
-                          width: 120,
-                          height: 32,
+                          width: 150,
+                          height: 45,
                         ),
                       ],
                     ),
@@ -107,8 +107,8 @@ class _SignupInterestsPageState extends State<SignupInterestsPage> {
                       Text(
                         'Select at least 3 topics to personalize your feed',
                         style: GoogleFonts.manrope(
-                          color: const Color(0xFF4B5563),
-                          fontSize: 14,
+                          color: const Color.fromARGB(255, 38, 43, 50),
+                          fontSize: 15,
                         ),
                       ),
                       const SizedBox(height: 20),
@@ -178,7 +178,7 @@ class _SignupInterestsPageState extends State<SignupInterestsPage> {
                           backgroundColor: const Color(0xFFE6B800),
                           foregroundColor: const Color(0xFF111827),
                           elevation: 4,
-                          shadowColor: const Color(0x33E6B800),
+                          shadowColor: const Color.fromARGB(51, 75, 75, 74),
                           shape: const StadiumBorder(),
                         ),
                         child: Text(
@@ -285,14 +285,20 @@ class _TopicCard extends StatelessWidget {
           Container(
             width: 32,
             height: 32,
-            padding: const EdgeInsets.all(8),
+            padding: const EdgeInsets.all(1.3),
             decoration: BoxDecoration(
               color: selected
                   ? const Color(0xFFFFFBEB)
                   : const Color(0xFFF2F1F7),
               shape: BoxShape.circle,
             ),
-            child: SvgPicture.asset(icon),
+            child: SvgPicture.asset(
+              icon,
+              colorFilter: ColorFilter.mode(
+                selected ? const Color(0xFFE6B800) : const Color(0xFF111827),
+                BlendMode.srcIn,
+              ),
+            ),
           ),
           const SizedBox(width: 10),
           Expanded(
@@ -301,7 +307,7 @@ class _TopicCard extends StatelessWidget {
               overflow: TextOverflow.ellipsis,
               style: GoogleFonts.manrope(
                 color: const Color(0xFF111827),
-                fontSize: 12,
+                fontSize: 11,
                 fontWeight: FontWeight.w700,
               ),
             ),

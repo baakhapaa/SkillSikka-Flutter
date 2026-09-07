@@ -76,10 +76,33 @@ class _LoginScreenPageState extends State<LoginScreenPage> {
                         onPressed: () => setState(() {
                           _obscurePassword = !_obscurePassword;
                         }),
-                        icon: SvgPicture.asset(
-                          'assets/figma/eye.svg',
-                          width: 18,
-                          height: 18,
+                        tooltip: _obscurePassword
+                            ? 'Show password'
+                            : 'Hide password',
+                        icon: AnimatedSwitcher(
+                          duration: const Duration(milliseconds: 180),
+                          transitionBuilder: (child, animation) {
+                            return FadeTransition(
+                              opacity: animation,
+                              child: ScaleTransition(
+                                scale: animation,
+                                child: child,
+                              ),
+                            );
+                          },
+                          child: _obscurePassword
+                              ? const Icon(
+                                  Icons.visibility_off_outlined,
+                                  key: ValueKey('password-hidden'),
+                                  color: Color(0xFF4B5462),
+                                  size: 20,
+                                )
+                              : SvgPicture.asset(
+                                  'assets/figma/eye.svg',
+                                  key: const ValueKey('password-visible'),
+                                  width: 18,
+                                  height: 18,
+                                ),
                         ),
                       ),
                     ),

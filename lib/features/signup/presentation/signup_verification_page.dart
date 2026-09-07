@@ -55,7 +55,7 @@ class _SignupVerificationPageState extends State<SignupVerificationPage> {
                         TextSpan(
                           style: GoogleFonts.manrope(
                             color: const Color(0xFF4B5563),
-                            fontSize: 14,
+                            fontSize: 15,
                             height: 1.5,
                           ),
                           children: const [
@@ -67,7 +67,7 @@ class _SignupVerificationPageState extends State<SignupVerificationPage> {
                               text: 'sarah@email.com',
                               style: TextStyle(
                                 color: Color(0xFF111827),
-                                fontWeight: FontWeight.w700,
+                                fontWeight: FontWeight.w900,
                               ),
                             ),
                           ],
@@ -149,7 +149,7 @@ class _SignupVerificationPageState extends State<SignupVerificationPage> {
                         'Verify',
                         style: GoogleFonts.manrope(
                           color: const Color(0xFF111827),
-                          fontSize: 16,
+                          fontSize: 19,
                           fontWeight: FontWeight.w700,
                         ),
                       ),

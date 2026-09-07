@@ -74,31 +74,33 @@ class SplashPage extends StatelessWidget {
                               ),
                             ),
                           ),
-                          const SizedBox(height: 20),
+                          const SizedBox(height: 30),
                           GestureDetector(
                             onTap: () => context.push('/login-screen'),
                             child: RichText(
                               text: TextSpan(
                                 style: GoogleFonts.manrope(
                                   color: Colors.black,
-                                  fontSize: 14,
+                                  fontSize: 16,
                                 ),
                                 children: [
-                                  const TextSpan(
+                                  TextSpan(
                                     text: 'Already have an account? ',
+                                    style: GoogleFonts.manrope(fontSize: 15),
                                   ),
                                   TextSpan(
                                     text: 'Log In',
                                     style: GoogleFonts.manrope(
+                                      fontSize: 16,
                                       color: const Color(0xFFE6B800),
-                                      fontWeight: FontWeight.w700,
+                                      fontWeight: FontWeight.w500,
                                     ),
                                   ),
                                 ],
                               ),
                             ),
                           ),
-                          const SizedBox(height: 20),
+                          const SizedBox(height: 40),
                         ],
                       ),
                     ),

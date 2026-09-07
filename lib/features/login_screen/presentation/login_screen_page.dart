@@ -132,22 +132,25 @@ class _LoginScreenPageState extends State<LoginScreenPage> {
                       ],
                     ),
                     const SizedBox(height: 45),
-                    RichText(
-                      text: const TextSpan(
-                        style: TextStyle(
-                          color: Color(0xFF77736D),
-                          fontSize: 15.5,
-                        ),
-                        children: [
-                          TextSpan(text: "Don’t have an account? "),
-                          TextSpan(
-                            text: 'Sign Up',
-                            style: TextStyle(
-                              color: Color(0xFFB59100),
-                              fontWeight: FontWeight.w700,
-                            ),
+                    GestureDetector(
+                      onTap: () => context.go('/signup/role'),
+                      child: const Text.rich(
+                        TextSpan(
+                          style: TextStyle(
+                            color: Color(0xFF77736D),
+                            fontSize: 15.5,
                           ),
-                        ],
+                          children: [
+                            TextSpan(text: "Don’t have an account? "),
+                            TextSpan(
+                              text: 'Sign Up',
+                              style: TextStyle(
+                                color: Color(0xFFB59100),
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                          ],
+                        ),
                       ),
                     ),
                   ],

@@ -89,9 +89,9 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                       child: Text(
                         'Skip',
                         style: GoogleFonts.manrope(
-                          fontSize: 14,
+                          fontSize: 15,
                           color: const Color(0xFF4B5563),
-                          fontWeight: FontWeight.w600,
+                          fontWeight: FontWeight.w700,
                         ),
                       ),
                     ),

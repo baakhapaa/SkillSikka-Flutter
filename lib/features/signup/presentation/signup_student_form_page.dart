@@ -67,194 +67,205 @@ class _SignupStudentFormPageState extends State<SignupStudentFormPage> {
     return Scaffold(
       backgroundColor: const Color(0xFFFAF9F6),
       body: SafeArea(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.only(bottom: 16),
-          child: Column(
-            children: [
-              _Header(onBack: () => context.pop()),
-              Padding(
-                padding: const EdgeInsets.fromLTRB(24, 12, 24, 40),
+        child: Column(
+          children: [
+            _Header(onBack: () => context.pop()),
+            Expanded(
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.only(bottom: 16),
                 child: Column(
                   children: [
-                    const _ProfileUpload(),
-                    const SizedBox(height: 24),
-                    _Field(
-                      label: 'Full Name',
-                      hint: 'e.g. Skill Sikka',
-                      requiredField: true,
-                      controller: _controller('name'),
-                    ),
-                    const SizedBox(height: 16),
-                    _Field(
-                      label: 'Email Address',
-                      hint: 'e.g. skill@email.com',
-                      requiredField: true,
-                      leading: 'assets/figma/signup_mail.svg',
-                      controller: _controller('email'),
-                    ),
-                    const SizedBox(height: 16),
-                    _PasswordField(
-                      label: 'Password',
-                      controller: _controller('password'),
-                      requiredField: true,
-                      obscure: _obscurePassword,
-                      onToggle: _togglePassword,
-                    ),
-                    const SizedBox(height: 16),
-                    _PasswordField(
-                      label: 'Confirm Password',
-                      controller: _controller('confirm'),
-                      requiredField: true,
-                      obscure: _obscurePassword,
-                      onToggle: _togglePassword,
-                    ),
-                    const SizedBox(height: 16),
-                    Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Expanded(
-                          child: _Field(
-                            label: 'Gender',
-                            hint: 'Select gender',
-                            requiredField: true,
-                            trailing: 'assets/figma/signup_chevron_down.svg',
-                            controller: _controller('gender'),
-                            onTap: () => _selectGender(),
-                          ),
-                        ),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: _Field(
-                            label: 'Date of Birth',
-                            hint: 'DD / MM / YYYY',
-                            requiredField: true,
-                            controller: _controller('dob'),
-                            onTap: () => _selectDateOfBirth(),
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 16),
-                    _Field(
-                      label: 'Phone Number',
-                      hint: '+977 98XXXXXXXX',
-                      requiredField: true,
-                      controller: _controller('phone'),
-                    ),
-                    const SizedBox(height: 16),
-                    _Field(
-                      label: 'Location',
-                      hint: 'Enter your current location',
-                      requiredField: true,
-                      leading: 'assets/figma/signup_location.svg',
-                      controller: _controller('location'),
-                    ),
-                    const SizedBox(height: 16),
-                    _Field(
-                      label: 'Class / Grade',
-                      hint: 'Select your class',
-                      requiredField: true,
-                      trailing: 'assets/figma/signup_chevron_down.svg',
-                      controller: _controller('class'),
-                      onTap: () => _selectClass(),
-                    ),
-                    const SizedBox(height: 16),
-                    Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Expanded(
-                          child: _Field(
-                            label: 'Province',
-                            hint: 'Select province',
-                            hintFontSize: 12,
-                            requiredField: true,
-                            trailing: 'assets/figma/signup_chevron_down.svg',
-                            controller: _controller('province'),
-                            onTap: () => _selectProvince(),
-                          ),
-                        ),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: _Field(
-                            label: 'District',
-                            hint: 'Select province first',
-                            hintFontSize: 11,
-                            requiredField: true,
-                            trailing: 'assets/figma/signup_chevron_down.svg',
-                            controller: _controller('district'),
-                            enabled: _controller('province').text.isNotEmpty,
-                            onTap: () => _selectDistrict(),
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 16),
-                    _Field(
-                      label: 'School / College (Select district first)',
-                      hint: 'Select school or college',
-                      trailing: 'assets/figma/signup_chevron_down.svg',
-                      controller: _controller('school'),
-                      enabled: _controller('district').text.isNotEmpty,
-                      onTap: () => _selectSchool(),
-                    ),
-                    const SizedBox(height: 16),
-                    const _UploadCard(),
-                    const SizedBox(height: 20),
-                    Container(
-                      padding: const EdgeInsets.all(12),
-                      decoration: BoxDecoration(
-                        color: const Color(0xFFFFFBF0),
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      child: Row(
-                        crossAxisAlignment: CrossAxisAlignment.start,
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(24, 12, 24, 40),
+                      child: Column(
                         children: [
-                          SvgPicture.asset(
-                            'assets/figma/signup_info.svg',
-                            width: 18,
-                            height: 18,
+                          const _ProfileUpload(),
+                          const SizedBox(height: 24),
+                          _Field(
+                            label: 'Full Name',
+                            hint: 'e.g. Skill Sikka',
+                            requiredField: true,
+                            controller: _controller('name'),
                           ),
-                          const SizedBox(width: 8),
-                          Expanded(
-                            child: Text(
-                              "Our admin team reviews all verification requests within 24-48 business hours. You'll receive an email notification once approved.",
-                              style: GoogleFonts.manrope(
-                                color: const Color(0xFF2F2600),
-                                fontSize: 11,
-                                height: 1.4,
+                          const SizedBox(height: 16),
+                          _Field(
+                            label: 'Email Address',
+                            hint: 'e.g. skill@email.com',
+                            requiredField: true,
+                            leading: 'assets/figma/signup_mail.svg',
+                            controller: _controller('email'),
+                          ),
+                          const SizedBox(height: 16),
+                          _PasswordField(
+                            label: 'Password',
+                            controller: _controller('password'),
+                            requiredField: true,
+                            obscure: _obscurePassword,
+                            onToggle: _togglePassword,
+                          ),
+                          const SizedBox(height: 16),
+                          _PasswordField(
+                            label: 'Confirm Password',
+                            controller: _controller('confirm'),
+                            requiredField: true,
+                            obscure: _obscurePassword,
+                            onToggle: _togglePassword,
+                          ),
+                          const SizedBox(height: 16),
+                          Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Expanded(
+                                child: _Field(
+                                  label: 'Gender',
+                                  hint: 'Select gender',
+                                  requiredField: true,
+                                  trailing:
+                                      'assets/figma/signup_chevron_down.svg',
+                                  controller: _controller('gender'),
+                                  onTap: () => _selectGender(),
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: _Field(
+                                  label: 'Date of Birth',
+                                  hint: 'DD / MM / YYYY',
+                                  requiredField: true,
+                                  controller: _controller('dob'),
+                                  onTap: () => _selectDateOfBirth(),
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 16),
+                          _Field(
+                            label: 'Phone Number',
+                            hint: '+977 98XXXXXXXX',
+                            requiredField: true,
+                            controller: _controller('phone'),
+                          ),
+                          const SizedBox(height: 16),
+                          _Field(
+                            label: 'Location',
+                            hint: 'Enter your current location',
+                            requiredField: true,
+                            leading: 'assets/figma/signup_location.svg',
+                            controller: _controller('location'),
+                          ),
+                          const SizedBox(height: 16),
+                          _Field(
+                            label: 'Class / Grade',
+                            hint: 'Select your class',
+                            requiredField: true,
+                            trailing: 'assets/figma/signup_chevron_down.svg',
+                            controller: _controller('class'),
+                            onTap: () => _selectClass(),
+                          ),
+                          const SizedBox(height: 16),
+                          Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Expanded(
+                                child: _Field(
+                                  label: 'Province',
+                                  hint: 'Select province',
+                                  hintFontSize: 12,
+                                  requiredField: true,
+                                  trailing:
+                                      'assets/figma/signup_chevron_down.svg',
+                                  controller: _controller('province'),
+                                  onTap: () => _selectProvince(),
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: _Field(
+                                  label: 'District',
+                                  hint: 'Select province first',
+                                  hintFontSize: 11,
+                                  requiredField: true,
+                                  trailing:
+                                      'assets/figma/signup_chevron_down.svg',
+                                  controller: _controller('district'),
+                                  enabled: _controller(
+                                    'province',
+                                  ).text.isNotEmpty,
+                                  onTap: () => _selectDistrict(),
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 16),
+                          _Field(
+                            label: 'School / College (Select district first)',
+                            hint: 'Select school or college',
+                            trailing: 'assets/figma/signup_chevron_down.svg',
+                            controller: _controller('school'),
+                            enabled: _controller('district').text.isNotEmpty,
+                            onTap: () => _selectSchool(),
+                          ),
+                          const SizedBox(height: 16),
+                          const _UploadCard(),
+                          const SizedBox(height: 20),
+                          Container(
+                            padding: const EdgeInsets.all(12),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFFFFFBF0),
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            child: Row(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                SvgPicture.asset(
+                                  'assets/figma/signup_info.svg',
+                                  width: 18,
+                                  height: 18,
+                                ),
+                                const SizedBox(width: 8),
+                                Expanded(
+                                  child: Text(
+                                    "Our admin team reviews all verification requests within 24-48 business hours. You'll receive an email notification once approved.",
+                                    style: GoogleFonts.manrope(
+                                      color: const Color(0xFF2F2600),
+                                      fontSize: 11,
+                                      height: 1.4,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          const SizedBox(height: 20),
+                          SizedBox(
+                            width: double.infinity,
+                            height: 52,
+                            child: FilledButton(
+                              onPressed: () => context.push('/signup/verify'),
+                              style: FilledButton.styleFrom(
+                                backgroundColor: const Color(0xFFE6B800),
+                                foregroundColor: const Color(0xFF111827),
+                                elevation: 4,
+                                shadowColor: const Color(0x40E6B800),
+                                shape: const StadiumBorder(),
+                              ),
+                              child: Text(
+                                'Submit Verification',
+                                style: GoogleFonts.manrope(
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.w700,
+                                ),
                               ),
                             ),
                           ),
                         ],
                       ),
                     ),
-                    const SizedBox(height: 20),
-                    SizedBox(
-                      width: double.infinity,
-                      height: 52,
-                      child: FilledButton(
-                        onPressed: () => context.push('/signup/verify'),
-                        style: FilledButton.styleFrom(
-                          backgroundColor: const Color(0xFFE6B800),
-                          foregroundColor: const Color(0xFF111827),
-                          elevation: 4,
-                          shadowColor: const Color(0x40E6B800),
-                          shape: const StadiumBorder(),
-                        ),
-                        child: Text(
-                          'Submit Verification',
-                          style: GoogleFonts.manrope(
-                            fontSize: 16,
-                            fontWeight: FontWeight.w700,
-                          ),
-                        ),
-                      ),
-                    ),
                   ],
                 ),
               ),
-            ],
-          ),
+            ),
+          ],
         ),
       ),
     );

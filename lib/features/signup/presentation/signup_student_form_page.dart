@@ -3,6 +3,43 @@ import 'package:flutter_svg/flutter_svg.dart';
 import 'package:go_router/go_router.dart';
 import 'package:google_fonts/google_fonts.dart';
 
+Future<String?> _pickOption(
+  BuildContext context,
+  String title,
+  List<String> options,
+) {
+  return showModalBottomSheet<String>(
+    context: context,
+    backgroundColor: Colors.white,
+    builder: (context) => SafeArea(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(24, 20, 24, 8),
+            child: Text(
+              title,
+              style: GoogleFonts.manrope(
+                fontSize: 18,
+                fontWeight: FontWeight.w800,
+                color: const Color(0xFF111827),
+              ),
+            ),
+          ),
+          ...options.map(
+            (option) => ListTile(
+              title: Text(option),
+              onTap: () => Navigator.pop(context, option),
+            ),
+          ),
+          const SizedBox(height: 8),
+        ],
+      ),
+    ),
+  );
+}
+
 class SignupStudentFormPage extends StatefulWidget {
   const SignupStudentFormPage({super.key});
 
@@ -82,6 +119,7 @@ class _SignupStudentFormPageState extends State<SignupStudentFormPage> {
                             requiredField: true,
                             trailing: 'assets/figma/signup_chevron_down.svg',
                             controller: _controller('gender'),
+                            onTap: () => _selectGender(),
                           ),
                         ),
                         const SizedBox(width: 8),
@@ -91,6 +129,7 @@ class _SignupStudentFormPageState extends State<SignupStudentFormPage> {
                             hint: 'DD / MM / YYYY',
                             requiredField: true,
                             controller: _controller('dob'),
+                            onTap: () => _selectDateOfBirth(),
                           ),
                         ),
                       ],
@@ -117,6 +156,7 @@ class _SignupStudentFormPageState extends State<SignupStudentFormPage> {
                       requiredField: true,
                       trailing: 'assets/figma/signup_chevron_down.svg',
                       controller: _controller('class'),
+                      onTap: () => _selectClass(),
                     ),
                     const SizedBox(height: 16),
                     Row(
@@ -130,6 +170,7 @@ class _SignupStudentFormPageState extends State<SignupStudentFormPage> {
                             requiredField: true,
                             trailing: 'assets/figma/signup_chevron_down.svg',
                             controller: _controller('province'),
+                            onTap: () => _selectProvince(),
                           ),
                         ),
                         const SizedBox(width: 8),
@@ -141,7 +182,8 @@ class _SignupStudentFormPageState extends State<SignupStudentFormPage> {
                             requiredField: true,
                             trailing: 'assets/figma/signup_chevron_down.svg',
                             controller: _controller('district'),
-                            enabled: false,
+                            enabled: _controller('province').text.isNotEmpty,
+                            onTap: () => _selectDistrict(),
                           ),
                         ),
                       ],
@@ -152,7 +194,8 @@ class _SignupStudentFormPageState extends State<SignupStudentFormPage> {
                       hint: 'Select school or college',
                       trailing: 'assets/figma/signup_chevron_down.svg',
                       controller: _controller('school'),
-                      enabled: false,
+                      enabled: _controller('district').text.isNotEmpty,
+                      onTap: () => _selectSchool(),
                     ),
                     const SizedBox(height: 16),
                     const _UploadCard(),
@@ -219,6 +262,82 @@ class _SignupStudentFormPageState extends State<SignupStudentFormPage> {
 
   void _togglePassword() =>
       setState(() => _obscurePassword = !_obscurePassword);
+
+  Future<void> _selectGender() async {
+    final value = await _pickOption(context, 'Select gender', const [
+      'Female',
+      'Male',
+      'Other',
+    ]);
+    if (value != null) setState(() => _controller('gender').text = value);
+  }
+
+  Future<void> _selectDateOfBirth() async {
+    final date = await showDatePicker(
+      context: context,
+      initialDate: DateTime(2005),
+      firstDate: DateTime(1950),
+      lastDate: DateTime.now(),
+    );
+    if (date != null) {
+      final day = date.day.toString().padLeft(2, '0');
+      final month = date.month.toString().padLeft(2, '0');
+      setState(() => _controller('dob').text = '$day / $month / ${date.year}');
+    }
+  }
+
+  Future<void> _selectClass() async {
+    final value = await _pickOption(context, 'Select class', const [
+      'Class 8',
+      'Class 9',
+      'Class 10',
+      'Class 11',
+      'Class 12',
+    ]);
+    if (value != null) setState(() => _controller('class').text = value);
+  }
+
+  Future<void> _selectProvince() async {
+    final value = await _pickOption(context, 'Select province', const [
+      'Bagmati',
+      'Gandaki',
+      'Koshi',
+      'Lumbini',
+    ]);
+    if (value != null) {
+      setState(() {
+        _controller('province').text = value;
+        _controller('district').clear();
+        _controller('school').clear();
+      });
+    }
+  }
+
+  Future<void> _selectDistrict() async {
+    if (_controller('province').text.isEmpty) return;
+    final value = await _pickOption(context, 'Select district', const [
+      'Kathmandu',
+      'Lalitpur',
+      'Bhaktapur',
+      'Chitwan',
+    ]);
+    if (value != null) {
+      setState(() {
+        _controller('district').text = value;
+        _controller('school').clear();
+      });
+    }
+  }
+
+  Future<void> _selectSchool() async {
+    if (_controller('district').text.isEmpty) return;
+    final value = await _pickOption(context, 'Select school or college', const [
+      'Skill Sikka Academy',
+      'Kathmandu Model College',
+      'National College',
+    ]);
+    if (value != null) setState(() => _controller('school').text = value);
+  }
 }
 
 class _Header extends StatelessWidget {
@@ -319,6 +438,7 @@ class _Field extends StatelessWidget {
     this.leading,
     this.trailing,
     this.trailingWidget,
+    this.onTap,
     this.enabled = true,
     this.obscureText = false,
     this.hintFontSize = 14,
@@ -330,6 +450,7 @@ class _Field extends StatelessWidget {
   final String? leading;
   final String? trailing;
   final Widget? trailingWidget;
+  final VoidCallback? onTap;
   final bool enabled;
   final bool obscureText;
   final double hintFontSize;
@@ -359,6 +480,8 @@ class _Field extends StatelessWidget {
       TextField(
         controller: controller,
         enabled: enabled,
+        readOnly: onTap != null,
+        onTap: onTap,
         obscureText: obscureText,
         style: GoogleFonts.manrope(
           color: const Color(0xFF111827),
@@ -381,7 +504,7 @@ class _Field extends StatelessWidget {
               (trailing == null
                   ? null
                   : IconButton(
-                      onPressed: null,
+                      onPressed: onTap,
                       icon: SvgPicture.asset(trailing!, width: 16, height: 16),
                     )),
           filled: true,

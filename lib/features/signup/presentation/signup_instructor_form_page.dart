@@ -3,6 +3,43 @@ import 'package:flutter_svg/flutter_svg.dart';
 import 'package:go_router/go_router.dart';
 import 'package:google_fonts/google_fonts.dart';
 
+Future<String?> _pickInstructorOption(
+  BuildContext context,
+  String title,
+  List<String> options,
+) {
+  return showModalBottomSheet<String>(
+    context: context,
+    backgroundColor: Colors.white,
+    builder: (context) => SafeArea(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(24, 20, 24, 8),
+            child: Text(
+              title,
+              style: GoogleFonts.manrope(
+                fontSize: 18,
+                fontWeight: FontWeight.w800,
+                color: const Color(0xFF111827),
+              ),
+            ),
+          ),
+          ...options.map(
+            (option) => ListTile(
+              title: Text(option),
+              onTap: () => Navigator.pop(context, option),
+            ),
+          ),
+          const SizedBox(height: 8),
+        ],
+      ),
+    ),
+  );
+}
+
 class SignupInstructorFormPage extends StatefulWidget {
   const SignupInstructorFormPage({super.key});
 
@@ -61,6 +98,7 @@ class _SignupInstructorFormPageState extends State<SignupInstructorFormPage> {
                             trailingAsset:
                                 'assets/figma/signup_chevron_down.svg',
                             controller: _controller('gender'),
+                            onTap: () => _selectGender(),
                           ),
                         ),
                         const SizedBox(width: 15),
@@ -70,6 +108,7 @@ class _SignupInstructorFormPageState extends State<SignupInstructorFormPage> {
                             requiredField: true,
                             hint: 'DD / MM / YYYY',
                             controller: _controller('dob'),
+                            onTap: () => _selectDateOfBirth(),
                           ),
                         ),
                       ],
@@ -209,6 +248,29 @@ class _SignupInstructorFormPageState extends State<SignupInstructorFormPage> {
       ),
     );
   }
+
+  Future<void> _selectGender() async {
+    final value = await _pickInstructorOption(context, 'Select gender', const [
+      'Female',
+      'Male',
+      'Other',
+    ]);
+    if (value != null) setState(() => _controller('gender').text = value);
+  }
+
+  Future<void> _selectDateOfBirth() async {
+    final date = await showDatePicker(
+      context: context,
+      initialDate: DateTime(2005),
+      firstDate: DateTime(1950),
+      lastDate: DateTime.now(),
+    );
+    if (date != null) {
+      final day = date.day.toString().padLeft(2, '0');
+      final month = date.month.toString().padLeft(2, '0');
+      setState(() => _controller('dob').text = '$day / $month / ${date.year}');
+    }
+  }
 }
 
 class _Header extends StatelessWidget {
@@ -314,6 +376,7 @@ class _FormField extends StatelessWidget {
     this.leadingAsset,
     this.trailingAsset,
     this.trailingWidget,
+    this.onTap,
     this.obscureText = false,
     this.leadingText,
   });
@@ -325,6 +388,7 @@ class _FormField extends StatelessWidget {
   final String? leadingAsset;
   final String? trailingAsset;
   final Widget? trailingWidget;
+  final VoidCallback? onTap;
   final String? leadingText;
   final bool obscureText;
 
@@ -337,6 +401,8 @@ class _FormField extends StatelessWidget {
         const SizedBox(height: 6),
         TextField(
           controller: controller,
+          readOnly: onTap != null,
+          onTap: onTap,
           obscureText: obscureText,
           style: GoogleFonts.manrope(
             color: const Color(0xFF111827),
@@ -364,7 +430,7 @@ class _FormField extends StatelessWidget {
                 (trailingAsset == null
                     ? null
                     : IconButton(
-                        onPressed: null,
+                        onPressed: onTap,
                         icon: SvgPicture.asset(
                           trailingAsset!,
                           width: 16,

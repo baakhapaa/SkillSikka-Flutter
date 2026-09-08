@@ -38,6 +38,10 @@ class _AppShellState extends State<AppShell> {
       bottomNavigationBar: SkillSikkaFooter(
         selectedIndex: _selectedIndex,
         onSelected: _selectPage,
+        backgroundColor: _selectedIndex == 1
+            ? Color.fromRGBO(0, 0, 0, 0.923)
+            : const Color(0xFFFAF9F6),
+        isDarkBackground: _selectedIndex == 1,
       ),
     );
   }
@@ -47,11 +51,15 @@ class SkillSikkaFooter extends StatelessWidget {
   const SkillSikkaFooter({
     required this.selectedIndex,
     required this.onSelected,
+    this.backgroundColor = const Color(0xFFFAF9F6),
+    this.isDarkBackground = false,
     super.key,
   });
 
   final int selectedIndex;
   final ValueChanged<int> onSelected;
+  final Color backgroundColor;
+  final bool isDarkBackground;
 
   static const _items = <_FooterItem>[
     _FooterItem(
@@ -83,34 +91,45 @@ class SkillSikkaFooter extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return SafeArea(
-      top: false,
-      child: Container(
-        key: const ValueKey('skill-sikka-footer'),
-        height: 69,
-        decoration: const BoxDecoration(
-          color: Color(0xFFFAF9F6),
-          border: Border(top: BorderSide(color: Color(0xFFEAEAEA))),
-          boxShadow: [
-            BoxShadow(
-              color: Color(0x0A000000),
-              blurRadius: 8,
-              offset: Offset(0, -4),
-            ),
-          ],
+    return Container(
+      key: const ValueKey('skill-sikka-footer'),
+      decoration: BoxDecoration(
+        color: backgroundColor,
+        border: Border(
+          top: BorderSide(
+            color: isDarkBackground
+                ? const Color(0xFF333333)
+                : const Color(0xFFEAEAEA),
+          ),
         ),
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-        child: Row(
-          children: [
-            for (var index = 0; index < _items.length; index++)
-              Expanded(
-                child: _FooterButton(
-                  item: _items[index],
-                  selected: selectedIndex == index,
-                  onTap: () => onSelected(index),
-                ),
-              ),
-          ],
+        boxShadow: [
+          BoxShadow(
+            color: Color(0x0A000000),
+            blurRadius: 8,
+            offset: Offset(0, -4),
+          ),
+        ],
+      ),
+      child: SafeArea(
+        top: false,
+        child: SizedBox(
+          height: 69,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+            child: Row(
+              children: [
+                for (var index = 0; index < _items.length; index++)
+                  Expanded(
+                    child: _FooterButton(
+                      item: _items[index],
+                      selected: selectedIndex == index,
+                      isDarkBackground: isDarkBackground,
+                      onTap: () => onSelected(index),
+                    ),
+                  ),
+              ],
+            ),
+          ),
         ),
       ),
     );
@@ -122,15 +141,20 @@ class _FooterButton extends StatelessWidget {
     required this.item,
     required this.selected,
     required this.onTap,
+    this.isDarkBackground = false,
   });
 
   final _FooterItem item;
   final bool selected;
+  final bool isDarkBackground;
   final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
-    final color = selected ? const Color(0xFFE6B800) : const Color(0xFF666666);
+    final inactiveColor = isDarkBackground
+        ? const Color(0xFFFAF9F6)
+        : const Color(0xFF666666);
+    final color = selected ? const Color(0xFFE6B800) : inactiveColor;
 
     return Semantics(
       button: true,
@@ -150,6 +174,9 @@ class _FooterButton extends StatelessWidget {
                 child: SvgPicture.asset(
                   selected ? item.activeAsset : item.inactiveAsset,
                   fit: BoxFit.contain,
+                  colorFilter: (!selected && isDarkBackground)
+                      ? ColorFilter.mode(inactiveColor, BlendMode.srcIn)
+                      : null,
                 ),
               ),
               const SizedBox(height: 4),

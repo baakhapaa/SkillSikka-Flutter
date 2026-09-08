@@ -10,10 +10,7 @@ class ShortPage extends StatelessWidget {
 }
 
 class ShortFeedPage extends StatefulWidget {
-  const ShortFeedPage({
-    super.key,
-    this.initialTab = ShortFeedTab.stem,
-  });
+  const ShortFeedPage({super.key, this.initialTab = ShortFeedTab.stem});
 
   final ShortFeedTab initialTab;
 
@@ -58,8 +55,10 @@ class _ShortFeedPageState extends State<ShortFeedPage> {
                   ShortFeedTab.forYou;
               final begin = Offset(isEnteringForYou ? 1 : -1, 0);
               return SlideTransition(
-                position: Tween<Offset>(begin: begin, end: Offset.zero)
-                    .animate(animation),
+                position: Tween<Offset>(
+                  begin: begin,
+                  end: Offset.zero,
+                ).animate(animation),
                 child: child,
               );
             },
@@ -146,9 +145,7 @@ class _ShortFeedPageState extends State<ShortFeedPage> {
                     },
                     child: Stack(
                       children: [
-                        Container(
-                          color: Colors.white.withValues(alpha: 0.25),
-                        ),
+                        Container(color: Colors.white.withValues(alpha: 0.25)),
                         FractionallySizedBox(
                           widthFactor: _progressValue,
                           child: Container(color: brandYellow),
@@ -229,6 +226,7 @@ class _ShortFeedPageState extends State<ShortFeedPage> {
                 Text(
                   creator,
                   style: const TextStyle(
+                    fontFamily: 'Manrope',
                     color: Colors.white,
                     fontSize: 14,
                     fontWeight: FontWeight.bold,
@@ -237,6 +235,7 @@ class _ShortFeedPageState extends State<ShortFeedPage> {
                 Text(
                   role,
                   style: const TextStyle(
+                    fontFamily: 'Figtree',
                     color: brandYellow,
                     fontSize: 10,
                     fontWeight: FontWeight.w600,
@@ -298,7 +297,9 @@ class _ShortFeedPageState extends State<ShortFeedPage> {
         const SizedBox(height: 14),
         _ActionItem(
           asset: 'assets/images/hearticon.png',
-          label: _isLiked ? (_isForYou ? '128' : '25') : (_isForYou ? '127' : '24'),
+          label: _isLiked
+              ? (_isForYou ? '128' : '25')
+              : (_isForYou ? '127' : '24'),
           isActive: _isLiked,
           activeColor: const Color(0xFFF70303),
           onTap: () => setState(() => _isLiked = !_isLiked),
@@ -326,11 +327,7 @@ class _ShortFeedPageState extends State<ShortFeedPage> {
 enum ShortFeedTab { stem, forYou }
 
 class _TopNavItem extends StatelessWidget {
-  const _TopNavItem({
-    required this.label,
-    this.isSelected = false,
-    this.onTap,
-  });
+  const _TopNavItem({required this.label, this.isSelected = false, this.onTap});
 
   final String label;
   final bool isSelected;
@@ -349,6 +346,7 @@ class _TopNavItem extends StatelessWidget {
             Text(
               label,
               style: TextStyle(
+                fontFamily: 'Figtree',
                 color: isSelected
                     ? Colors.white
                     : Colors.white.withValues(alpha: 0.55),
@@ -429,6 +427,7 @@ class _ActionItem extends StatelessWidget {
         Text(
           label,
           style: const TextStyle(
+            fontFamily: 'Figtree',
             color: Colors.white,
             fontSize: 11,
             fontWeight: FontWeight.w600,

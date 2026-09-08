@@ -1,7 +1,7 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
-import '../../features/home/presentation/home_page.dart';
+import '../../features/navigation/presentation/app_shell.dart';
 import '../../features/login_screen/presentation/forgot_password_page.dart';
 import '../../features/login_screen/presentation/login_screen_page.dart';
 import '../../features/splash/presentation/onboarding_screen.dart';
@@ -64,7 +64,7 @@ final appRouterProvider = Provider<GoRouter>((ref) {
       GoRoute(
         path: '/',
         name: 'home',
-        builder: (context, state) => const HomePage(),
+        builder: (context, state) => const AppShell(),
       ),
     ],
   );

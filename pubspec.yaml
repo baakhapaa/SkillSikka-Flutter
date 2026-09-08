@@ -66,6 +66,15 @@ flutter:
 
   assets:
     - assets/figma/
+    - assets/figma/footer/
+    - assets/figma/profile/
+    - assets/figma/learning/course_banner.png
+    - assets/figma/learning/chemistry.png
+    - assets/figma/learning/python.png
+    - assets/figma/learning/certificate_geometry.png
+    - assets/figma/learning/certificate_react.png
+    - assets/figma/learning/completed_course.png
+    - assets/figma/learning/check.svg
 
   # To add assets to your application, add an assets section, like this:
   # assets:

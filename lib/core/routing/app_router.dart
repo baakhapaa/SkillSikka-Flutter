@@ -11,6 +11,8 @@ import '../../features/signup/presentation/signup_instructor_form_page.dart';
 import '../../features/signup/presentation/signup_student_form_page.dart';
 import '../../features/signup/presentation/signup_interests_page.dart';
 import '../../features/signup/presentation/signup_verification_page.dart';
+import '../../features/short/presentation/foryou_page.dart';
+import '../../features/short/presentation/short_page.dart';
 
 final appRouterProvider = Provider<GoRouter>((ref) {
   return GoRouter(
@@ -65,6 +67,16 @@ final appRouterProvider = Provider<GoRouter>((ref) {
         path: '/',
         name: 'home',
         builder: (context, state) => const AppShell(),
+      ),
+      GoRoute(
+        path: '/short',
+        name: 'short',
+        builder: (context, state) => const ShortPage(),
+      ),
+      GoRoute(
+        path: '/short/for-you',
+        name: 'short-for-you',
+        builder: (context, state) => const ForyouPage(),
       ),
     ],
   );

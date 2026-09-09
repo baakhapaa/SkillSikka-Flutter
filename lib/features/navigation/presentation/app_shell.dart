@@ -39,7 +39,7 @@ class _AppShellState extends State<AppShell> {
         selectedIndex: _selectedIndex,
         onSelected: _selectPage,
         backgroundColor: _selectedIndex == 1
-            ? const Color.fromARGB(226, 0, 0, 0)
+            ? const Color.fromARGB(255, 0, 15, 42)
             : const Color(0xFFFAF9F6),
         isDarkBackground: _selectedIndex == 1,
       ),
@@ -104,18 +104,18 @@ class SkillSikkaFooter extends StatelessWidget {
         ),
         boxShadow: [
           BoxShadow(
-            color: Color(0x0A000000),
-            blurRadius: 8,
-            offset: Offset(0, -4),
+            color: const Color.fromRGBO(0, 0, 0, 0.03),
+            blurRadius: 16,
+            offset: const Offset(0, -4),
           ),
         ],
       ),
       child: SafeArea(
         top: false,
         child: SizedBox(
-          height: 69,
+          height: 84,
           child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+            padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
             child: Row(
               children: [
                 for (var index = 0; index < _items.length; index++)

@@ -11,6 +11,8 @@ class ShortVideoData {
     required this.course,
     required this.likeCount,
     required this.commentCount,
+    required this.shareTitle,
+    required this.shareUrl,
     this.initialProgress = 0.0,
   });
 
@@ -23,6 +25,8 @@ class ShortVideoData {
   final String course;
   final int likeCount;
   final int commentCount;
+  final String shareTitle;
+  final String shareUrl;
   final double initialProgress;
 }
 
@@ -39,6 +43,8 @@ const ShortVideoData kStemVideo = ShortVideoData(
   course: 'CSS Masterclass Course',
   likeCount: 25,
   commentCount: 6,
+  shareTitle: 'Master CSS Flexbox in 60s',
+  shareUrl: 'stemshorts.com/c/css-flex',
   initialProgress: 0.56,
 );
 
@@ -55,5 +61,7 @@ const ShortVideoData forYouVideo = ShortVideoData(
   course: 'React Masterclass',
   likeCount: 128,
   commentCount: 46,
+  shareTitle: 'React Hooks Crash Course in 45s',
+  shareUrl: 'stemshorts.com/c/react-hooks',
   initialProgress: 0.42,
 );

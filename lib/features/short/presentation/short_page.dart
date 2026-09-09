@@ -74,14 +74,43 @@ class _ShortFeedPageState extends State<ShortFeedPage> {
   }
 
   Future<void> _openShareSheet() async {
-    await showModalBottomSheet<void>(
+    await showGeneralDialog<void>(
       context: context,
-      backgroundColor: const Color(0xFF1C1C1E),
-      isScrollControlled: true,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
-      builder: (context) => ShareSheet(video: _videoData),
+      barrierDismissible: true,
+      barrierLabel: 'Close share sheet',
+      barrierColor: Colors.transparent,
+      transitionDuration: const Duration(milliseconds: 220),
+      pageBuilder: (context, animation, secondaryAnimation) {
+        const sharePopupBottomMargin = 14.0;
+        final footerHeight =
+            69.0 + MediaQuery.paddingOf(context).bottom + sharePopupBottomMargin;
+        return Align(
+          alignment: Alignment.bottomCenter,
+          child: Padding(
+            padding: EdgeInsets.only(bottom: footerHeight),
+            child: SizedBox(
+              width: MediaQuery.sizeOf(context).width,
+              child: Material(
+                color: const Color(0xFF1C1C1E),
+                borderRadius: const BorderRadius.vertical(
+                  top: Radius.circular(20),
+                ),
+                clipBehavior: Clip.antiAlias,
+                child: ShareSheet(video: _videoData),
+              ),
+            ),
+          ),
+        );
+      },
+      transitionBuilder: (context, animation, secondaryAnimation, child) {
+        return SlideTransition(
+          position: Tween<Offset>(
+            begin: const Offset(0, 1),
+            end: Offset.zero,
+          ).animate(CurvedAnimation(parent: animation, curve: Curves.easeOutCubic)),
+          child: child,
+        );
+      },
     );
   }
 
@@ -432,7 +461,7 @@ class _CommentsSheetState extends State<CommentsSheet> {
 
     setState(() {
       _comments.insert(
-        0,
+        9,
         _CommentData(
           user: 'you',
           text: _replyingTo == null ? text : '@$_replyingTo $text',
@@ -694,16 +723,6 @@ class _ShareSheetState extends State<ShareSheet> {
               ),
             ),
             const SizedBox(height: 14),
-            const Text(
-              'Share this short',
-              style: TextStyle(
-                color: Colors.white,
-                fontFamily: 'Manrope',
-                fontSize: 14,
-                fontWeight: FontWeight.w700,
-              ),
-            ),
-            const SizedBox(height: 14),
             Container(
               height: 60,
               padding: const EdgeInsets.symmetric(horizontal: 10),
@@ -724,37 +743,60 @@ class _ShareSheetState extends State<ShareSheet> {
                   ),
                   const SizedBox(width: 10),
                   Expanded(
-                    child: Text(
-                      widget.video.description.replaceAll('\n', ' '),
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontFamily: 'Figtree',
-                        fontSize: 10,
-                        height: 1.25,
-                      ),
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          widget.video.shareTitle,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontFamily: 'Manrope',
+                            fontSize: 11,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          '${widget.video.creator.replaceFirst('@', '')} • ${widget.video.shareUrl}',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            color: Colors.white70,
+                            fontFamily: 'Manrope',
+                            fontSize: 8,
+                          ),
+                        ),
+                      ],
                     ),
                   ),
                 ],
               ),
             ),
             const SizedBox(height: 14),
+            const Text(
+              'SHARE TO APPS',
+              style: TextStyle(
+                color: Colors.white70,
+                fontFamily: 'Manrope',
+                fontSize: 11,
+                fontWeight: FontWeight.w700,
+                letterSpacing: 0.2,
+              ),
+            ),
+            const SizedBox(height: 12),
             SingleChildScrollView(
               scrollDirection: Axis.horizontal,
               padding: const EdgeInsets.symmetric(horizontal: 2),
               child: Row(
                 children: [
-                _ShareOption(
-                  asset: 'assets/figma/copy-check.svg',
-                  label: _isCopied ? 'Copied' : 'Copy link',
-                  onTap: _copyLink,
-                ),
-                _ShareOption(
-                  asset: 'assets/figma/camera.svg',
-                  label: 'Instagram',
-                  onTap: () => _showUnavailable('Instagram'),
-                ),
+                  _ShareOption(
+                    asset: 'assets/figma/copy-check.svg',
+                    label: _isCopied ? 'Copied' : 'Copy Link',
+                    onTap: _copyLink,
+                  ),
                 _ShareOption(
                   asset: 'assets/figma/message-circle.svg',
                   label: 'Messages',
@@ -770,6 +812,11 @@ class _ShareSheetState extends State<ShareSheet> {
                   label: 'Twitter',
                   onTap: () => _showUnavailable('Twitter'),
                 ),
+                _ShareOption(
+                  asset: 'assets/figma/camera.svg',
+                  label: 'Instagram',
+                  onTap: () => _showUnavailable('Instagram'),
+                ),
                 ],
               ),
             ),
@@ -782,7 +829,7 @@ class _ShareSheetState extends State<ShareSheet> {
   Future<void> _copyLink() async {
     await Clipboard.setData(
       ClipboardData(
-        text: 'https://skillsikka.app/shorts/${widget.video.creator}',
+        text: 'https://${widget.video.shareUrl}',
       ),
     );
     if (!mounted) return;
@@ -820,17 +867,23 @@ class _ShareOption extends StatelessWidget {
         onTap: onTap,
         borderRadius: BorderRadius.circular(12),
         child: SizedBox(
-          width: 64,
+          width: 66,
           child: Column(
             children: [
               SizedBox(
-                width: 48,
+                width: 44,
                 height: 44,
-                child: Center(
-                  child: SvgPicture.asset(asset, width: 32, height: 32),
+                child: DecoratedBox(
+                  decoration: const BoxDecoration(
+                    color: Color(0xFF3A3B3F),
+                    shape: BoxShape.circle,
+                  ),
+                  child: Center(
+                    child: SvgPicture.asset(asset, width: 24, height: 24),
+                  ),
                 ),
               ),
-              const SizedBox(height: 2),
+              const SizedBox(height: 5),
               Text(
                 label,
                 textAlign: TextAlign.center,
@@ -838,7 +891,7 @@ class _ShareOption extends StatelessWidget {
                 style: const TextStyle(
                   color: Colors.white,
                   fontFamily: 'Figtree',
-                  fontSize: 8,
+                  fontSize: 9,
                 ),
               ),
             ],

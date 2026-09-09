@@ -368,6 +368,7 @@ class CommentsSheet extends StatefulWidget {
 
 class _CommentsSheetState extends State<CommentsSheet> {
   final _commentController = TextEditingController();
+  String? _replyingTo;
   late final List<_CommentData> _comments = [
     const _CommentData(
       user: 'alex.dev',
@@ -417,42 +418,6 @@ class _CommentsSheetState extends State<CommentsSheet> {
       time: '1h',
       avatar: 'assets/figma/face/face3.png',
     ),
-    const _CommentData(
-      user: 'learning.daily',
-      text: 'Please do more quick tutorials like this one.',
-      time: '1h',
-      avatar: 'assets/figma/face/Rectangle.png',
-    ),
-    const _CommentData(
-      user: 'maria.dev',
-      text: 'Simple explanation and great pacing!',
-      time: '2h',
-      avatar: 'assets/figma/face/face5.png',
-    ),
-    const _CommentData(
-      user: 'build.with.me',
-      text: 'This answered the exact question I had today.',
-      time: '2h',
-      avatar: 'assets/figma/face/face2.png',
-    ),
-    const _CommentData(
-      user: 'pixel.student',
-      text: 'Bookmarked for my next project.',
-      time: '3h',
-      avatar: 'assets/figma/face/faace4.png',
-    ),
-    const _CommentData(
-      user: 'code.journey',
-      text: 'This community makes learning so much better.',
-      time: '4h',
-      avatar: 'assets/figma/face/face3.png',
-    ),
-    const _CommentData(
-      user: 'the.web.club',
-      text: 'More examples in the next short would be awesome.',
-      time: '5h',
-      avatar: 'assets/figma/face/Rectangle.png',
-    ),
   ];
 
   @override
@@ -470,13 +435,18 @@ class _CommentsSheetState extends State<CommentsSheet> {
         0,
         _CommentData(
           user: 'you',
-          text: text,
+          text: _replyingTo == null ? text : '@$_replyingTo $text',
           time: 'now',
           avatar: 'assets/figma/face/face5.png',
         ),
       );
       _commentController.clear();
+      _replyingTo = null;
     });
+  }
+
+  void _replyTo(String user) {
+    setState(() => _replyingTo = user);
   }
 
   @override
@@ -487,10 +457,10 @@ class _CommentsSheetState extends State<CommentsSheet> {
       padding: EdgeInsets.only(bottom: bottomInset),
       child: ConstrainedBox(
         constraints: BoxConstraints(
-          maxHeight: MediaQuery.sizeOf(context).height * 0.82,
+          maxHeight: MediaQuery.sizeOf(context).height * 0.72,
         ),
         child: Padding(
-          padding: const EdgeInsets.fromLTRB(20, 12, 20, 12),
+          padding: const EdgeInsets.fromLTRB(16, 8, 16, 10),
           child: Column(
             children: [
               Container(
@@ -501,7 +471,7 @@ class _CommentsSheetState extends State<CommentsSheet> {
                   borderRadius: BorderRadius.circular(2),
                 ),
               ),
-              const SizedBox(height: 18),
+              const SizedBox(height: 10),
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
@@ -510,7 +480,7 @@ class _CommentsSheetState extends State<CommentsSheet> {
                     style: const TextStyle(
                       color: Colors.white,
                       fontFamily: 'Manrope',
-                      fontSize: 18,
+                      fontSize: 16,
                       fontWeight: FontWeight.w700,
                     ),
                   ),
@@ -521,7 +491,7 @@ class _CommentsSheetState extends State<CommentsSheet> {
                   ),
                 ],
               ),
-              const SizedBox(height: 8),
+              const SizedBox(height: 4),
               Expanded(
                 child: ListView.separated(
                   keyboardDismissBehavior:
@@ -533,6 +503,7 @@ class _CommentsSheetState extends State<CommentsSheet> {
                     final comment = _comments[index];
                     return _CommentTile(
                       comment: comment,
+                      onReply: () => _replyTo(comment.user),
                     );
                   },
                 ),
@@ -562,7 +533,9 @@ class _CommentsSheetState extends State<CommentsSheet> {
                         fontSize: 13,
                       ),
                       decoration: InputDecoration(
-                        hintText: 'Add a comment...',
+                        hintText: _replyingTo == null
+                            ? 'Add a comment...'
+                            : 'Reply to @$_replyingTo...',
                         hintStyle: TextStyle(color: Colors.white54),
                         filled: true,
                         fillColor: const Color(0xFF2C2C2E),
@@ -612,9 +585,10 @@ class _CommentData {
 }
 
 class _CommentTile extends StatelessWidget {
-  const _CommentTile({required this.comment});
+  const _CommentTile({required this.comment, required this.onReply});
 
   final _CommentData comment;
+  final VoidCallback onReply;
 
   @override
   Widget build(BuildContext context) {
@@ -641,14 +615,14 @@ class _CommentTile extends StatelessWidget {
                     style: const TextStyle(
                       color: Colors.white,
                       fontFamily: 'Manrope',
-                      fontSize: 12,
+                      fontSize: 11,
                       fontWeight: FontWeight.w700,
                     ),
                   ),
                   const SizedBox(width: 8),
                   Text(
                     comment.time,
-                    style: const TextStyle(color: Colors.white54, fontSize: 11),
+                    style: const TextStyle(color: Colors.white54, fontSize: 10),
                   ),
                 ],
               ),
@@ -658,24 +632,31 @@ class _CommentTile extends StatelessWidget {
                 style: const TextStyle(
                   color: Colors.white,
                   fontFamily: 'Figtree',
-                  fontSize: 13,
-                  height: 1.35,
+                  fontSize: 12,
+                  height: 1.25,
                 ),
               ),
-              const SizedBox(height: 7),
-              const Text(
-                'Reply',
-                style: TextStyle(
-                  color: Colors.white54,
-                  fontFamily: 'Figtree',
-                  fontSize: 11,
-                  fontWeight: FontWeight.w600,
+              const SizedBox(height: 4),
+              InkWell(
+                onTap: onReply,
+                borderRadius: BorderRadius.circular(4),
+                child: const Padding(
+                  padding: EdgeInsets.symmetric(vertical: 2),
+                  child: Text(
+                    'Reply',
+                    style: TextStyle(
+                      color: Colors.white54,
+                      fontFamily: 'Figtree',
+                      fontSize: 10,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
                 ),
               ),
             ],
           ),
         ),
-        const Icon(Icons.favorite_border, color: Colors.white54, size: 18),
+        const Icon(Icons.favorite_border, color: Colors.white54, size: 16),
       ],
     );
   }
@@ -759,11 +740,11 @@ class _ShareSheetState extends State<ShareSheet> {
               ),
             ),
             const SizedBox(height: 14),
-            Wrap(
-              alignment: WrapAlignment.center,
-              spacing: 8,
-              runSpacing: 12,
-              children: [
+            SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              padding: const EdgeInsets.symmetric(horizontal: 2),
+              child: Row(
+                children: [
                 _ShareOption(
                   asset: 'assets/figma/copy-check.svg',
                   label: _isCopied ? 'Copied' : 'Copy link',
@@ -789,7 +770,8 @@ class _ShareSheetState extends State<ShareSheet> {
                   label: 'Twitter',
                   onTap: () => _showUnavailable('Twitter'),
                 ),
-              ],
+                ],
+              ),
             ),
           ],
         ),
@@ -838,34 +820,16 @@ class _ShareOption extends StatelessWidget {
         onTap: onTap,
         borderRadius: BorderRadius.circular(12),
         child: SizedBox(
-          width: 68,
+          width: 64,
           child: Column(
             children: [
-                SizedBox(
-                  width: 56,
-                  child: Column(
-                    children: [
-                      SizedBox(
-                        width: 44,
-                        height: 44,
-                        child: Center(
-                          child: SvgPicture.asset(asset, width: 36, height: 36),
-                        ),
-                      ),
-                      const SizedBox(height: 2),
-                      Text(
-                        label,
-                        textAlign: TextAlign.center,
-                        maxLines: 2,
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontFamily: 'Figtree',
-                          fontSize: 8,
-                        ),
-                      ),
-                    ],
-                  ),
+              SizedBox(
+                width: 48,
+                height: 44,
+                child: Center(
+                  child: SvgPicture.asset(asset, width: 32, height: 32),
                 ),
+              ),
               const SizedBox(height: 2),
               Text(
                 label,

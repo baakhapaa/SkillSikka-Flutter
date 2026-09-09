@@ -1,5 +1,9 @@
 import 'package:flutter/material.dart';
 
+import 'short_video_data.dart';
+
+enum ShortFeedTab { stem, forYou }
+
 class ShortPage extends StatelessWidget {
   const ShortPage({super.key});
 
@@ -24,9 +28,16 @@ class _ShortFeedPageState extends State<ShortFeedPage> {
   late ShortFeedTab _selectedTab = widget.initialTab;
   bool _isLiked = false;
   bool _isSaved = false;
-  double _progressValue = 0.56;
+  late double _progressValue;
 
-  bool get _isForYou => _selectedTab == ShortFeedTab.forYou;
+  @override
+  void initState() {
+    super.initState();
+    _progressValue = _videoData.initialProgress;
+  }
+
+  ShortVideoData get _videoData =>
+      _selectedTab == ShortFeedTab.forYou ? forYouVideo : kStemVideo;
 
   void _selectTab(ShortFeedTab tab) {
     if (tab == _selectedTab) return;
@@ -34,8 +45,30 @@ class _ShortFeedPageState extends State<ShortFeedPage> {
       _selectedTab = tab;
       _isLiked = false;
       _isSaved = false;
-      _progressValue = tab == ShortFeedTab.forYou ? 0.42 : 0.56;
+      _progressValue = _videoData.initialProgress;
     });
+  }
+
+  Future<void> _openSaveSheet() async {
+    final selectedCollection = await showModalBottomSheet<String>(
+      context: context,
+      backgroundColor: const Color(0xFF1C1C1E),
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (context) => const SaveToCollectionSheet(),
+    );
+
+    if (selectedCollection != null && mounted) {
+      setState(() => _isSaved = true);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Saved to $selectedCollection'),
+          duration: const Duration(seconds: 2),
+        ),
+      );
+    }
   }
 
   @override
@@ -62,13 +95,7 @@ class _ShortFeedPageState extends State<ShortFeedPage> {
                 child: child,
               );
             },
-            child: _buildVideo(
-              key: ValueKey(_selectedTab),
-              image: _isForYou
-                  ? 'assets/images/react1.png'
-                  : 'assets/images/video-background.png',
-              fit: _isForYou ? BoxFit.contain : BoxFit.cover,
-            ),
+            child: _buildVideo(key: ValueKey(_selectedTab)),
           ),
           _buildTopNavigation(),
         ],
@@ -76,29 +103,15 @@ class _ShortFeedPageState extends State<ShortFeedPage> {
     );
   }
 
-  Widget _buildVideo({
-    required Key key,
-    required String image,
-    required BoxFit fit,
-  }) {
-    final creator = _isForYou ? '@sam_codes' : '@sarah_codes';
-    final role = _isForYou ? 'SAM Educator' : 'Adobe Certified Instructor';
-    final description = _isForYou
-        ? 'React Hooks Crash Course in 45s ⚛️\n'
-              'useState vs useEffect explained! #coding #reactjs\n'
-              '#tutorial'
-        : 'Master CSS Flexbox in 60 seconds! No crew,\n'
-              'just precision layouts ⚡ #coding #webdev\n'
-              '#tutorial';
-    final course = _isForYou ? 'React Masterclass' : 'CSS Masterclass Course';
-
+  Widget _buildVideo({required Key key}) {
+    final data = _videoData;
     return KeyedSubtree(
       key: key,
       child: Stack(
         fit: StackFit.expand,
         clipBehavior: Clip.hardEdge,
         children: [
-          Image.asset(image, fit: fit, alignment: Alignment.center),
+          Image.asset(data.image, fit: data.fit, alignment: Alignment.center),
           Positioned(
             left: 16,
             right: 14,
@@ -106,14 +119,7 @@ class _ShortFeedPageState extends State<ShortFeedPage> {
             child: Row(
               crossAxisAlignment: CrossAxisAlignment.end,
               children: [
-                Expanded(
-                  child: _buildCreatorDetails(
-                    creator: creator,
-                    role: role,
-                    description: description,
-                    course: course,
-                  ),
-                ),
+                Expanded(child: _buildCreatorDetails(data: data)),
                 const SizedBox(width: 12),
                 _buildActionRail(),
               ],
@@ -175,12 +181,12 @@ class _ShortFeedPageState extends State<ShortFeedPage> {
             children: [
               _TopNavItem(
                 label: 'STEM',
-                isSelected: !_isForYou,
+                isSelected: _selectedTab != ShortFeedTab.forYou,
                 onTap: () => _selectTab(ShortFeedTab.stem),
               ),
               _TopNavItem(
                 label: 'For you',
-                isSelected: _isForYou,
+                isSelected: _selectedTab == ShortFeedTab.forYou,
                 onTap: () => _selectTab(ShortFeedTab.forYou),
               ),
               const _TopNavItem(label: 'Challenge'),
@@ -199,12 +205,7 @@ class _ShortFeedPageState extends State<ShortFeedPage> {
     );
   }
 
-  Widget _buildCreatorDetails({
-    required String creator,
-    required String role,
-    required String description,
-    required String course,
-  }) {
+  Widget _buildCreatorDetails({required ShortVideoData data}) {
     return Column(
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -213,7 +214,7 @@ class _ShortFeedPageState extends State<ShortFeedPage> {
           children: [
             ClipOval(
               child: Image.asset(
-                'assets/images/saracodes.png',
+                data.avatar,
                 width: 36,
                 height: 36,
                 fit: BoxFit.cover,
@@ -224,7 +225,7 @@ class _ShortFeedPageState extends State<ShortFeedPage> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  creator,
+                  data.creator,
                   style: const TextStyle(
                     fontFamily: 'Manrope',
                     color: Colors.white,
@@ -233,9 +234,8 @@ class _ShortFeedPageState extends State<ShortFeedPage> {
                   ),
                 ),
                 Text(
-                  role,
+                  data.role,
                   style: const TextStyle(
-                    fontFamily: 'Figtree',
                     color: brandYellow,
                     fontSize: 10,
                     fontWeight: FontWeight.w600,
@@ -247,7 +247,7 @@ class _ShortFeedPageState extends State<ShortFeedPage> {
         ),
         const SizedBox(height: 12),
         Text(
-          description,
+          data.description,
           maxLines: 3,
           style: const TextStyle(
             fontFamily: 'Figtree',
@@ -274,7 +274,7 @@ class _ShortFeedPageState extends State<ShortFeedPage> {
               ),
               const SizedBox(width: 6),
               Text(
-                course,
+                data.course,
                 style: const TextStyle(
                   fontFamily: 'Figtree',
                   color: Colors.white,
@@ -290,6 +290,9 @@ class _ShortFeedPageState extends State<ShortFeedPage> {
   }
 
   Widget _buildActionRail() {
+    final data = _videoData;
+    final likedLabel = data.likeCount.toString();
+    final unlikedLabel = (data.likeCount - 1).toString();
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
@@ -297,9 +300,7 @@ class _ShortFeedPageState extends State<ShortFeedPage> {
         const SizedBox(height: 14),
         _ActionItem(
           asset: 'assets/images/hearticon.png',
-          label: _isLiked
-              ? (_isForYou ? '128' : '25')
-              : (_isForYou ? '127' : '24'),
+          label: _isLiked ? likedLabel : unlikedLabel,
           isActive: _isLiked,
           activeColor: const Color(0xFFF70303),
           onTap: () => setState(() => _isLiked = !_isLiked),
@@ -307,7 +308,7 @@ class _ShortFeedPageState extends State<ShortFeedPage> {
         const SizedBox(height: 18),
         _ActionItem(
           asset: 'assets/images/commenticon.png',
-          label: _isForYou ? '46' : '14',
+          label: data.commentCount.toString(),
         ),
         const SizedBox(height: 18),
         _ActionItem(
@@ -315,7 +316,7 @@ class _ShortFeedPageState extends State<ShortFeedPage> {
           label: _isSaved ? 'Saved' : 'Save',
           isActive: _isSaved,
           activeColor: brandYellow,
-          onTap: () => setState(() => _isSaved = !_isSaved),
+          onTap: _openSaveSheet,
         ),
         const SizedBox(height: 18),
         const _ActionItem(icon: Icons.share, label: 'Share'),
@@ -324,7 +325,204 @@ class _ShortFeedPageState extends State<ShortFeedPage> {
   }
 }
 
-enum ShortFeedTab { stem, forYou }
+class SaveToCollectionSheet extends StatefulWidget {
+  const SaveToCollectionSheet({super.key});
+
+  @override
+  State<SaveToCollectionSheet> createState() => _SaveToCollectionSheetState();
+}
+
+class _SaveToCollectionSheetState extends State<SaveToCollectionSheet> {
+  String? _selectedCollection;
+
+  final List<Map<String, String>> collections = const [
+    {
+      'title': 'CSS Tutorials',
+      'count': '12 videos',
+      'image': 'assets/images/Rectangle.png',
+    },
+    {
+      'title': 'Web Dev Basics',
+      'count': '48 videos',
+      'image': 'assets/images/Rectangle (1).png',
+    },
+    {
+      'title': 'Challenge Set',
+      'count': '3 videos',
+      'image': 'assets/images/rec.png',
+    },
+    {
+      'title': 'Watch Later',
+      'count': '15 videos',
+      'image': 'assets/images/rec.png',
+    },
+  ];
+
+  @override
+  Widget build(BuildContext context) {
+    return SingleChildScrollView(
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Center(
+              child: Container(
+                width: 40,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: Colors.grey.shade700,
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+            ),
+            const SizedBox(height: 20),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                const Text(
+                  'Save to Collection',
+                  style: TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.white,
+                  ),
+                ),
+                InkWell(
+                  onTap: () => Navigator.pop(context),
+                  borderRadius: BorderRadius.circular(20),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 8,
+                    ),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFFFD233),
+                      borderRadius: BorderRadius.circular(20),
+                    ),
+                    child: const Row(
+                      children: [
+                        Icon(Icons.add, size: 16, color: Colors.black),
+                        SizedBox(width: 4),
+                        Text(
+                          'New',
+                          style: TextStyle(
+                            fontSize: 14,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.black,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 20),
+            SizedBox(
+              height: 140,
+              child: ListView.builder(
+                scrollDirection: Axis.horizontal,
+                itemCount: collections.length,
+                itemBuilder: (context, index) {
+                  final collection = collections[index];
+                  return Padding(
+                    padding: EdgeInsets.only(
+                      right: 12,
+                      left: index == 0 ? 0 : 0,
+                    ),
+                    child: InkWell(
+                      onTap: () => setState(
+                        () => _selectedCollection = collection['title'],
+                      ),
+                      borderRadius: BorderRadius.circular(16),
+                      child: Container(
+                        width: 140,
+                        height: 140,
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFF2C2C2E),
+                          border: Border.all(
+                            color: _selectedCollection == collection['title']
+                                ? const Color(0xFFFFD233)
+                                : Colors.transparent,
+                            width: 1.5,
+                          ),
+                          borderRadius: BorderRadius.circular(16),
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            ClipRRect(
+                              borderRadius: BorderRadius.circular(8),
+                              child: Image.asset(
+                                collection['image']!,
+                                width: double.infinity,
+                                height: 60,
+                                fit: BoxFit.cover,
+                              ),
+                            ),
+                            const SizedBox(height: 12),
+                            Text(
+                              collection['title']!,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                fontSize: 12,
+                                fontWeight: FontWeight.w700,
+                                color: Colors.white,
+                                fontFamily: 'Manrope',
+                              ),
+                            ),
+                            const SizedBox(height: 2),
+                            Text(
+                              collection['count']!,
+                              style: const TextStyle(
+                                fontSize: 10,
+                                color: Color.fromRGBO(255, 255, 255, 0.7),
+                                fontFamily: 'Manrope',
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  );
+                },
+              ),
+            ),
+            const SizedBox(height: 10),
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton(
+                onPressed: _selectedCollection == null
+                    ? null
+                    : () => Navigator.pop(context, _selectedCollection),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFFFFD233),
+                  foregroundColor: Colors.black,
+                  disabledBackgroundColor: const Color(0xFF3A3A3C),
+                  disabledForegroundColor: Colors.white38,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                ),
+                child: const Text(
+                  'Save collection',
+                  style: TextStyle(
+                    fontFamily: 'Manrope',
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
 
 class _TopNavItem extends StatelessWidget {
   const _TopNavItem({required this.label, this.isSelected = false, this.onTap});

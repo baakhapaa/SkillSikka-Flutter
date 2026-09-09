@@ -39,7 +39,7 @@ class _AppShellState extends State<AppShell> {
         selectedIndex: _selectedIndex,
         onSelected: _selectPage,
         backgroundColor: _selectedIndex == 1
-            ? Color.fromRGBO(0, 0, 0, 0.923)
+            ? const Color.fromRGBO(0, 0, 0, 0.14)
             : const Color(0xFFFAF9F6),
         isDarkBackground: _selectedIndex == 1,
       ),

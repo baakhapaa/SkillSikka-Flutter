@@ -38,7 +38,7 @@ const ShortVideoData kStemVideo = ShortVideoData(
       '#tutorial',
   course: 'CSS Masterclass Course',
   likeCount: 25,
-  commentCount: 14,
+  commentCount: 6,
   initialProgress: 0.56,
 );
 

@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:flutter_svg/flutter_svg.dart';
 
 import 'short_video_data.dart';
 
@@ -69,6 +71,31 @@ class _ShortFeedPageState extends State<ShortFeedPage> {
         ),
       );
     }
+  }
+
+  Future<void> _openShareSheet() async {
+    await showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: const Color(0xFF1C1C1E),
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (context) => ShareSheet(video: _videoData),
+    );
+  }
+
+  Future<void> _openComments() async {
+    await showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: const Color(0xFF1C1C1E),
+      isScrollControlled: true,
+      useSafeArea: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (context) => CommentsSheet(video: _videoData),
+    );
   }
 
   @override
@@ -309,6 +336,7 @@ class _ShortFeedPageState extends State<ShortFeedPage> {
         _ActionItem(
           asset: 'assets/images/commenticon.png',
           label: data.commentCount.toString(),
+          onTap: _openComments,
         ),
         const SizedBox(height: 18),
         _ActionItem(
@@ -319,8 +347,540 @@ class _ShortFeedPageState extends State<ShortFeedPage> {
           onTap: _openSaveSheet,
         ),
         const SizedBox(height: 18),
-        const _ActionItem(icon: Icons.share, label: 'Share'),
+        _ActionItem(
+          icon: Icons.share,
+          label: 'Share',
+          onTap: _openShareSheet,
+        ),
       ],
+    );
+  }
+}
+
+class CommentsSheet extends StatefulWidget {
+  const CommentsSheet({required this.video, super.key});
+
+  final ShortVideoData video;
+
+  @override
+  State<CommentsSheet> createState() => _CommentsSheetState();
+}
+
+class _CommentsSheetState extends State<CommentsSheet> {
+  final _commentController = TextEditingController();
+  late final List<_CommentData> _comments = [
+    const _CommentData(
+      user: 'alex.dev',
+      text: 'This is exactly what I needed. Thank you!',
+      time: '2m',
+      avatar: 'assets/figma/face/faace4.png',
+    ),
+    const _CommentData(
+      user: 'codewithmaya',
+      text: 'The explanation at the end was so helpful.',
+      time: '8m',
+      avatar: 'assets/figma/face/face2.png',
+    ),
+    const _CommentData(
+      user: 'jordan_codes',
+      text: 'Saving this for later 👏',
+      time: '15m',
+      avatar: 'assets/figma/face/face3.png',
+    ),
+    const _CommentData(
+      user: 'nina.learns',
+      text: 'Could you make a follow-up on the next topic?',
+      time: '24m',
+      avatar: 'assets/figma/face/face5.png',
+    ),
+    const _CommentData(
+      user: 'dev_student',
+      text: 'Short, clear, and easy to follow.',
+      time: '31m',
+      avatar: 'assets/figma/face/Rectangle.png',
+    ),
+    const _CommentData(
+      user: 'sam.codes',
+      text: 'Great tip — sharing this with my study group.',
+      time: '42m',
+      avatar: 'assets/figma/face/face2.png',
+    ),
+    const _CommentData(
+      user: 'frontend.fan',
+      text: 'The visual example made this much easier to understand.',
+      time: '49m',
+      avatar: 'assets/figma/face/faace4.png',
+    ),
+    const _CommentData(
+      user: 'ravi.codes',
+      text: 'I tried this right after watching and it works perfectly.',
+      time: '1h',
+      avatar: 'assets/figma/face/face3.png',
+    ),
+    const _CommentData(
+      user: 'learning.daily',
+      text: 'Please do more quick tutorials like this one.',
+      time: '1h',
+      avatar: 'assets/figma/face/Rectangle.png',
+    ),
+    const _CommentData(
+      user: 'maria.dev',
+      text: 'Simple explanation and great pacing!',
+      time: '2h',
+      avatar: 'assets/figma/face/face5.png',
+    ),
+    const _CommentData(
+      user: 'build.with.me',
+      text: 'This answered the exact question I had today.',
+      time: '2h',
+      avatar: 'assets/figma/face/face2.png',
+    ),
+    const _CommentData(
+      user: 'pixel.student',
+      text: 'Bookmarked for my next project.',
+      time: '3h',
+      avatar: 'assets/figma/face/faace4.png',
+    ),
+    const _CommentData(
+      user: 'code.journey',
+      text: 'This community makes learning so much better.',
+      time: '4h',
+      avatar: 'assets/figma/face/face3.png',
+    ),
+    const _CommentData(
+      user: 'the.web.club',
+      text: 'More examples in the next short would be awesome.',
+      time: '5h',
+      avatar: 'assets/figma/face/Rectangle.png',
+    ),
+  ];
+
+  @override
+  void dispose() {
+    _commentController.dispose();
+    super.dispose();
+  }
+
+  void _addComment() {
+    final text = _commentController.text.trim();
+    if (text.isEmpty) return;
+
+    setState(() {
+      _comments.insert(
+        0,
+        _CommentData(
+          user: 'you',
+          text: text,
+          time: 'now',
+          avatar: 'assets/figma/face/face5.png',
+        ),
+      );
+      _commentController.clear();
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final bottomInset = MediaQuery.viewInsetsOf(context).bottom;
+    return AnimatedPadding(
+      duration: const Duration(milliseconds: 180),
+      padding: EdgeInsets.only(bottom: bottomInset),
+      child: ConstrainedBox(
+        constraints: BoxConstraints(
+          maxHeight: MediaQuery.sizeOf(context).height * 0.82,
+        ),
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(20, 12, 20, 12),
+          child: Column(
+            children: [
+              Container(
+                width: 40,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: Colors.grey.shade700,
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+              const SizedBox(height: 18),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text(
+                    'Comments (${widget.video.commentCount + (_comments.length - 14)})',
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontFamily: 'Manrope',
+                      fontSize: 18,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  IconButton(
+                    onPressed: () => Navigator.pop(context),
+                    icon: const Icon(Icons.close, color: Colors.white70),
+                    tooltip: 'Close comments',
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              Expanded(
+                child: ListView.separated(
+                  keyboardDismissBehavior:
+                      ScrollViewKeyboardDismissBehavior.onDrag,
+                  padding: const EdgeInsets.only(bottom: 12),
+                  itemCount: _comments.length,
+                  separatorBuilder: (_, _) => const SizedBox(height: 18),
+                  itemBuilder: (context, index) {
+                    final comment = _comments[index];
+                    return _CommentTile(
+                      comment: comment,
+                    );
+                  },
+                ),
+              ),
+              const SizedBox(height: 8),
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  ClipOval(
+                    child: Image.asset(
+                      widget.video.avatar,
+                      width: 36,
+                      height: 36,
+                      fit: BoxFit.cover,
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: TextField(
+                      controller: _commentController,
+                      minLines: 1,
+                      maxLines: 4,
+                      textInputAction: TextInputAction.newline,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontFamily: 'Figtree',
+                        fontSize: 13,
+                      ),
+                      decoration: InputDecoration(
+                        hintText: 'Add a comment...',
+                        hintStyle: TextStyle(color: Colors.white54),
+                        filled: true,
+                        fillColor: const Color(0xFF2C2C2E),
+                        contentPadding: const EdgeInsets.symmetric(
+                          horizontal: 14,
+                          vertical: 10,
+                        ),
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(22),
+                          borderSide: BorderSide.none,
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  IconButton(
+                    onPressed: _addComment,
+                    tooltip: 'Post comment',
+                    style: IconButton.styleFrom(
+                      backgroundColor: const Color(0xFFFFD233),
+                      foregroundColor: Colors.black,
+                    ),
+                    icon: const Icon(Icons.send_rounded, size: 18),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _CommentData {
+  const _CommentData({
+    required this.user,
+    required this.text,
+    required this.time,
+    required this.avatar,
+  });
+
+  final String user;
+  final String text;
+  final String time;
+  final String avatar;
+}
+
+class _CommentTile extends StatelessWidget {
+  const _CommentTile({required this.comment});
+
+  final _CommentData comment;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        ClipOval(
+          child: Image.asset(
+            comment.avatar,
+            width: 36,
+            height: 36,
+            fit: BoxFit.cover,
+          ),
+        ),
+        const SizedBox(width: 10),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Text(
+                    comment.user,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontFamily: 'Manrope',
+                      fontSize: 12,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Text(
+                    comment.time,
+                    style: const TextStyle(color: Colors.white54, fontSize: 11),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 4),
+              Text(
+                comment.text,
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontFamily: 'Figtree',
+                  fontSize: 13,
+                  height: 1.35,
+                ),
+              ),
+              const SizedBox(height: 7),
+              const Text(
+                'Reply',
+                style: TextStyle(
+                  color: Colors.white54,
+                  fontFamily: 'Figtree',
+                  fontSize: 11,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ],
+          ),
+        ),
+        const Icon(Icons.favorite_border, color: Colors.white54, size: 18),
+      ],
+    );
+  }
+}
+
+class ShareSheet extends StatefulWidget {
+  const ShareSheet({required this.video, super.key});
+
+  final ShortVideoData video;
+
+  @override
+  State<ShareSheet> createState() => _ShareSheetState();
+}
+
+class _ShareSheetState extends State<ShareSheet> {
+  bool _isCopied = false;
+
+  @override
+  Widget build(BuildContext context) {
+    return SafeArea(
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(16, 12, 16, 18),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Center(
+              child: Container(
+                width: 40,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: Colors.grey.shade700,
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+            ),
+            const SizedBox(height: 14),
+            const Text(
+              'Share this short',
+              style: TextStyle(
+                color: Colors.white,
+                fontFamily: 'Manrope',
+                fontSize: 14,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+            const SizedBox(height: 14),
+            Container(
+              height: 60,
+              padding: const EdgeInsets.symmetric(horizontal: 10),
+              decoration: BoxDecoration(
+                color: const Color(0xFF2C2C2E),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Row(
+                children: [
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(8),
+                    child: Image.asset(
+                      widget.video.image,
+                      width: 42,
+                      height: 42,
+                      fit: widget.video.fit,
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Text(
+                      widget.video.description.replaceAll('\n', ' '),
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontFamily: 'Figtree',
+                        fontSize: 10,
+                        height: 1.25,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 14),
+            Wrap(
+              alignment: WrapAlignment.center,
+              spacing: 8,
+              runSpacing: 12,
+              children: [
+                _ShareOption(
+                  asset: 'assets/figma/copy-check.svg',
+                  label: _isCopied ? 'Copied' : 'Copy link',
+                  onTap: _copyLink,
+                ),
+                _ShareOption(
+                  asset: 'assets/figma/camera.svg',
+                  label: 'Instagram',
+                  onTap: () => _showUnavailable('Instagram'),
+                ),
+                _ShareOption(
+                  asset: 'assets/figma/message-circle.svg',
+                  label: 'Messages',
+                  onTap: () => _showUnavailable('Messages'),
+                ),
+                _ShareOption(
+                  asset: 'assets/figma/message-circle2.svg',
+                  label: 'WhatsApp',
+                  onTap: () => _showUnavailable('WhatsApp'),
+                ),
+                _ShareOption(
+                  asset: 'assets/figma/twitter.svg',
+                  label: 'Twitter',
+                  onTap: () => _showUnavailable('Twitter'),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _copyLink() async {
+    await Clipboard.setData(
+      ClipboardData(
+        text: 'https://skillsikka.app/shorts/${widget.video.creator}',
+      ),
+    );
+    if (!mounted) return;
+    setState(() => _isCopied = true);
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Link copied to clipboard')),
+    );
+  }
+
+  void _showUnavailable(String destination) {
+    Navigator.pop(context);
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('$destination sharing is not available yet')),
+    );
+  }
+}
+
+class _ShareOption extends StatelessWidget {
+  const _ShareOption({
+    required this.asset,
+    required this.label,
+    required this.onTap,
+  });
+
+  final String asset;
+  final String label;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Semantics(
+      button: true,
+      label: label,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(12),
+        child: SizedBox(
+          width: 68,
+          child: Column(
+            children: [
+                SizedBox(
+                  width: 56,
+                  child: Column(
+                    children: [
+                      SizedBox(
+                        width: 44,
+                        height: 44,
+                        child: Center(
+                          child: SvgPicture.asset(asset, width: 36, height: 36),
+                        ),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        label,
+                        textAlign: TextAlign.center,
+                        maxLines: 2,
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontFamily: 'Figtree',
+                          fontSize: 8,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              const SizedBox(height: 2),
+              Text(
+                label,
+                textAlign: TextAlign.center,
+                maxLines: 2,
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontFamily: 'Figtree',
+                  fontSize: 8,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 }

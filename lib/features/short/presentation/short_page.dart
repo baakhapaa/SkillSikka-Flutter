@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_svg/flutter_svg.dart';
+import 'dart:async';
 import 'package:google_fonts/google_fonts.dart';
 
 import 'short_video_data.dart';
@@ -1300,12 +1301,23 @@ class _QuizScreenState extends State<QuizScreen>
   int? _selectedIndex;
   int _score = 0;
   bool _isComplete = false;
+  late final Timer _clockTimer;
+  late final Timer _countdownTimer;
+  String _currentTime = '';
+  int _remainingSeconds = 165;
 
   QuizQuestion get _question => _questions[_questionIndex];
 
   @override
   void initState() {
     super.initState();
+    _updateTime();
+    _clockTimer = Timer.periodic(const Duration(seconds: 1), (_) => _updateTime());
+    _countdownTimer = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (_remainingSeconds > 0) {
+        setState(() => _remainingSeconds--);
+      }
+    });
     _questionController = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 360),
@@ -1349,7 +1361,23 @@ class _QuizScreenState extends State<QuizScreen>
     _questionController.dispose();
     _indicatorController.dispose();
     _shakeController.dispose();
+    _clockTimer.cancel();
+    _countdownTimer.cancel();
     super.dispose();
+  }
+
+  void _updateTime() {
+    final now = DateTime.now();
+    setState(() {
+      _currentTime =
+          '${now.hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')}';
+    });
+  }
+
+  String get _formattedCountdown {
+    final minutes = _remainingSeconds ~/ 60;
+    final seconds = _remainingSeconds % 60;
+    return '${minutes.toString().padLeft(2, '0')}:${seconds.toString().padLeft(2, '0')}';
   }
 
   void _selectAnswer(int index) {
@@ -1393,7 +1421,7 @@ class _QuizScreenState extends State<QuizScreen>
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
                   Text(
-                    '9:41',
+                    _currentTime,
                     style: GoogleFonts.manrope(
                       fontWeight: FontWeight.w600,
                       fontSize: 15,
@@ -1512,7 +1540,7 @@ class _QuizScreenState extends State<QuizScreen>
                               ),
                               const SizedBox(width: 6),
                               Text(
-                                '02:45',
+                                _formattedCountdown,
                                 style: GoogleFonts.figtree(
                                   fontWeight: FontWeight.w700,
                                   fontSize: 12,

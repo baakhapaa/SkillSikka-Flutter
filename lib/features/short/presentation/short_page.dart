@@ -26,18 +26,43 @@ class ShortFeedPage extends StatefulWidget {
   State<ShortFeedPage> createState() => _ShortFeedPageState();
 }
 
-class _ShortFeedPageState extends State<ShortFeedPage> {
+class _ShortFeedPageState extends State<ShortFeedPage>
+    with SingleTickerProviderStateMixin {
   static const brandYellow = Color(0xFFFFD233);
 
   late ShortFeedTab _selectedTab = widget.initialTab;
   bool _isLiked = false;
   bool _isSaved = false;
   late double _progressValue;
+  late int _likeCount;
+  late int _commentCount;
+  late final AnimationController _doubleTapLikeController;
+  late final Animation<double> _doubleTapLikeScale;
+  Offset? _doubleTapPosition;
+  bool _showDoubleTapLike = false;
 
   @override
   void initState() {
     super.initState();
     _progressValue = _videoData.initialProgress;
+    _likeCount = _videoData.likeCount;
+    _commentCount = _videoData.commentCount;
+    _doubleTapLikeController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 420),
+    );
+    _doubleTapLikeScale = Tween<double>(begin: 0.45, end: 1).animate(
+      CurvedAnimation(
+        parent: _doubleTapLikeController,
+        curve: Curves.easeOutBack,
+      ),
+    );
+  }
+
+  @override
+  void dispose() {
+    _doubleTapLikeController.dispose();
+    super.dispose();
   }
 
   ShortVideoData get _videoData =>
@@ -50,6 +75,29 @@ class _ShortFeedPageState extends State<ShortFeedPage> {
       _isLiked = false;
       _isSaved = false;
       _progressValue = _videoData.initialProgress;
+      _likeCount = _videoData.likeCount;
+      _commentCount = _videoData.commentCount;
+    });
+  }
+
+  void _toggleLike() {
+    setState(() {
+      _isLiked = !_isLiked;
+      _likeCount += _isLiked ? 1 : -1;
+    });
+  }
+
+  void _handleDoubleTapDown(TapDownDetails details) {
+    _doubleTapPosition = details.localPosition;
+  }
+
+  void _handleDoubleTap() {
+    if (!_isLiked) _toggleLike();
+    setState(() => _showDoubleTapLike = true);
+    _doubleTapLikeController.forward(from: 0);
+    Future<void>.delayed(const Duration(milliseconds: 720), () {
+      if (!mounted) return;
+      setState(() => _showDoubleTapLike = false);
     });
   }
 
@@ -73,6 +121,10 @@ class _ShortFeedPageState extends State<ShortFeedPage> {
         ),
       );
     }
+  }
+
+  void _onCommentAdded() {
+    setState(() => _commentCount++);
   }
 
   Future<void> _openShareSheet() async {
@@ -127,7 +179,10 @@ class _ShortFeedPageState extends State<ShortFeedPage> {
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
-      builder: (context) => CommentsSheet(video: _videoData),
+      builder: (context) => CommentsSheet(
+        video: _videoData,
+        onCommentAdded: _onCommentAdded,
+      ),
     );
   }
 
@@ -171,7 +226,35 @@ class _ShortFeedPageState extends State<ShortFeedPage> {
         fit: StackFit.expand,
         clipBehavior: Clip.hardEdge,
         children: [
-          Image.asset(data.image, fit: data.fit, alignment: Alignment.center),
+          GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onDoubleTapDown: _handleDoubleTapDown,
+            onDoubleTap: _handleDoubleTap,
+            child: Image.asset(
+              data.image,
+              fit: data.fit,
+              alignment: Alignment.center,
+            ),
+          ),
+          if (_showDoubleTapLike && _doubleTapPosition != null)
+            Positioned(
+              left: _doubleTapPosition!.dx - 42,
+              top: _doubleTapPosition!.dy - 42,
+              child: IgnorePointer(
+                child: AnimatedOpacity(
+                  opacity: _showDoubleTapLike ? 1 : 0,
+                  duration: const Duration(milliseconds: 180),
+                  child: ScaleTransition(
+                    scale: _doubleTapLikeScale,
+                    child: const Icon(
+                      Icons.favorite,
+                      color: Color(0xFFF70303),
+                      size: 84,
+                    ),
+                  ),
+                ),
+              ),
+            ),
           Positioned(
             left: 16,
             right: 14,
@@ -350,9 +433,6 @@ class _ShortFeedPageState extends State<ShortFeedPage> {
   }
 
   Widget _buildActionRail() {
-    final data = _videoData;
-    final likedLabel = data.likeCount.toString();
-    final unlikedLabel = (data.likeCount - 1).toString();
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
@@ -367,15 +447,15 @@ class _ShortFeedPageState extends State<ShortFeedPage> {
         const SizedBox(height: 14),
         _ActionItem(
           asset: 'assets/images/hearticon.png',
-          label: _isLiked ? likedLabel : unlikedLabel,
+          label: '$_likeCount',
           isActive: _isLiked,
           activeColor: const Color(0xFFF70303),
-          onTap: () => setState(() => _isLiked = !_isLiked),
+          onTap: _toggleLike,
         ),
         const SizedBox(height: 18),
         _ActionItem(
           asset: 'assets/images/commenticon.png',
-          label: data.commentCount.toString(),
+          label: '$_commentCount',
           onTap: _openComments,
         ),
         const SizedBox(height: 18),
@@ -394,9 +474,10 @@ class _ShortFeedPageState extends State<ShortFeedPage> {
 }
 
 class CommentsSheet extends StatefulWidget {
-  const CommentsSheet({required this.video, super.key});
+  const CommentsSheet({required this.video, this.onCommentAdded, super.key});
 
   final ShortVideoData video;
+  final VoidCallback? onCommentAdded;
 
   @override
   State<CommentsSheet> createState() => _CommentsSheetState();
@@ -404,6 +485,8 @@ class CommentsSheet extends StatefulWidget {
 
 class _CommentsSheetState extends State<CommentsSheet> {
   final _commentController = TextEditingController();
+  final _commentFocusNode = FocusNode();
+  final _scrollController = ScrollController();
   String? _replyingTo;
   late final List<_CommentData> _comments = [
     const _CommentData(
@@ -459,44 +542,71 @@ class _CommentsSheetState extends State<CommentsSheet> {
   @override
   void dispose() {
     _commentController.dispose();
+    _commentFocusNode.dispose();
+    _scrollController.dispose();
     super.dispose();
   }
 
   void _addComment() {
     final text = _commentController.text.trim();
     if (text.isEmpty) return;
-
+    final parent = _replyingTo == null
+        ? null
+        : _comments.cast<_CommentData?>().firstWhere(
+            (comment) => comment?.user == _replyingTo,
+            orElse: () => null,
+          );
+    final comment = _CommentData(
+      user: 'you',
+      text: text,
+      time: 'now',
+      avatar: 'assets/figma/face/face5.png',
+      parentUser: parent?.user,
+    );
     setState(() {
-      _comments.insert(
-        9,
-        _CommentData(
-          user: 'you',
-          text: _replyingTo == null ? text : '@$_replyingTo $text',
-          time: 'now',
-          avatar: 'assets/figma/face/face5.png',
-        ),
-      );
+      if (parent == null) {
+        _comments.add(comment);
+      } else {
+        _comments.insert(_comments.indexOf(parent) + 1, comment);
+      }
       _commentController.clear();
       _replyingTo = null;
+    });
+    widget.onCommentAdded?.call();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (_scrollController.hasClients) {
+        _scrollController.animateTo(
+          _scrollController.position.maxScrollExtent,
+          duration: const Duration(milliseconds: 280),
+          curve: Curves.easeOutCubic,
+        );
+      }
     });
   }
 
   void _replyTo(String user) {
-    setState(() => _replyingTo = user);
+    setState(() {
+      _replyingTo = user;
+      _commentController
+        ..text = '@$user '
+        ..selection = TextSelection.collapsed(
+          offset: _commentController.text.length,
+        );
+    });
+    _commentFocusNode.requestFocus();
   }
 
   @override
   Widget build(BuildContext context) {
-    final bottomInset = MediaQuery.viewInsetsOf(context).bottom;
     return AnimatedPadding(
       duration: const Duration(milliseconds: 180),
-      padding: EdgeInsets.only(bottom: bottomInset),
+      padding: EdgeInsets.only(bottom: MediaQuery.viewInsetsOf(context).bottom),
       child: ConstrainedBox(
         constraints: BoxConstraints(
           maxHeight: MediaQuery.sizeOf(context).height * 0.72,
         ),
         child: Padding(
-          padding: const EdgeInsets.fromLTRB(16, 8, 16, 10),
+          padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
           child: Column(
             children: [
               Container(
@@ -512,7 +622,7 @@ class _CommentsSheetState extends State<CommentsSheet> {
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
                   Text(
-                    'Comments (${widget.video.commentCount + (_comments.length - 14)})',
+                    'Comments (${widget.video.commentCount + (_comments.length - 8)})',
                     style: const TextStyle(
                       color: Colors.white,
                       fontFamily: 'Manrope',
@@ -529,23 +639,38 @@ class _CommentsSheetState extends State<CommentsSheet> {
               ),
               const SizedBox(height: 4),
               Expanded(
-                child: ListView.separated(
-                  keyboardDismissBehavior:
-                      ScrollViewKeyboardDismissBehavior.onDrag,
-                  padding: const EdgeInsets.only(bottom: 12),
-                  itemCount: _comments.length,
-                  separatorBuilder: (_, _) => const SizedBox(height: 18),
-                  itemBuilder: (context, index) {
-                    final comment = _comments[index];
-                    return _CommentTile(
-                      comment: comment,
-                      onReply: () => _replyTo(comment.user),
-                    );
-                  },
-                ),
+                child: _comments.isEmpty
+                    ? _buildEmptyState()
+                    : ListView.separated(
+                        controller: _scrollController,
+                        keyboardDismissBehavior:
+                            ScrollViewKeyboardDismissBehavior.onDrag,
+                        padding: const EdgeInsets.only(top: 4, bottom: 12),
+                        itemCount: _comments.length,
+                        separatorBuilder: (_, _) => const Divider(
+                          height: 1,
+                          color: Color(0xFF2C2C2E),
+                        ),
+                        itemBuilder: (context, index) {
+                          final comment = _comments[index];
+                          return SizedBox(
+                            height: 92,
+                            child: _CommentTile(
+                              key: ValueKey(
+                                '${comment.user}-${comment.time}-$index',
+                              ),
+                              comment: comment,
+                              isReply: comment.parentUser != null,
+                              onReply: () => _replyTo(comment.user),
+                            ),
+                          );
+                        },
+                      ),
               ),
-              const SizedBox(height: 8),
-              Row(
+              SafeArea(
+                top: false,
+                minimum: const EdgeInsets.only(top: 8, bottom: 10),
+                child: Row(
                 crossAxisAlignment: CrossAxisAlignment.end,
                 children: [
                   ClipOval(
@@ -560,6 +685,7 @@ class _CommentsSheetState extends State<CommentsSheet> {
                   Expanded(
                     child: TextField(
                       controller: _commentController,
+                      focusNode: _commentFocusNode,
                       minLines: 1,
                       maxLines: 4,
                       textInputAction: TextInputAction.newline,
@@ -572,7 +698,7 @@ class _CommentsSheetState extends State<CommentsSheet> {
                         hintText: _replyingTo == null
                             ? 'Add a comment...'
                             : 'Reply to @$_replyingTo...',
-                        hintStyle: TextStyle(color: Colors.white54),
+                        hintStyle: const TextStyle(color: Color(0xFF9CA3AF)),
                         filled: true,
                         fillColor: const Color(0xFF2C2C2E),
                         contentPadding: const EdgeInsets.symmetric(
@@ -597,10 +723,39 @@ class _CommentsSheetState extends State<CommentsSheet> {
                     icon: const Icon(Icons.send_rounded, size: 18),
                   ),
                 ],
+                ),
               ),
             ],
           ),
         ),
+      ),
+    );
+  }
+  Widget _buildEmptyState() {
+    return Center(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(
+            Icons.forum_outlined,
+            size: 48,
+            color: Colors.white.withValues(alpha: 0.35),
+          ),
+          const SizedBox(height: 12),
+          const Text(
+            'No comments yet',
+            style: TextStyle(
+              color: Colors.white,
+              fontFamily: 'Manrope',
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+          const SizedBox(height: 4),
+          const Text(
+            'Be the first to share your thoughts.',
+            style: TextStyle(color: Color(0xFF9CA3AF), fontSize: 12),
+          ),
+        ],
       ),
     );
   }
@@ -612,28 +767,49 @@ class _CommentData {
     required this.text,
     required this.time,
     required this.avatar,
+    this.parentUser,
   });
 
   final String user;
   final String text;
   final String time;
   final String avatar;
+  final String? parentUser;
 }
 
-class _CommentTile extends StatelessWidget {
-  const _CommentTile({required this.comment, required this.onReply});
+class _CommentTile extends StatefulWidget {
+  const _CommentTile({
+    required this.comment,
+    required this.onReply,
+    required this.isReply,
+    super.key,
+  });
 
   final _CommentData comment;
   final VoidCallback onReply;
+  final bool isReply;
+
+  @override
+  State<_CommentTile> createState() => _CommentTileState();
+}
+
+class _CommentTileState extends State<_CommentTile> {
+  bool _isLiked = false;
 
   @override
   Widget build(BuildContext context) {
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
+    return Padding(
+      padding: EdgeInsets.only(
+        left: widget.isReply ? 28 : 0,
+        top: 8,
+        bottom: 8,
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
         ClipOval(
           child: Image.asset(
-            comment.avatar,
+            widget.comment.avatar,
             width: 36,
             height: 36,
             fit: BoxFit.cover,
@@ -647,7 +823,7 @@ class _CommentTile extends StatelessWidget {
               Row(
                 children: [
                   Text(
-                    comment.user,
+                    widget.comment.user,
                     style: const TextStyle(
                       color: Colors.white,
                       fontFamily: 'Manrope',
@@ -657,14 +833,21 @@ class _CommentTile extends StatelessWidget {
                   ),
                   const SizedBox(width: 8),
                   Text(
-                    comment.time,
-                    style: const TextStyle(color: Colors.white54, fontSize: 10),
+                    widget.comment.time == 'now'
+                        ? 'just now'
+                        : '${widget.comment.time} ago',
+                    style: const TextStyle(
+                      color: Color(0xFF9CA3AF),
+                      fontSize: 10,
+                    ),
                   ),
                 ],
               ),
               const SizedBox(height: 4),
               Text(
-                comment.text,
+                widget.comment.text,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
                 style: const TextStyle(
                   color: Colors.white,
                   fontFamily: 'Figtree',
@@ -674,14 +857,14 @@ class _CommentTile extends StatelessWidget {
               ),
               const SizedBox(height: 4),
               InkWell(
-                onTap: onReply,
+                onTap: widget.onReply,
                 borderRadius: BorderRadius.circular(4),
                 child: const Padding(
                   padding: EdgeInsets.symmetric(vertical: 2),
                   child: Text(
                     'Reply',
                     style: TextStyle(
-                      color: Colors.white54,
+                      color: Color(0xFF9CA3AF),
                       fontFamily: 'Figtree',
                       fontSize: 10,
                       fontWeight: FontWeight.w600,
@@ -692,8 +875,21 @@ class _CommentTile extends StatelessWidget {
             ],
           ),
         ),
-        const Icon(Icons.favorite_border, color: Colors.white54, size: 16),
-      ],
+          IconButton(
+            onPressed: () => setState(() => _isLiked = !_isLiked),
+            padding: EdgeInsets.zero,
+            constraints: const BoxConstraints(minWidth: 28, minHeight: 28),
+            tooltip: 'Like comment',
+            icon: Icon(
+              _isLiked ? Icons.favorite : Icons.favorite_border,
+              color: _isLiked
+                  ? const Color(0xFFFFD233)
+                  : const Color(0xFF9CA3AF),
+              size: 16,
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
@@ -1204,13 +1400,21 @@ class _ActionItem extends StatelessWidget {
           ),
         ),
         const SizedBox(height: 4),
-        Text(
-          label,
-          style: const TextStyle(
-            fontFamily: 'Figtree',
-            color: Colors.white,
-            fontSize: 11,
-            fontWeight: FontWeight.w600,
+        AnimatedSwitcher(
+          duration: const Duration(milliseconds: 220),
+          transitionBuilder: (child, animation) => ScaleTransition(
+            scale: animation,
+            child: child,
+          ),
+          child: Text(
+            label,
+            key: ValueKey(label),
+            style: const TextStyle(
+              fontFamily: 'Figtree',
+              color: Colors.white,
+              fontSize: 11,
+              fontWeight: FontWeight.w600,
+            ),
           ),
         ),
       ],
@@ -1301,9 +1505,7 @@ class _QuizScreenState extends State<QuizScreen>
   int? _selectedIndex;
   int _score = 0;
   bool _isComplete = false;
-  late final Timer _clockTimer;
   late final Timer _countdownTimer;
-  String _currentTime = '';
   int _remainingSeconds = 165;
 
   QuizQuestion get _question => _questions[_questionIndex];
@@ -1311,8 +1513,6 @@ class _QuizScreenState extends State<QuizScreen>
   @override
   void initState() {
     super.initState();
-    _updateTime();
-    _clockTimer = Timer.periodic(const Duration(seconds: 1), (_) => _updateTime());
     _countdownTimer = Timer.periodic(const Duration(seconds: 1), (_) {
       if (_remainingSeconds > 0) {
         setState(() => _remainingSeconds--);
@@ -1361,17 +1561,8 @@ class _QuizScreenState extends State<QuizScreen>
     _questionController.dispose();
     _indicatorController.dispose();
     _shakeController.dispose();
-    _clockTimer.cancel();
     _countdownTimer.cancel();
     super.dispose();
-  }
-
-  void _updateTime() {
-    final now = DateTime.now();
-    setState(() {
-      _currentTime =
-          '${now.hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')}';
-    });
   }
 
   String get _formattedCountdown {
@@ -1414,32 +1605,6 @@ class _QuizScreenState extends State<QuizScreen>
         bottom: true,
         child: Column(
           children: [
-            Container(
-              height: 44,
-              padding: const EdgeInsets.fromLTRB(24, 14, 24, 8),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Text(
-                    _currentTime,
-                    style: GoogleFonts.manrope(
-                      fontWeight: FontWeight.w600,
-                      fontSize: 15,
-                      color: const Color(0xFF111827),
-                    ),
-                  ),
-                  Row(
-                    children: [
-                      Icon(Icons.signal_cellular_4_bar, size: 20),
-                      const SizedBox(width: 6),
-                      Icon(Icons.signal_cellular_4_bar, size: 20),
-                      const SizedBox(width: 6),
-                      Icon(Icons.battery_full, size: 20),
-                    ],
-                  ),
-                ],
-              ),
-            ),
             Expanded(
               child: SingleChildScrollView(
                 padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),

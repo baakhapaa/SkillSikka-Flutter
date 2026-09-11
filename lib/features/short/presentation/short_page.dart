@@ -598,9 +598,11 @@ class _CommentsSheetState extends State<CommentsSheet> {
 
   @override
   Widget build(BuildContext context) {
+    final rawBottomInset = MediaQuery.viewInsetsOf(context).bottom;
+    final bottomInset = rawBottomInset < 0 ? 0.0 : rawBottomInset;
     return AnimatedPadding(
       duration: const Duration(milliseconds: 180),
-      padding: EdgeInsets.only(bottom: MediaQuery.viewInsetsOf(context).bottom),
+      padding: EdgeInsets.only(bottom: bottomInset),
       child: ConstrainedBox(
         constraints: BoxConstraints(
           maxHeight: MediaQuery.sizeOf(context).height * 0.72,

@@ -151,7 +151,7 @@ class _HomePageState extends State<HomePage> {
           ),
           const Spacer(),
           Image.asset(
-            'assets/image/text.png',
+            'assets/images/text.png',
             height: 28,
             fit: BoxFit.contain,
           ),

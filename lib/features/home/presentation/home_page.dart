@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
@@ -22,6 +21,7 @@ class _HomePageState extends State<HomePage> {
   Timer? _promoTimer;
   int _activePromoIndex = 0;
   int _selectedClassIndex = 0;
+  int _selectedBootcampDays = 4;
 
   static const _promoSlides = <_PromoSlide>[
     _PromoSlide(
@@ -248,6 +248,7 @@ class _HomePageState extends State<HomePage> {
         descSize: 6,
         avatarSize: 15,
         nameSize: 10,
+        avatar: 'assets/figma/face/face1.png',
         showPlay: true,
         playSize: 39.1,
       ),
@@ -262,6 +263,7 @@ class _HomePageState extends State<HomePage> {
         descSize: 9,
         avatarSize: 20,
         nameSize: 12,
+        avatar: 'assets/figma/face/face2.png',
         showPlay: true,
         playSize: 47.5,
       ),
@@ -276,6 +278,7 @@ class _HomePageState extends State<HomePage> {
         descSize: 6,
         avatarSize: 15,
         nameSize: 10,
+        avatar: 'assets/figma/face/face3.png',
       ),
       _HeroCardLayout(
         left: 180,
@@ -288,6 +291,7 @@ class _HomePageState extends State<HomePage> {
         descSize: 9,
         avatarSize: 20,
         nameSize: 12,
+        avatar: 'assets/figma/face/face5.png',
       ),
       _HeroCardLayout(
         left: 95.69,
@@ -300,6 +304,7 @@ class _HomePageState extends State<HomePage> {
         descSize: 10,
         avatarSize: 28,
         nameSize: 13,
+        avatar: 'assets/figma/face/faace4.png',
       ),
     ];
 
@@ -451,25 +456,34 @@ class _HomePageState extends State<HomePage> {
                   ),
                 ),
               ),
-              Container(
-                height: 26,
-                padding: const EdgeInsets.only(left: 13, right: 8),
-                decoration: BoxDecoration(
-                  color: const Color(0xFFEAEAEA),
-                  borderRadius: BorderRadius.circular(6),
-                ),
-                child: Row(
-                  children: [
-                    Text(
-                      '4 Days',
+              _glossyGlassButton(
+                pressed: false,
+                fill: Colors.white,
+                radius: BorderRadius.circular(14),
+                padding: const EdgeInsets.only(left: 10, right: 4, top: 2, bottom: 2),
+                child: SizedBox(
+                  height: 22,
+                  child: DropdownButtonHideUnderline(
+                    child: DropdownButton<int>(
+                      value: _selectedBootcampDays,
+                      isDense: true,
+                      icon: const Icon(Icons.chevron_right, size: 18, color: Colors.black),
                       style: GoogleFonts.figtree(
                         fontSize: 12,
                         fontWeight: FontWeight.w600,
                         color: const Color(0xFF141414),
                       ),
+                      items: [4, 7]
+                          .map((days) => DropdownMenuItem<int>(
+                                value: days,
+                                child: Text('$days Days'),
+                              ))
+                          .toList(),
+                      onChanged: (days) {
+                        if (days != null) setState(() => _selectedBootcampDays = days);
+                      },
                     ),
-                    const Icon(Icons.chevron_right, size: 18, color: Colors.black),
-                  ],
+                  ),
                 ),
               ),
             ],
@@ -526,38 +540,14 @@ class _HomePageState extends State<HomePage> {
                         bottom: 8,
                         child: Column(
                           children: [
-                            Row(
+                            Wrap(
+                              spacing: 6,
+                              runSpacing: 4,
                               children: [
                                 _buildPill('SKILL SIKKA'),
-                                const SizedBox(width: 6),
                                 _buildPill(camp.$2.toUpperCase()),
-                                const SizedBox(width: 6),
                                 _buildPill('2.5K VIEWS'),
                               ],
-                            ),
-                            const SizedBox(height: 8),
-                            Container(
-                              width: double.infinity,
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 14,
-                                vertical: 6,
-                              ),
-                              decoration: BoxDecoration(
-                                color: Colors.white.withValues(alpha: 0.4),
-                                borderRadius: BorderRadius.circular(100),
-                                border: Border.all(
-                                  color: Colors.white.withValues(alpha: 0.16),
-                                ),
-                              ),
-                              child: Text(
-                                'Enter now',
-                                textAlign: TextAlign.center,
-                                style: GoogleFonts.inter(
-                                  color: Colors.white,
-                                  fontSize: 11,
-                                  fontWeight: FontWeight.w600,
-                                ),
-                              ),
                             ),
                           ],
                         ),
@@ -593,54 +583,91 @@ class _HomePageState extends State<HomePage> {
   }
 
   Widget _classFilterChip({
-  required String label,
-  required bool selected,
-}) {
-  final radius = BorderRadius.circular(18);
-
-  return Container(
-    decoration: BoxDecoration(
-      borderRadius: radius,
-      boxShadow: const [
-        BoxShadow(
-          color: Color(0x40000000),
-          blurRadius: 4,
-          offset: Offset(0, 2),
-        ),
-      ],
-    ),
-    child: ClipRRect(
-      borderRadius: radius,
-      child: BackdropFilter(
-        filter: ui.ImageFilter.blur(sigmaX: 4, sigmaY: 4),
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 9),
-          decoration: BoxDecoration(
-            color: selected ? const Color(0xFFEAF5FF) : Colors.white.withValues(alpha: 0.92),
-            gradient: LinearGradient(
-              begin: Alignment.topCenter,
-              end: Alignment.bottomCenter,
-              colors: selected
-                  ? const [Color(0xFFFFFFFF), Color(0xFFDCEEFF)]
-                  : const [Color(0xFFFFFFFF), Color(0xFFF3F4F6)],
-            ),
-            borderRadius: radius,
-            border: Border.all(color: Color(0xFFE5E7EB)),
-          ),
-          child: Text(
-            label,
-            textAlign: TextAlign.left,
-            style: GoogleFonts.figtree(
-              fontSize: 12,
-              fontWeight: FontWeight.w600,
-              color: _titleInk,
-            ),
-          ),
+    required String label,
+    required bool selected,
+  }) {
+    return _glossyGlassButton(
+      pressed: selected,
+      fill: selected ? _yellow : Colors.white,
+      radius: BorderRadius.circular(14),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+      child: Text(
+        label,
+        style: GoogleFonts.figtree(
+          fontSize: 12,
+          fontWeight: FontWeight.w600,
+          color: _titleInk,
         ),
       ),
-    ),
-  );
-}
+    );
+  }
+
+  /// Glossy / skeuomorphic glass: outer drop shadow + inset bevel.
+  /// Selected chips use a top inset (pressed). Idle chips use a bottom inset (raised).
+  Widget _glossyGlassButton({
+    required Widget child,
+    required bool pressed,
+    required Color fill,
+    required BorderRadius radius,
+    required EdgeInsetsGeometry padding,
+  }) {
+    return Container(
+      decoration: BoxDecoration(
+        borderRadius: radius,
+        boxShadow: [
+          BoxShadow(
+            color: const Color(0x40000000),
+            blurRadius: 1,
+            offset: Offset(0, pressed ? 1 : 2),
+          ),
+        ],
+      ),
+      child: ClipRRect(
+        borderRadius: radius,
+        child: Stack(
+          children: [
+            Positioned.fill(child: ColoredBox(color: fill)),
+            Positioned.fill(
+              child: IgnorePointer(
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      begin: pressed ? Alignment.topCenter : Alignment.bottomCenter,
+                      end: pressed ? Alignment.bottomCenter : Alignment.topCenter,
+                      colors: const [
+                        Color(0x40000000),
+                        Color(0x00000000),
+                      ],
+                      stops: pressed ? [0, 0.55] : [0, 0.4],
+                    ),
+                  ),
+                ),
+              ),
+            ),
+            if (!pressed)
+              Positioned.fill(
+                child: IgnorePointer(
+                  child: DecoratedBox(
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        begin: Alignment.topCenter,
+                        end: Alignment.bottomCenter,
+                        colors: [
+                          Colors.white.withValues(alpha: 0.7),
+                          Colors.white.withValues(alpha: 0),
+                        ],
+                        stops: const [0, 0.45],
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            Padding(padding: padding, child: child),
+          ],
+        ),
+      ),
+    );
+  }
 
   Widget _buildCoursesSection() {
     const filters = ['All', 'Class 6', 'Class 7', 'Class 8', 'Class 9', 'Class 10'];
@@ -671,14 +698,18 @@ class _HomePageState extends State<HomePage> {
       ),
     ];
 
-    return Column(
-      children: [
-        _buildSectionHeader('Courses'),
-        const SizedBox(height: 14),
-        SizedBox(
-          height: 36,
-          child: ListView.separated(
-            padding: const EdgeInsets.only(left: 40, right: 16),
+    return ColoredBox(
+      color: Colors.white,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 10),
+        child: Column(
+          children: [
+            _buildSectionHeader('Courses'),
+            const SizedBox(height: 14),
+            SizedBox(
+              height: 36,
+              child: ListView.separated(
+                padding: const EdgeInsets.only(left: 16, right: 16),
             scrollDirection: Axis.horizontal,
             itemCount: filters.length,
             separatorBuilder: (c, i) => const SizedBox(width: 8),
@@ -691,10 +722,10 @@ class _HomePageState extends State<HomePage> {
             },
           ),
         ),
-        const SizedBox(height: 20),
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16),
-          child: GridView.builder(
+            const SizedBox(height: 14),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              child: GridView.builder(
             shrinkWrap: true,
             physics: const NeverScrollableScrollPhysics(),
             itemCount: courses.length,
@@ -711,10 +742,11 @@ class _HomePageState extends State<HomePage> {
                   color: Colors.white,
                   borderRadius: BorderRadius.circular(16),
                   border: Border.all(color: const Color(0xFFF3F4F6)),
-                  boxShadow: [
+                  boxShadow: const [
                     BoxShadow(
-                      color: Colors.black.withValues(alpha: 0.03),
+                      color: Color(0x08000000),
                       blurRadius: 8,
+                      offset: Offset(0, 2),
                     ),
                   ],
                 ),
@@ -735,62 +767,65 @@ class _HomePageState extends State<HomePage> {
                         ),
                       ),
                     ),
-                    Padding(
-                      padding: const EdgeInsets.all(10),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Row(
+                        Padding(
+                          padding: const EdgeInsets.all(12),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              Container(
-                                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                                decoration: BoxDecoration(
-                                  color: const Color(0xFFF9FAFB),
-                                  borderRadius: BorderRadius.circular(4),
-                                ),
-                                child: Text(
-                                  c.$2,
-                                  style: GoogleFonts.figtree(
-                                    fontSize: 9,
-                                    fontWeight: FontWeight.w600,
-                                    color: _gray,
+                              Row(
+                                children: [
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                    decoration: BoxDecoration(
+                                      color: const Color(0xFFF9FAFB),
+                                      borderRadius: BorderRadius.circular(4),
+                                    ),
+                                    child: Text(
+                                      c.$2,
+                                      style: GoogleFonts.figtree(
+                                        fontSize: 9,
+                                        fontWeight: FontWeight.w600,
+                                        color: _gray,
+                                      ),
+                                    ),
                                   ),
-                                ),
+                                  const Spacer(),
+                                  const Icon(Icons.star, color: Color(0xFFFBBF24), size: 10),
+                                  const SizedBox(width: 2),
+                                  Text(
+                                    c.$4,
+                                    style: GoogleFonts.figtree(
+                                      fontSize: 10,
+                                      fontWeight: FontWeight.w700,
+                                      color: _titleInk,
+                                    ),
+                                  ),
+                                ],
                               ),
-                              const Spacer(),
-                              const Icon(Icons.star, color: Color(0xFFFBBF24), size: 10),
-                              const SizedBox(width: 2),
+                              const SizedBox(height: 8),
                               Text(
-                                c.$4,
-                                style: GoogleFonts.figtree(
-                                  fontSize: 10,
+                                c.$3,
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                                style: GoogleFonts.manrope(
+                                  fontSize: 12,
                                   fontWeight: FontWeight.w700,
+                                  height: 1.3,
+                                  color: _titleInk,
                                 ),
                               ),
                             ],
                           ),
-                          const SizedBox(height: 6),
-                          Text(
-                            c.$3,
-                            maxLines: 2,
-                            overflow: TextOverflow.ellipsis,
-                            style: GoogleFonts.inter(
-                              fontSize: 12,
-                              fontWeight: FontWeight.w700,
-                              height: 1.3,
-                              color: _titleInk,
-                            ),
-                          ),
-                        ],
-                      ),
+                        ),
+                      ],
                     ),
-                  ],
-                ),
-              );
-            },
-          ),
+                  );
+                },
+              ),
+            ),
+          ],
         ),
-      ],
+      ),
     );
   }
 
@@ -941,55 +976,90 @@ class _HomePageState extends State<HomePage> {
   }
 
   Widget _buildTopInstructors() {
-    const peekImages = [
-      'assets/figma/homescreen/instructor2.png',
-      'assets/figma/homescreen/instructor3.png',
-      'assets/figma/homescreen/instructor4.png'
-    ];
-
-    return Column(
-      children: [
-        _buildSectionHeader('Explore our Top instructors'),
-        const SizedBox(height: 12),
-        SizedBox(
-          height: 165,
-          child: ListView(
-            padding: const EdgeInsets.symmetric(horizontal: 16),
-            scrollDirection: Axis.horizontal,
-            children: [
-              _buildFeaturedInstructor(),
-              const SizedBox(width: 16),
-              SizedBox(
-                width: 152,
-                height: 165,
-                child: Stack(
-                  clipBehavior: Clip.hardEdge,
-                  children: [
-                    for (var i = 0; i < peekImages.length; i++)
+    return ColoredBox(
+      color: const Color(0xFFEEEEEE),
+      child: Column(
+        children: [
+          SizedBox(
+            height: 39,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  Text(
+                    '|',
+                    style: GoogleFonts.manrope(
+                      fontSize: 21,
+                      fontWeight: FontWeight.w300,
+                      color: const Color(0x1F282828),
+                    ),
+                  ),
+                  const SizedBox(width: 4),
+                  Expanded(
+                    child: Text(
+                      'Explore our Top instructors',
+                      style: GoogleFonts.manrope(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w300,
+                        color: _ink,
+                      ),
+                    ),
+                  ),
+                  Text(
+                    'See All',
+                    style: GoogleFonts.figtree(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
+                      color: const Color(0xFF646161),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          SizedBox(
+            height: 213,
+            child: ListView(
+              padding: const EdgeInsets.fromLTRB(18, 30, 18, 18),
+              scrollDirection: Axis.horizontal,
+              children: [
+                _buildFeaturedInstructor(),
+                const SizedBox(width: 16),
+                SizedBox(
+                  width: 205.72,
+                  height: 165,
+                  child: Stack(
+                    children: const [
                       Positioned(
-                        left: i * 53.4,
-                        child: ClipRRect(
-                          borderRadius: BorderRadius.circular(8),
-                          child: Image.asset(
-                            peekImages[i],
-                            width: 150,
-                            height: 165,
-                            fit: BoxFit.cover,
-                            errorBuilder: (c, e, s) => Container(
-                              width: 150,
-                              height: 165,
-                              color: Colors.grey.shade400,
-                            ),
-                          ),
+                        left: 0,
+                        child: _InstructorPeekSlice(
+                          image: 'assets/figma/homescreen/instructor2.png',
+                          imageOffsetX: 0,
                         ),
                       ),
-                  ],
+                      Positioned(
+                        left: 53.43,
+                        child: _InstructorPeekSlice(
+                          image: 'assets/figma/homescreen/instructor3.png',
+                          imageOffsetX: -11.52,
+                        ),
+                      ),
+                      Positioned(
+                        left: 106.86,
+                        child: _InstructorPeekSlice(
+                          image: 'assets/figma/homescreen/instructor4.png',
+                          imageOffsetX: -23.05,
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
-        ),
-      ],
+        ],
+      ),
     );
   }
 
@@ -1012,7 +1082,7 @@ class _HomePageState extends State<HomePage> {
           fit: StackFit.expand,
           children: [
             Image.asset(
-              'assets/figma/face/faace4.png',
+              'assets/figma/homescreen/instructor1.png',
               fit: BoxFit.cover,
               errorBuilder: (c, e, s) => Container(color: Colors.grey.shade400),
             ),
@@ -1021,20 +1091,20 @@ class _HomePageState extends State<HomePage> {
                 gradient: LinearGradient(
                   begin: Alignment.topCenter,
                   end: Alignment.bottomCenter,
-                  colors: [Colors.transparent, Color(0x80000000)],
+                  colors: [Color(0x00666666), Color(0x80000000)],
                   stops: [0, 0.96],
                 ),
               ),
             ),
             Padding(
-              padding: const EdgeInsets.all(10),
+              padding: const EdgeInsets.fromLTRB(8, 0, 8, 9),
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.end,
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
                     'Shuvanga Karki',
-                    style: GoogleFonts.inter(
+                    style: GoogleFonts.manrope(
                       color: const Color(0xFFFFF8E2),
                       fontSize: 10,
                       fontWeight: FontWeight.w800,
@@ -1045,14 +1115,27 @@ class _HomePageState extends State<HomePage> {
                     style: GoogleFonts.inter(
                       color: const Color(0xFFFFF8E2),
                       fontSize: 8,
+                      fontWeight: FontWeight.w500,
                     ),
                   ),
-                  Text(
-                    '915,213 students\n40 courses',
-                    style: GoogleFonts.inter(
-                      color: const Color(0xFFFFF8E2),
-                      fontSize: 8,
-                      fontWeight: FontWeight.w700,
+                  Text.rich(
+                    TextSpan(
+                      text: '915,213 students\n',
+                      style: GoogleFonts.inter(
+                        color: const Color(0xFFFFF8E2),
+                        fontSize: 8,
+                        fontWeight: FontWeight.w500,
+                      ),
+                      children: [
+                        TextSpan(
+                          text: '40 courses',
+                          style: GoogleFonts.inter(
+                            color: const Color(0xFFFFF8E2),
+                            fontSize: 8,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ],
                     ),
                   ),
                 ],
@@ -1540,7 +1623,7 @@ class _HomePageState extends State<HomePage> {
                           fit: BoxFit.cover,
                           errorBuilder: (c, e, s) => Container(
                             height: 92,
-                            color: const ui.Color.fromARGB(255, 255, 255, 255),
+                            color: const Color.fromARGB(255, 255, 255, 255),
                             child: const Icon(Icons.image, color: Colors.white),
                           ),
                         ),
@@ -1573,7 +1656,7 @@ class _HomePageState extends State<HomePage> {
                                   return Icon(
                                     Icons.star,
                                     size: 12,
-                                    color: i < 4 ? const Color(0xFFFBBF24) : const ui.Color.fromARGB(255, 250, 252, 255),
+                                    color: i < 4 ? const Color(0xFFFBBF24) : const Color.fromARGB(255, 250, 252, 255),
                                   );
                                 }),
                                 const SizedBox(width: 4),
@@ -1622,21 +1705,11 @@ class _HomePageState extends State<HomePage> {
     required Widget child,
     EdgeInsetsGeometry? padding,
   }) {
-    final radius = BorderRadius.circular(18);
-    return Container(
+    return _glossyGlassButton(
+      pressed: false,
+      fill: Colors.white,
+      radius: BorderRadius.circular(18),
       padding: padding ?? const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-      decoration: BoxDecoration(
-        borderRadius: radius,
-        boxShadow: const [
-          BoxShadow(color: Color(0x40000000), blurRadius: 4, offset: Offset(0, 2)),
-        ],
-        gradient: const LinearGradient(
-          begin: Alignment.topCenter,
-          end: Alignment.bottomCenter,
-          colors: [Color(0xFFFFFFFF), Color(0xFFF3F4F6)],
-        ),
-        border: Border.fromBorderSide(BorderSide(color: Color(0xFFE5E7EB))),
-      ),
       child: child,
     );
   }
@@ -1674,6 +1747,7 @@ class _HeroCardLayout {
     required this.descSize,
     required this.avatarSize,
     required this.nameSize,
+    this.avatar = 'assets/figma/face/face1.png',
     this.showPlay = false,
     this.playSize = 0,
   });
@@ -1688,6 +1762,7 @@ class _HeroCardLayout {
   final double descSize;
   final double avatarSize;
   final double nameSize;
+  final String avatar;
   final bool showPlay;
   final double playSize;
 }
@@ -1709,7 +1784,7 @@ class _HeroBookCard extends StatelessWidget {
             width: layout.width,
             height: layout.height,
             decoration: BoxDecoration(
-              color: _cream,
+              color: Colors.white,
               borderRadius: BorderRadius.circular(14),
               boxShadow: const [
                 BoxShadow(
@@ -1788,10 +1863,15 @@ class _HeroBookCard extends StatelessWidget {
                                 shape: BoxShape.circle,
                                 border: Border.all(color: const Color(0xFFE5E7EB)),
                               ),
-                              child: Icon(
-                                Icons.person,
-                                size: layout.avatarSize * 0.55,
-                                color: Colors.black54,
+                              child: ClipOval(
+                                child: Image.asset(
+                                  layout.avatar,
+                                  fit: BoxFit.cover,
+                                  errorBuilder: (context, error, stackTrace) => const Icon(
+                                    Icons.person,
+                                    color: Colors.black54,
+                                  ),
+                                ),
                               ),
                             ),
                             const SizedBox(width: 8),
@@ -1843,10 +1923,50 @@ class _HeroBookCard extends StatelessWidget {
                     color: Colors.white.withValues(alpha: 0.9),
                     size: layout.playSize * 0.55,
                   ),
-                  ),
                 ),
               ),
+            ),
         ],
+      ),
+    );
+  }
+}
+
+class _InstructorPeekSlice extends StatelessWidget {
+  const _InstructorPeekSlice({
+    required this.image,
+    required this.imageOffsetX,
+  });
+
+  final String image;
+  final double imageOffsetX;
+
+  @override
+  Widget build(BuildContext context) {
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(8),
+      child: SizedBox(
+        width: 45.43,
+        height: 165,
+        child: Stack(
+          clipBehavior: Clip.hardEdge,
+          children: [
+            Positioned(
+              left: imageOffsetX,
+              child: Image.asset(
+                image,
+                width: 150,
+                height: 165,
+                fit: BoxFit.cover,
+                errorBuilder: (c, e, s) => Container(
+                  width: 150,
+                  height: 165,
+                  color: Colors.grey.shade400,
+                ),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }

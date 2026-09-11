@@ -123,7 +123,7 @@ class _HomePageState extends State<HomePage> {
                   _buildRecommendedBooks(),
                   const SizedBox(height: 24),
                   _buildEventsNearYou(),
-                  const SizedBox(height: 24),
+                  const SizedBox(height: 8),
                 ],
               ),
             ),
@@ -520,7 +520,7 @@ class _HomePageState extends State<HomePage> {
                       Positioned(
                         left: 12,
                         right: 12,
-                        bottom: 16,
+                        bottom: 8,
                         child: Column(
                           children: [
                             Row(
@@ -535,7 +535,10 @@ class _HomePageState extends State<HomePage> {
                             const SizedBox(height: 8),
                             Container(
                               width: double.infinity,
-                              padding: const EdgeInsets.symmetric(vertical: 10),
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 14,
+                                vertical: 6,
+                              ),
                               decoration: BoxDecoration(
                                 color: Colors.white.withValues(alpha: 0.4),
                                 borderRadius: BorderRadius.circular(100),
@@ -548,7 +551,7 @@ class _HomePageState extends State<HomePage> {
                                 textAlign: TextAlign.center,
                                 style: GoogleFonts.inter(
                                   color: Colors.white,
-                                  fontSize: 15,
+                                  fontSize: 11,
                                   fontWeight: FontWeight.w600,
                                 ),
                               ),
@@ -1421,7 +1424,7 @@ class _HomePageState extends State<HomePage> {
 
     return Container(
       color: Colors.white,
-      padding: const EdgeInsets.symmetric(vertical: 24),
+      padding: const EdgeInsets.only(top: 16, bottom: 8),
       child: Column(
         children: [
           _buildSectionHeader('Event near you'),

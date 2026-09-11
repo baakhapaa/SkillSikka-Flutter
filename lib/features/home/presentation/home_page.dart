@@ -22,6 +22,8 @@ class _HomePageState extends State<HomePage> {
   int _activePromoIndex = 0;
   int _selectedClassIndex = 0;
   int _selectedBootcampDays = 4;
+  int _hoveredClassIndex = -1;
+  bool _hoveredBootcampSelector = false;
 
   static const _promoSlides = <_PromoSlide>[
     _PromoSlide(
@@ -456,8 +458,12 @@ class _HomePageState extends State<HomePage> {
                   ),
                 ),
               ),
-              _glossyGlassButton(
+              MouseRegion(
+                onEnter: (_) => setState(() => _hoveredBootcampSelector = true),
+                onExit: (_) => setState(() => _hoveredBootcampSelector = false),
+                child: _glossyGlassButton(
                 pressed: false,
+                hovered: _hoveredBootcampSelector,
                 fill: Colors.white,
                 radius: BorderRadius.circular(14),
                 padding: const EdgeInsets.only(left: 10, right: 4, top: 2, bottom: 2),
@@ -484,6 +490,7 @@ class _HomePageState extends State<HomePage> {
                       },
                     ),
                   ),
+                ),
                 ),
               ),
             ],
@@ -585,10 +592,12 @@ class _HomePageState extends State<HomePage> {
   Widget _classFilterChip({
     required String label,
     required bool selected,
+    required bool hovered,
   }) {
     return _glossyGlassButton(
       pressed: selected,
-      fill: selected ? _yellow : Colors.white,
+      hovered: hovered,
+      fill: Colors.white,
       radius: BorderRadius.circular(14),
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
       child: Text(
@@ -607,6 +616,7 @@ class _HomePageState extends State<HomePage> {
   Widget _glossyGlassButton({
     required Widget child,
     required bool pressed,
+    bool hovered = false,
     required Color fill,
     required BorderRadius radius,
     required EdgeInsetsGeometry padding,
@@ -616,8 +626,8 @@ class _HomePageState extends State<HomePage> {
         borderRadius: radius,
         boxShadow: [
           BoxShadow(
-            color: const Color(0x40000000),
-            blurRadius: 1,
+            color: hovered ? const Color(0x55000000) : const Color(0x40000000),
+            blurRadius: hovered ? 4 : 1,
             offset: Offset(0, pressed ? 1 : 2),
           ),
         ],
@@ -644,7 +654,7 @@ class _HomePageState extends State<HomePage> {
                 ),
               ),
             ),
-            if (!pressed)
+            if (!pressed || hovered)
               Positioned.fill(
                 child: IgnorePointer(
                   child: DecoratedBox(
@@ -653,7 +663,7 @@ class _HomePageState extends State<HomePage> {
                         begin: Alignment.topCenter,
                         end: Alignment.bottomCenter,
                         colors: [
-                          Colors.white.withValues(alpha: 0.7),
+                          Colors.white.withValues(alpha: hovered ? 0.95 : 0.7),
                           Colors.white.withValues(alpha: 0),
                         ],
                         stops: const [0, 0.45],
@@ -715,9 +725,17 @@ class _HomePageState extends State<HomePage> {
             separatorBuilder: (c, i) => const SizedBox(width: 8),
             itemBuilder: (context, index) {
               final selected = index == _selectedClassIndex;
-              return GestureDetector(
-                onTap: () => setState(() => _selectedClassIndex = index),
-                child: _classFilterChip(label: filters[index], selected: selected),
+              return MouseRegion(
+                onEnter: (_) => setState(() => _hoveredClassIndex = index),
+                onExit: (_) => setState(() => _hoveredClassIndex = -1),
+                child: GestureDetector(
+                  onTap: () => setState(() => _selectedClassIndex = index),
+                  child: _classFilterChip(
+                    label: filters[index],
+                    selected: selected,
+                    hovered: _hoveredClassIndex == index,
+                  ),
+                ),
               );
             },
           ),

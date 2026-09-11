@@ -917,9 +917,9 @@ class _HomePageState extends State<HomePage> {
 
   Widget _buildTopInstructors() {
     const peekImages = [
-      'assets/figma/homescreen/instructor2.png',
-      'assets/figma/homescreen/instructor3.png',
-      'assets/figma/homescreen/instructor4.png',
+      'assets/figma/face/face2.png',
+      'assets/figma/face/face3.png',
+      'assets/figma/face/face5.png',
     ];
 
     return Column(
@@ -986,7 +986,7 @@ class _HomePageState extends State<HomePage> {
           fit: StackFit.expand,
           children: [
             Image.asset(
-              'assets/figma/homescreen/instructor1.png',
+              'assets/figma/face/faace4.png',
               fit: BoxFit.cover,
               errorBuilder: (c, e, s) => Container(color: Colors.grey.shade400),
             ),
@@ -1047,17 +1047,19 @@ class _HomePageState extends State<HomePage> {
           const SizedBox(height: 12),
           _buildPremiumCard(
             image: 'assets/figma/homescreen/premium-course1.png',
+            avatar: 'assets/figma/face/face5.png',
           ),
           const SizedBox(height: 21),
           _buildPremiumCard(
             image: 'assets/figma/homescreen/premium-course2.png',
+            avatar: 'assets/figma/face/face2.png',
           ),
         ],
       ),
     );
   }
 
-  Widget _buildPremiumCard({required String image}) {
+  Widget _buildPremiumCard({required String image, required String avatar}) {
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
@@ -1126,10 +1128,13 @@ class _HomePageState extends State<HomePage> {
           const SizedBox(height: 12),
           Row(
             children: [
-              const CircleAvatar(
-                radius: 16,
-                backgroundColor: Colors.grey,
-                child: Icon(Icons.person, size: 18),
+              ClipOval(
+                child: Image.asset(
+                  avatar,
+                  width: 32,
+                  height: 32,
+                  fit: BoxFit.cover,
+                ),
               ),
               const SizedBox(width: 10),
               Column(
@@ -1267,6 +1272,7 @@ class _HomePageState extends State<HomePage> {
         'Strengthen problem-solving with guided practice.',
         'R. L. Smith',
         '4.7',
+        'assets/figma/face/faace4.png',
       ),
       (
         'assets/figma/homescreen/Rectangle 3351.png',
@@ -1277,6 +1283,7 @@ class _HomePageState extends State<HomePage> {
         'Write readable programs with real examples.',
         'M. Johnson',
         '4.7',
+        'assets/figma/face/face2.png',
       ),
       (
         'assets/figma/homescreen/Rectangle 3350.png',
@@ -1287,6 +1294,7 @@ class _HomePageState extends State<HomePage> {
         'Concept-first approach with step-by-step solutions.',
         'K. Patel',
         '4.7',
+        'assets/figma/face/face3.png',
       ),
     ];
 
@@ -1351,10 +1359,13 @@ class _HomePageState extends State<HomePage> {
                         const SizedBox(height: 8),
                         Row(
                           children: [
-                            const CircleAvatar(
-                              radius: 10,
-                              backgroundColor: Colors.grey,
-                              child: Icon(Icons.person, size: 12),
+                            ClipOval(
+                              child: Image.asset(
+                                books[i].$9,
+                                width: 20,
+                                height: 20,
+                                fit: BoxFit.cover,
+                              ),
                             ),
                             const SizedBox(width: 8),
                             Text(

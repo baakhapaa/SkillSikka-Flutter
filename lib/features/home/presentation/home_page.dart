@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
@@ -487,22 +488,24 @@ class _HomePageState extends State<HomePage> {
                 borderRadius: const BorderRadius.vertical(top: Radius.circular(12)),
                 child: SizedBox(
                   width: 311,
-                  child: Stack(
-                    fit: StackFit.expand,
-                    children: [
-                      Image.asset(
-                        camp.$1,
-                        fit: BoxFit.cover,
-                        errorBuilder: (c, e, s) => Container(
-                          decoration: const BoxDecoration(
-                            gradient: LinearGradient(
-                              begin: Alignment.topCenter,
-                              end: Alignment.bottomCenter,
-                              colors: [Color(0xFF4B5563), Color(0xFF111827)],
+                      child: Stack(
+                        fit: StackFit.expand,
+                        children: [
+                          Positioned.fill(
+                            child: Image.asset(
+                              camp.$1,
+                              fit: BoxFit.cover,
+                              errorBuilder: (c, e, s) => Container(
+                                decoration: const BoxDecoration(
+                                  gradient: LinearGradient(
+                                    begin: Alignment.topCenter,
+                                    end: Alignment.bottomCenter,
+                                    colors: [Color(0xFF4B5563), Color(0xFF111827)],
+                                  ),
+                                ),
+                              ),
                             ),
                           ),
-                        ),
-                      ),
                       const DecoratedBox(
                         decoration: BoxDecoration(
                           gradient: LinearGradient(
@@ -589,6 +592,56 @@ class _HomePageState extends State<HomePage> {
     );
   }
 
+  Widget _classFilterChip({
+  required String label,
+  required bool selected,
+}) {
+  final radius = BorderRadius.circular(18);
+
+  return Container(
+    decoration: BoxDecoration(
+      borderRadius: radius,
+      boxShadow: const [
+        BoxShadow(
+          color: Color(0x40000000),
+          blurRadius: 4,
+          offset: Offset(0, 2),
+        ),
+      ],
+    ),
+    child: ClipRRect(
+      borderRadius: radius,
+      child: BackdropFilter(
+        filter: ui.ImageFilter.blur(sigmaX: 4, sigmaY: 4),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 9),
+          decoration: BoxDecoration(
+            color: selected ? const Color(0xFFEAF5FF) : Colors.white.withValues(alpha: 0.92),
+            gradient: LinearGradient(
+              begin: Alignment.topCenter,
+              end: Alignment.bottomCenter,
+              colors: selected
+                  ? const [Color(0xFFFFFFFF), Color(0xFFDCEEFF)]
+                  : const [Color(0xFFFFFFFF), Color(0xFFF3F4F6)],
+            ),
+            borderRadius: radius,
+            border: Border.all(color: Color(0xFFE5E7EB)),
+          ),
+          child: Text(
+            label,
+            textAlign: TextAlign.left,
+            style: GoogleFonts.figtree(
+              fontSize: 12,
+              fontWeight: FontWeight.w600,
+              color: _titleInk,
+            ),
+          ),
+        ),
+      ),
+    ),
+  );
+}
+
   Widget _buildCoursesSection() {
     const filters = ['All', 'Class 6', 'Class 7', 'Class 8', 'Class 9', 'Class 10'];
     const courses = [
@@ -625,7 +678,7 @@ class _HomePageState extends State<HomePage> {
         SizedBox(
           height: 36,
           child: ListView.separated(
-            padding: const EdgeInsets.only(left: 16, right: 16),
+            padding: const EdgeInsets.only(left: 40, right: 16),
             scrollDirection: Axis.horizontal,
             itemCount: filters.length,
             separatorBuilder: (c, i) => const SizedBox(width: 8),
@@ -633,40 +686,12 @@ class _HomePageState extends State<HomePage> {
               final selected = index == _selectedClassIndex;
               return GestureDetector(
                 onTap: () => setState(() => _selectedClassIndex = index),
-                child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-                  decoration: BoxDecoration(
-                    color: selected ? _yellow : Colors.white,
-                    borderRadius: BorderRadius.circular(14),
-                    boxShadow: selected
-                        ? const [
-                            BoxShadow(
-                              color: Color(0x40000000),
-                              blurRadius: 1,
-                              offset: Offset(0, 1),
-                            ),
-                          ]
-                        : [
-                            BoxShadow(
-                              color: Colors.black.withValues(alpha: 0.05),
-                              blurRadius: 4,
-                            ),
-                          ],
-                  ),
-                  child: Text(
-                    filters[index],
-                    style: GoogleFonts.figtree(
-                      fontSize: 12,
-                      fontWeight: FontWeight.w600,
-                      color: _titleInk,
-                    ),
-                  ),
-                ),
+                child: _classFilterChip(label: filters[index], selected: selected),
               );
             },
           ),
         ),
-        const SizedBox(height: 12),
+        const SizedBox(height: 20),
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: 16),
           child: GridView.builder(
@@ -917,9 +942,9 @@ class _HomePageState extends State<HomePage> {
 
   Widget _buildTopInstructors() {
     const peekImages = [
-      'assets/figma/face/face2.png',
-      'assets/figma/face/face3.png',
-      'assets/figma/face/face5.png',
+      'assets/figma/homescreen/instructor2.png',
+      'assets/figma/homescreen/instructor3.png',
+      'assets/figma/homescreen/instructor4.png'
     ];
 
     return Column(
@@ -938,6 +963,7 @@ class _HomePageState extends State<HomePage> {
                 width: 152,
                 height: 165,
                 child: Stack(
+                  clipBehavior: Clip.hardEdge,
                   children: [
                     for (var i = 0; i < peekImages.length; i++)
                       Positioned(
@@ -1213,48 +1239,87 @@ class _HomePageState extends State<HomePage> {
           const SizedBox(height: 16),
           const Divider(color: Color(0xFFF3F4F6)),
           const SizedBox(height: 12),
-          Row(
-            children: [
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    'ENROLLMENT',
-                    style: GoogleFonts.inter(fontSize: 11, color: const Color(0xFF8D887F)),
-                  ),
-                  Text(
-                    'Rs.24.99',
-                    style: GoogleFonts.inter(
-                      fontSize: 18,
-                      fontWeight: FontWeight.w500,
-                      color: const Color(0xFF524C00),
+          Container(
+            height: 60,
+            padding: const EdgeInsets.symmetric(horizontal: 10),
+            decoration: BoxDecoration(
+              color: const Color(0xFFF2F1F7),
+              borderRadius: BorderRadius.circular(100),
+            ),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                SizedBox(
+                  width: 94,
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 10),
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'ENROLLMENT',
+                          style: GoogleFonts.inter(
+                            fontSize: 10,
+                            height: 1.0,
+                            color: const Color(0xFF8D887F),
+                          ),
+                        ),
+                        Text(
+                          'Rs.24.99',
+                          style: GoogleFonts.manrope(
+                            fontSize: 17,
+                            height: 1.0,
+                            fontWeight: FontWeight.w500,
+                            color: const Color(0xFF524C00),
+                          ),
+                        ),
+                      ],
                     ),
                   ),
-                ],
-              ),
-              const Spacer(),
-              ElevatedButton(
-                onPressed: () {},
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.white,
-                  foregroundColor: const Color(0xFF1B1B1B),
-                  elevation: 0,
-                  side: const BorderSide(color: Color(0xFFE7E7E7)),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(100)),
-                  padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
                 ),
-                child: Row(
-                  children: [
-                    Text(
-                      'Start Learning',
-                      style: GoogleFonts.inter(fontSize: 11, fontWeight: FontWeight.w700),
+                const SizedBox(width: 69),
+                Container(
+                  height: 38,
+                  width: 137,
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(100),
+                    gradient: const LinearGradient(
+                      begin: Alignment.topCenter,
+                      end: Alignment.bottomCenter,
+                      colors: [Color(0xFFFFFFFF), Color(0xFFF3F4F6)],
                     ),
-                    const SizedBox(width: 6),
-                    const Icon(Icons.arrow_forward, size: 14),
-                  ],
+                    border: Border.all(color: Colors.white, width: 1),
+                    boxShadow: const [
+                      BoxShadow(color: Color(0x26000000), blurRadius: 5, offset: Offset(0, 3)),
+                      BoxShadow(color: Color(0x80FFFFFF), blurRadius: 2, offset: Offset(0, -1)),
+                    ],
+                  ),
+                  child: ElevatedButton(
+                    onPressed: () {},
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.transparent,
+                      foregroundColor: const Color(0xFF1B1B1B),
+                      shadowColor: Colors.transparent,
+                      elevation: 0,
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(100)),
+                      padding: EdgeInsets.zero,
+                    ),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Text(
+                          'Start Learning',
+                          style: GoogleFonts.inter(fontSize: 13, fontWeight: FontWeight.w700),
+                        ),
+                        const SizedBox(width: 6),
+                        const Icon(Icons.arrow_forward, size: 14),
+                      ],
+                    ),
+                  ),
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
         ],
       ),
@@ -1475,7 +1540,7 @@ class _HomePageState extends State<HomePage> {
                           fit: BoxFit.cover,
                           errorBuilder: (c, e, s) => Container(
                             height: 92,
-                            color: Colors.grey.shade300,
+                            color: const ui.Color.fromARGB(255, 255, 255, 255),
                             child: const Icon(Icons.image, color: Colors.white),
                           ),
                         ),
@@ -1508,7 +1573,7 @@ class _HomePageState extends State<HomePage> {
                                   return Icon(
                                     Icons.star,
                                     size: 12,
-                                    color: i < 4 ? const Color(0xFFFBBF24) : const Color(0xFF9CA3AF),
+                                    color: i < 4 ? const Color(0xFFFBBF24) : const ui.Color.fromARGB(255, 250, 252, 255),
                                   );
                                 }),
                                 const SizedBox(width: 4),
@@ -1521,19 +1586,15 @@ class _HomePageState extends State<HomePage> {
                                   ),
                                 ),
                                 const Spacer(),
-                                Container(
+                                _glassSurface(
                                   padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                                  decoration: BoxDecoration(
-                                    color: _yellow,
-                                    borderRadius: BorderRadius.circular(100),
-                                  ),
                                   child: Row(
                                     children: [
                                       Text(
                                         'View',
-                                        style: GoogleFonts.inter(
-                                          fontSize: 11,
-                                          fontWeight: FontWeight.w700,
+                                        style: GoogleFonts.figtree(
+                                          fontSize: 12,
+                                          fontWeight: FontWeight.w600,
                                         ),
                                       ),
                                       const SizedBox(width: 4),
@@ -1554,6 +1615,29 @@ class _HomePageState extends State<HomePage> {
           ),
         ],
       ),
+    );
+  }
+
+  Widget _glassSurface({
+    required Widget child,
+    EdgeInsetsGeometry? padding,
+  }) {
+    final radius = BorderRadius.circular(18);
+    return Container(
+      padding: padding ?? const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+      decoration: BoxDecoration(
+        borderRadius: radius,
+        boxShadow: const [
+          BoxShadow(color: Color(0x40000000), blurRadius: 4, offset: Offset(0, 2)),
+        ],
+        gradient: const LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [Color(0xFFFFFFFF), Color(0xFFF3F4F6)],
+        ),
+        border: Border.fromBorderSide(BorderSide(color: Color(0xFFE5E7EB))),
+      ),
+      child: child,
     );
   }
 }
@@ -1759,9 +1843,9 @@ class _HeroBookCard extends StatelessWidget {
                     color: Colors.white.withValues(alpha: 0.9),
                     size: layout.playSize * 0.55,
                   ),
+                  ),
                 ),
               ),
-            ),
         ],
       ),
     );

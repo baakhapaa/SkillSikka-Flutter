@@ -17,11 +17,9 @@ class TopInstructorsPage extends StatefulWidget {
 }
 
 class _TopInstructorsPageState extends State<TopInstructorsPage> {
-  int _selectedCategory = 0;
   int _hoveredCategory = -1;
   final _searchController = TextEditingController();
 
-  // Categories with icons (mirrors HTML chips)
   static const _categories = <_CategoryChip>[
     _CategoryChip(label: 'All', icon: null),
     _CategoryChip(label: 'Mathematics', icon: Icons.calculate_outlined),
@@ -104,9 +102,10 @@ class _TopInstructorsPageState extends State<TopInstructorsPage> {
             _buildScreenHeader(),
             _buildSearchRow(),
             _buildCategories(),
+            const SizedBox(height: 12),
             Expanded(
               child: SingleChildScrollView(
-                padding: const EdgeInsets.only(top: 16, bottom: 24),
+                padding: const EdgeInsets.only(top: 4, bottom: 24),
                 child: _buildInstructorsList(),
               ),
             ),
@@ -116,9 +115,6 @@ class _TopInstructorsPageState extends State<TopInstructorsPage> {
     );
   }
 
-  // ─────────────────────────────────────────────────────────────
-  // SCREEN HEADER
-  // ─────────────────────────────────────────────────────────────
   Widget _buildScreenHeader() {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
@@ -128,7 +124,6 @@ class _TopInstructorsPageState extends State<TopInstructorsPage> {
       ),
       child: Row(
         children: [
-          // Back button
           GestureDetector(
             onTap: () => Navigator.maybePop(context),
             child: Container(
@@ -155,27 +150,19 @@ class _TopInstructorsPageState extends State<TopInstructorsPage> {
               ),
             ),
           ),
-          // Right icon (settings/sliders)
           Container(
             padding: const EdgeInsets.all(8),
             decoration: BoxDecoration(
               color: _chipBg,
               borderRadius: BorderRadius.circular(100),
             ),
-            child: const Icon(
-              Icons.tune,
-              size: 18,
-              color: _ink,
-            ),
+            child: const Icon(Icons.tune, size: 18, color: _ink),
           ),
         ],
       ),
     );
   }
 
-  // ─────────────────────────────────────────────────────────────
-  // SEARCH ROW
-  // ─────────────────────────────────────────────────────────────
   Widget _buildSearchRow() {
     return Padding(
       padding: const EdgeInsets.all(12),
@@ -193,18 +180,12 @@ class _TopInstructorsPageState extends State<TopInstructorsPage> {
             Expanded(
               child: TextField(
                 controller: _searchController,
-                style: GoogleFonts.figtree(
-                  fontSize: 14,
-                  color: _ink,
-                ),
+                style: GoogleFonts.figtree(fontSize: 14, color: _ink),
                 decoration: InputDecoration(
                   isDense: true,
                   border: InputBorder.none,
                   hintText: 'Search instructors...',
-                  hintStyle: GoogleFonts.figtree(
-                    fontSize: 14,
-                    color: _gray,
-                  ),
+                  hintStyle: GoogleFonts.figtree(fontSize: 14, color: _gray),
                 ),
               ),
             ),
@@ -214,31 +195,27 @@ class _TopInstructorsPageState extends State<TopInstructorsPage> {
     );
   }
 
-  // ─────────────────────────────────────────────────────────────
-  // CATEGORIES (glossy chips)
-  // ─────────────────────────────────────────────────────────────
   Widget _buildCategories() {
     return SizedBox(
-      height: 50,
+      height: 52,
       child: ListView.separated(
         scrollDirection: Axis.horizontal,
         padding: const EdgeInsets.symmetric(horizontal: 18),
         itemCount: _categories.length,
         separatorBuilder: (_, _) => const SizedBox(width: 8),
         itemBuilder: (context, index) {
-          final selected = index == _selectedCategory;
           final hovered = index == _hoveredCategory;
           return MouseRegion(
             cursor: SystemMouseCursors.click,
             onEnter: (_) => setState(() => _hoveredCategory = index),
             onExit: (_) => setState(() => _hoveredCategory = -1),
             child: GestureDetector(
-              onTap: () => setState(() => _selectedCategory = index),
-              child: _glossyChip(
-                label: _categories[index].label,
-                icon: _categories[index].icon,
-                pressed: selected,
-                hovered: hovered,
+              child: Center(
+                child: _glassChip(
+                  label: _categories[index].label,
+                  icon: _categories[index].icon,
+                  hovered: hovered,
+                ),
               ),
             ),
           );
@@ -247,45 +224,96 @@ class _TopInstructorsPageState extends State<TopInstructorsPage> {
     );
   }
 
-  Widget _glossyChip({
+  Widget _glassChip({
     required String label,
     IconData? icon,
-    required bool pressed,
     required bool hovered,
   }) {
+    const radius = 14.0;
+
+    // ── Gradient: pure white top → soft gray bottom ─────────────
+    final topColor = const Color(0xFFFFFFFF);
+    final midColor = hovered
+        ? const Color(0xFFFFFFFF)
+        : const Color(0xFFFBFBFC);
+    final bottomColor = hovered
+        ? const Color(0xFFD9DCE2) // deeper gray on hover
+        : const Color(0xFFEAECEF);
+
+    // ── Border: soft whitish edge ───────────────────────────────
+    final borderColor = hovered
+        ? Colors.white
+        : Colors.white.withValues(alpha: 0.85);
+
+    // ── Outer drop shadow (blurred, below the pill) ─────────────
+    final outerColor = hovered
+        ? const Color(0x3D000000) // stronger on hover
+        : const Color(0x24000000);
+    final outerBlur = hovered ? 16.0 : 10.0;
+    final outerOffsetY = hovered ? 6.0 : 3.0;
+
+    // ── Top specular highlight (glossy shine) ───────────────────
+    final highlightColor = hovered
+        ? const Color(0xFFFFFFFF)
+        : const Color(0xE6FFFFFF);
+    final highlightBlur = hovered ? 5.0 : 3.0;
+    final highlightOffsetY = hovered ? -2.5 : -1.5;
+
+    // ── Bottom inset (soft shadow inside bottom edge) ───────────
+    final bottomInsetColor = hovered
+        ? const Color(0x33000000)
+        : const Color(0x1F000000);
+
     return AnimatedContainer(
-      duration: const Duration(milliseconds: 160),
+      duration: const Duration(milliseconds: 180),
       curve: Curves.easeOut,
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
       decoration: BoxDecoration(
+        // Top → bottom glossy gradient
         gradient: LinearGradient(
           begin: Alignment.topCenter,
           end: Alignment.bottomCenter,
-          colors: [
-            Colors.white.withValues(alpha: hovered ? 0.98 : 0.84),
-            const Color(0xFFF3F4F6).withValues(alpha: pressed ? 0.72 : 0.55),
-          ],
+          colors: [topColor, midColor, bottomColor],
+          stops: const [0.0, 0.55, 1.0],
         ),
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: Colors.white.withValues(alpha: 0.8)),
+        borderRadius: BorderRadius.circular(radius),
+        // Soft whitish border
+        border: Border.all(color: borderColor, width: 1),
         boxShadow: [
+          // 1. Outer blurred drop shadow below
           BoxShadow(
-            color: hovered ? const Color(0x2E000000) : const Color(0x22000000),
-            blurRadius: hovered ? 10 : 7,
-            offset: Offset(0, pressed ? 1 : 3),
+            color: outerColor,
+            blurRadius: outerBlur,
+            offset: Offset(0, outerOffsetY),
           ),
-          const BoxShadow(
-            color: Color(0xCCFFFFFF),
-            blurRadius: 2,
-            offset: Offset(0, -1),
+          // 2. Bright specular highlight hugging the top inside edge
+          BoxShadow(
+            color: highlightColor,
+            blurRadius: highlightBlur,
+            offset: Offset(0, highlightOffsetY),
+            spreadRadius: -1,
           ),
+          // 3. Soft dark inset hugging the bottom inside edge
+          BoxShadow(
+            color: bottomInsetColor,
+            blurRadius: 4,
+            offset: const Offset(0, 2),
+            spreadRadius: -1,
+          ),
+          // 4. Soft hover glow outside the chip
+          if (hovered)
+            const BoxShadow(
+              color: Color(0x1F5B8DEF),
+              blurRadius: 18,
+              spreadRadius: 1,
+            ),
         ],
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
           if (icon != null) ...[
-            Icon(icon, size: 14, color: _gray),
+            Icon(icon, size: 14, color: hovered ? _ink : _gray),
             const SizedBox(width: 6),
           ],
           Text(
@@ -301,20 +329,16 @@ class _TopInstructorsPageState extends State<TopInstructorsPage> {
     );
   }
 
-  // ─────────────────────────────────────────────────────────────
-  // INSTRUCTORS LIST
-  // ─────────────────────────────────────────────────────────────
   Widget _buildInstructorsList() {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16),
-      child: Column(
-        children: [
-          for (final inst in _instructors) ...[
-            _buildInstructorCard(inst),
-            const SizedBox(height: 12),
-          ],
-        ],
-      ),
+    return Column(
+      children: _instructors
+          .map(
+            (inst) => Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 8),
+              child: _buildInstructorCard(inst),
+            ),
+          )
+          .toList(),
     );
   }
 
@@ -322,126 +346,125 @@ class _TopInstructorsPageState extends State<TopInstructorsPage> {
     return ConstrainedBox(
       constraints: const BoxConstraints(minHeight: 104),
       child: Container(
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: const Color(0xFFF3F4F6)),
-        boxShadow: const [
-          BoxShadow(
-            color: Color(0x05000000),
-            blurRadius: 12,
-            offset: Offset(0, 4),
-          ),
-        ],
-      ),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          // Avatar
-          ClipOval(
-            child: Image.asset(
-              inst.image,
-              width: 56,
-              height: 56,
-              fit: BoxFit.cover,
-              errorBuilder: (_, _, _) => Container(
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: const Color(0xFFF3F4F6)),
+          boxShadow: const [
+            BoxShadow(
+              color: Color(0x05000000),
+              blurRadius: 12,
+              offset: Offset(0, 4),
+            ),
+          ],
+        ),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            ClipOval(
+              child: Image.asset(
+                inst.image,
                 width: 56,
                 height: 56,
-                color: Colors.grey.shade300,
-                child: const Icon(Icons.person, color: Colors.white),
+                fit: BoxFit.cover,
+                errorBuilder: (_, _, _) => Container(
+                  width: 56,
+                  height: 56,
+                  color: Colors.grey.shade300,
+                  child: const Icon(Icons.person, color: Colors.white),
+                ),
               ),
             ),
-          ),
-          const SizedBox(width: 14),
-          // Name + specialty + metadata
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Expanded(
-                      child: Text(
-                        inst.name,
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                        style: GoogleFonts.lexendDeca(
-                          fontSize: 14,
-                          fontWeight: FontWeight.w700,
-                          color: _ink,
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        const Icon(Icons.star, color: Color(0xFFFBBF24), size: 10),
-                        const SizedBox(width: 2),
-                        Text(
-                          inst.rating,
-                          style: GoogleFonts.figtree(
-                            fontSize: 11,
+            const SizedBox(width: 14),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Expanded(
+                        child: Text(
+                          inst.name,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: GoogleFonts.lexendDeca(
+                            fontSize: 14,
                             fontWeight: FontWeight.w700,
                             color: _ink,
                           ),
                         ),
-                      ],
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  inst.specialty,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: GoogleFonts.figtree(
-                    fontSize: 11,
-                    color: _gray,
+                      ),
+                      const SizedBox(width: 8),
+                      Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const Icon(
+                            Icons.star,
+                            color: Color(0xFFFBBF24),
+                            size: 10,
+                          ),
+                          const SizedBox(width: 2),
+                          Text(
+                            inst.rating,
+                            style: GoogleFonts.figtree(
+                              fontSize: 11,
+                              fontWeight: FontWeight.w700,
+                              color: _ink,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
                   ),
-                ),
-                const SizedBox(height: 8),
-                Row(
-                  children: [
-                    Flexible(
-                      child: Text(
-                        inst.students,
-                        overflow: TextOverflow.ellipsis,
+                  const SizedBox(height: 4),
+                  Text(
+                    inst.specialty,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: GoogleFonts.figtree(fontSize: 11, color: _gray),
+                  ),
+                  const SizedBox(height: 8),
+                  Row(
+                    children: [
+                      Flexible(
+                        child: Text(
+                          inst.students,
+                          overflow: TextOverflow.ellipsis,
+                          style: GoogleFonts.figtree(
+                            fontSize: 10,
+                            color: _softGray,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Text(
+                        '•',
                         style: GoogleFonts.figtree(
                           fontSize: 10,
                           color: _softGray,
                         ),
                       ),
-                    ),
-                    const SizedBox(width: 8),
-                    Text(
-                      '•',
-                      style: GoogleFonts.figtree(
-                        fontSize: 10,
-                        color: _softGray,
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    Flexible(
-                      child: Text(
-                        inst.courses,
-                        overflow: TextOverflow.ellipsis,
-                        style: GoogleFonts.figtree(
-                          fontSize: 10,
-                          fontWeight: FontWeight.w700,
-                          color: _gold,
+                      const SizedBox(width: 8),
+                      Flexible(
+                        child: Text(
+                          inst.courses,
+                          overflow: TextOverflow.ellipsis,
+                          style: GoogleFonts.figtree(
+                            fontSize: 10,
+                            fontWeight: FontWeight.w700,
+                            color: _gold,
+                          ),
                         ),
                       ),
-                    ),
-                  ],
-                ),
-              ],
+                    ],
+                  ),
+                ],
+              ),
             ),
-          ),
-        ],
-      ),
+          ],
+        ),
       ),
     );
   }

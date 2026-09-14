@@ -17,6 +17,7 @@ class TopInstructorsPage extends StatefulWidget {
 }
 
 class _TopInstructorsPageState extends State<TopInstructorsPage> {
+  int _selectedCategory = 0;
   int _hoveredCategory = -1;
   final _searchController = TextEditingController();
 
@@ -204,17 +205,18 @@ class _TopInstructorsPageState extends State<TopInstructorsPage> {
         itemCount: _categories.length,
         separatorBuilder: (_, _) => const SizedBox(width: 8),
         itemBuilder: (context, index) {
-          final hovered = index == _hoveredCategory;
+          final active = index == _selectedCategory || index == _hoveredCategory;
           return MouseRegion(
             cursor: SystemMouseCursors.click,
             onEnter: (_) => setState(() => _hoveredCategory = index),
             onExit: (_) => setState(() => _hoveredCategory = -1),
             child: GestureDetector(
+              onTap: () => setState(() => _selectedCategory = index),
               child: Center(
                 child: _glassChip(
                   label: _categories[index].label,
                   icon: _categories[index].icon,
-                  hovered: hovered,
+                  hovered: active,
                 ),
               ),
             ),
@@ -231,87 +233,75 @@ class _TopInstructorsPageState extends State<TopInstructorsPage> {
   }) {
     const radius = 14.0;
 
-    // ── Gradient: pure white top → soft gray bottom ─────────────
     final topColor = const Color(0xFFFFFFFF);
     final midColor = hovered
         ? const Color(0xFFFFFFFF)
         : const Color(0xFFFBFBFC);
     final bottomColor = hovered
-        ? const Color(0xFFD9DCE2) // deeper gray on hover
+        ? const Color(0xFFD9DCE2)
         : const Color(0xFFEAECEF);
-
-    // ── Border: soft whitish edge ───────────────────────────────
     final borderColor = hovered
         ? Colors.white
         : Colors.white.withValues(alpha: 0.85);
 
-    // ── Outer drop shadow (blurred, below the pill) ─────────────
-    final outerColor = hovered
-        ? const Color(0x3D000000) // stronger on hover
-        : const Color(0x24000000);
-    final outerBlur = hovered ? 16.0 : 10.0;
-    final outerOffsetY = hovered ? 6.0 : 3.0;
-
-    // ── Top specular highlight (glossy shine) ───────────────────
+    final outerColor = const Color(0x24000000);
+    final outerBlur = 10.0;
+    final outerOffsetY = 3.0;
     final highlightColor = hovered
         ? const Color(0xFFFFFFFF)
         : const Color(0xE6FFFFFF);
     final highlightBlur = hovered ? 5.0 : 3.0;
     final highlightOffsetY = hovered ? -2.5 : -1.5;
-
-    // ── Bottom inset (soft shadow inside bottom edge) ───────────
     final bottomInsetColor = hovered
         ? const Color(0x33000000)
         : const Color(0x1F000000);
 
-    return AnimatedContainer(
+    return AnimatedScale(
+      scale: hovered ? 1.035 : 1.0,
       duration: const Duration(milliseconds: 180),
       curve: Curves.easeOut,
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-      decoration: BoxDecoration(
-        // Top → bottom glossy gradient
-        gradient: LinearGradient(
-          begin: Alignment.topCenter,
-          end: Alignment.bottomCenter,
-          colors: [topColor, midColor, bottomColor],
-          stops: const [0.0, 0.55, 1.0],
-        ),
-        borderRadius: BorderRadius.circular(radius),
-        // Soft whitish border
-        border: Border.all(color: borderColor, width: 1),
-        boxShadow: [
-          // 1. Outer blurred drop shadow below
-          BoxShadow(
-            color: outerColor,
-            blurRadius: outerBlur,
-            offset: Offset(0, outerOffsetY),
-          ),
-          // 2. Bright specular highlight hugging the top inside edge
-          BoxShadow(
-            color: highlightColor,
-            blurRadius: highlightBlur,
-            offset: Offset(0, highlightOffsetY),
-            spreadRadius: -1,
-          ),
-          // 3. Soft dark inset hugging the bottom inside edge
-          BoxShadow(
-            color: bottomInsetColor,
-            blurRadius: 4,
-            offset: const Offset(0, 2),
-            spreadRadius: -1,
-          ),
-          // 4. Soft hover glow outside the chip
-          if (hovered)
-            const BoxShadow(
-              color: Color(0x1F5B8DEF),
-              blurRadius: 18,
-              spreadRadius: 1,
+      child: AnimatedSlide(
+        offset: hovered ? const Offset(0, -0.04) : Offset.zero,
+        duration: const Duration(milliseconds: 180),
+        curve: Curves.easeOut,
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 180),
+          curve: Curves.easeOut,
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topCenter,
+              end: Alignment.bottomCenter,
+              colors: [topColor, midColor, bottomColor],
+              stops: const [0.0, 0.55, 1.0],
             ),
-        ],
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
+            borderRadius: BorderRadius.circular(radius),
+            border: Border.all(color: borderColor, width: hovered ? 1.2 : 1),
+            boxShadow: [
+              BoxShadow(
+                color: outerColor,
+                blurRadius: outerBlur,
+                offset: Offset(0, outerOffsetY),
+              ),
+              BoxShadow(
+                color: highlightColor,
+                blurRadius: highlightBlur,
+                offset: Offset(0, highlightOffsetY),
+                spreadRadius: -1,
+              ),
+              BoxShadow(
+                color: bottomInsetColor,
+                blurRadius: 4,
+                offset: const Offset(0, 2),
+                spreadRadius: -1,
+              ),
+            ],
+          ),
+          child: Stack(
+            children: [
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
           if (icon != null) ...[
             Icon(icon, size: 14, color: hovered ? _ink : _gray),
             const SizedBox(width: 6),
@@ -324,7 +314,32 @@ class _TopInstructorsPageState extends State<TopInstructorsPage> {
               color: _ink,
             ),
           ),
-        ],
+                ],
+              ),
+              if (hovered)
+                Positioned(
+                  top: 0,
+                  left: 8,
+                  right: 8,
+                  child: IgnorePointer(
+                    child: Container(
+                      height: 5,
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(99),
+                        gradient: LinearGradient(
+                          colors: [
+                            Colors.white.withValues(alpha: 0.0),
+                            Colors.white.withValues(alpha: 0.9),
+                            Colors.white.withValues(alpha: 0.0),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+            ],
+          ),
+        ),
       ),
     );
   }

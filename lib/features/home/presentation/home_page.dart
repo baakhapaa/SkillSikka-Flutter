@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:skillsikka/features/instructors/presentation/instructor_page.dart';
 import 'package:skillsikka/features/premium_courses/presentation/premium_courses_page.dart';
 import 'package:skillsikka/features/skill_courses/presentation/skill_courses.dart';
 
@@ -1186,12 +1187,21 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
                       ),
                     ),
                   ),
-                  Text(
-                    'See All',
-                    style: GoogleFonts.figtree(
-                      fontSize: 13,
-                      fontWeight: FontWeight.w600,
-                      color: const Color(0xFF646161),
+                  GestureDetector(
+                    onTap: () {
+                      Navigator.of(context).push(
+                        MaterialPageRoute(
+                          builder: (_) => const AllInstructorsPage(),
+                        ),
+                      );
+                    },
+                    child: Text(
+                      'See All',
+                      style: GoogleFonts.figtree(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
+                        color: const Color(0xFF646161),
+                      ),
                     ),
                   ),
                 ],

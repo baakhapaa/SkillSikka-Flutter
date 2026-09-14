@@ -20,6 +20,9 @@ class _HomePageState extends State<HomePage> {
   late final PageController _promoController;
   Timer? _promoTimer;
   int _activePromoIndex = 0;
+  int _heroFrontIndex = 4;
+  double _heroDragDistance = 0;
+  int _heroDirection = 1;
   int _selectedClassIndex = 0;
   int _selectedBootcampDays = 4;
   int _hoveredClassIndex = -1;
@@ -85,6 +88,14 @@ class _HomePageState extends State<HomePage> {
         duration: const Duration(milliseconds: 500),
         curve: Curves.easeOutCubic,
       );
+    });
+  }
+
+  void _advanceHero(int direction) {
+    setState(() {
+      _heroDirection = direction;
+      _heroFrontIndex = (_heroFrontIndex + direction + 5) % 5;
+      _heroDragDistance = 0;
     });
   }
 
@@ -310,34 +321,86 @@ class _HomePageState extends State<HomePage> {
       ),
     ];
 
+    final orderedCards = List.generate(cards.length, (slotIndex) {
+      final contentIndex = (_heroFrontIndex + 1 + slotIndex) % cards.length;
+      final slot = cards[slotIndex];
+      return cards[contentIndex].copyWith(
+        left: slot.left,
+        top: slot.top,
+        width: slot.width,
+        height: slot.height,
+        imageHeight: slot.imageHeight,
+        titleSize: slot.titleSize,
+        descSize: slot.descSize,
+        avatarSize: slot.avatarSize,
+        nameSize: slot.nameSize,
+        showPlay: slot.showPlay,
+        playSize: slot.playSize,
+      );
+    });
+
+    Widget heroStack() {
+      return ClipRect(
+        child: OverflowBox(
+          maxWidth: trackW,
+          minWidth: trackW,
+          maxHeight: 350,
+          alignment: Alignment.topCenter,
+          child: Padding(
+            padding: const EdgeInsets.only(top: 13),
+            child: SizedBox(
+              width: trackW,
+              height: trackH,
+              child: Stack(
+                clipBehavior: Clip.none,
+                children: [
+                  for (final card in orderedCards)
+                    Positioned(
+                      left: card.left,
+                      top: card.top,
+                      child: _HeroBookCard(layout: card),
+                    ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      );
+    }
+
     return ColoredBox(
       color: Colors.white,
       child: SizedBox(
         height: 350,
         width: double.infinity,
-        child: ClipRect(
-          child: OverflowBox(
-            maxWidth: trackW,
-            minWidth: trackW,
-            maxHeight: 350,
-            alignment: Alignment.topCenter,
-            child: Padding(
-              padding: const EdgeInsets.only(top: 13),
-              child: SizedBox(
-                width: trackW,
-                height: trackH,
-                child: Stack(
-                  clipBehavior: Clip.none,
-                  children: [
-                    for (final card in cards)
-                      Positioned(
-                        left: card.left,
-                        top: card.top,
-                        child: _HeroBookCard(layout: card),
-                      ),
-                  ],
-                ),
-              ),
+        child: GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onHorizontalDragUpdate: (details) {
+            setState(() => _heroDragDistance += details.delta.dx);
+          },
+          onHorizontalDragEnd: (details) {
+            if (_heroDragDistance.abs() > 40) {
+              _advanceHero(_heroDragDistance < 0 ? 1 : -1);
+            } else {
+              setState(() => _heroDragDistance = 0);
+            }
+          },
+          child: AnimatedSwitcher(
+            duration: const Duration(milliseconds: 480),
+            switchInCurve: Curves.easeOutCubic,
+            switchOutCurve: Curves.easeInCubic,
+            transitionBuilder: (child, animation) {
+              final start = Offset(_heroDirection > 0 ? 1 : -1, 0);
+              final slide = Tween<Offset>(begin: start, end: Offset.zero).animate(animation);
+              return SlideTransition(
+                position: slide,
+                child: FadeTransition(opacity: animation, child: child),
+              );
+            },
+            child: Transform.translate(
+              key: ValueKey(_heroFrontIndex),
+              offset: Offset(_heroDragDistance * 0.18, 0),
+              child: heroStack(),
             ),
           ),
         ),
@@ -1783,6 +1846,36 @@ class _HeroCardLayout {
   final String avatar;
   final bool showPlay;
   final double playSize;
+
+  _HeroCardLayout copyWith({
+    double? left,
+    double? top,
+    double? width,
+    double? height,
+    double? imageHeight,
+    double? titleSize,
+    double? descSize,
+    double? avatarSize,
+    double? nameSize,
+    bool? showPlay,
+    double? playSize,
+  }) {
+    return _HeroCardLayout(
+      left: left ?? this.left,
+      top: top ?? this.top,
+      width: width ?? this.width,
+      height: height ?? this.height,
+      imageHeight: imageHeight ?? this.imageHeight,
+      image: image,
+      titleSize: titleSize ?? this.titleSize,
+      descSize: descSize ?? this.descSize,
+      avatarSize: avatarSize ?? this.avatarSize,
+      nameSize: nameSize ?? this.nameSize,
+      avatar: avatar,
+      showPlay: showPlay ?? this.showPlay,
+      playSize: playSize ?? this.playSize,
+    );
+  }
 }
 
 class _HeroBookCard extends StatelessWidget {
@@ -1798,35 +1891,37 @@ class _HeroBookCard extends StatelessWidget {
       child: Stack(
         clipBehavior: Clip.none,
         children: [
+          // ── Card body ─────────────────────────────────────────────
           Container(
             width: layout.width,
             height: layout.height,
             decoration: BoxDecoration(
-              color: Colors.white,
+              // Pure white base with a very subtle gray fade at bottom
+              gradient: const LinearGradient(
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+                colors: [
+                  Colors.white,
+                  Colors.white,
+                  Color(0xFFF7F7F7),
+                ],
+                stops: [0.0, 0.75, 1.0],
+              ),
               borderRadius: BorderRadius.circular(14),
+              // Outer drop shadow only (no inset here)
               boxShadow: const [
                 BoxShadow(
-                  color: Color(0x40000000),
-                  blurRadius: 1,
+                  color: Color(0x33000000),
+                  blurRadius: 2,
                   offset: Offset(0, 2),
-                ),
-              ],
-            ),
-            foregroundDecoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(14),
-              boxShadow: const [
-                BoxShadow(
-                  color: Color(0x40000000),
-                  blurRadius: 4,
-                  offset: Offset(0, -2),
-                  spreadRadius: -2,
                 ),
               ],
             ),
             child: Column(
               children: [
                 ClipRRect(
-                  borderRadius: const BorderRadius.vertical(top: Radius.circular(15)),
+                  borderRadius:
+                      const BorderRadius.vertical(top: Radius.circular(14)),
                   child: SizedBox(
                     width: layout.width,
                     height: layout.imageHeight,
@@ -1835,7 +1930,8 @@ class _HeroBookCard extends StatelessWidget {
                       fit: BoxFit.cover,
                       errorBuilder: (c, e, s) => ColoredBox(
                         color: Colors.grey.shade300,
-                        child: const Icon(Icons.menu_book, color: Colors.white, size: 40),
+                        child: const Icon(Icons.menu_book,
+                            color: Colors.white, size: 40),
                       ),
                     ),
                   ),
@@ -1879,13 +1975,15 @@ class _HeroBookCard extends StatelessWidget {
                               decoration: BoxDecoration(
                                 color: const Color(0xFFE5E7EB),
                                 shape: BoxShape.circle,
-                                border: Border.all(color: const Color(0xFFE5E7EB)),
+                                border: Border.all(
+                                    color: const Color(0xFFE5E7EB)),
                               ),
                               child: ClipOval(
                                 child: Image.asset(
                                   layout.avatar,
                                   fit: BoxFit.cover,
-                                  errorBuilder: (context, error, stackTrace) => const Icon(
+                                  errorBuilder: (context, error, stackTrace) =>
+                                      const Icon(
                                     Icons.person,
                                     color: Colors.black54,
                                   ),
@@ -1904,7 +2002,8 @@ class _HeroBookCard extends StatelessWidget {
                                 ),
                               ),
                             ),
-                            const Icon(Icons.star, color: Color(0xFFFBBF24), size: 10),
+                            const Icon(Icons.star,
+                                color: Color(0xFFFBBF24), size: 10),
                             const SizedBox(width: 2),
                             Text(
                               '4.9',
@@ -1923,6 +2022,28 @@ class _HeroBookCard extends StatelessWidget {
               ],
             ),
           ),
+
+          Positioned.fill(
+            child: IgnorePointer(
+              child: Container(
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(14),
+                  gradient: const LinearGradient(
+                    begin: Alignment.topCenter,
+                    end: Alignment.bottomCenter,
+                    colors: [
+                      Color(0x1F000000), // subtle dark at top edge
+                      Color(0x00000000),
+                      Color(0x0A000000), // very subtle at bottom
+                    ],
+                    stops: [0.0, 0.15, 1.0],
+                  ),
+                ),
+              ),
+            ),
+          ),
+
+          // ── Play button ───────────────────────────────────────────
           if (layout.showPlay)
             Positioned(
               top: 0,
@@ -1949,7 +2070,6 @@ class _HeroBookCard extends StatelessWidget {
     );
   }
 }
-
 class _InstructorPeekSlice extends StatelessWidget {
   const _InstructorPeekSlice({
     required this.image,

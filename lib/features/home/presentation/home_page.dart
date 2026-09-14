@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:skillsikka/features/premium_courses/presentation/premium_courses_page.dart';
+import 'package:skillsikka/features/skill_courses/presentation/skill_courses.dart';
 
 const _cream = Color(0xFFFAF9F6);
 const _ink = Color(0xFF282828);
@@ -497,7 +498,26 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
 
     return Column(
       children: [
-        _buildSectionHeader('Skill Courses'),
+        _buildSectionHeader(
+          'Skill Courses',
+          trailing: GestureDetector(
+            onTap: () {
+              Navigator.of(context).push(
+                MaterialPageRoute(
+                  builder: (_) => const SkillCoursesPage(),
+                ),
+              );
+            },
+            child: Text(
+              'See All',
+              style: GoogleFonts.figtree(
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+                color: _gray,
+              ),
+            ),
+          ),
+        ),
         const SizedBox(height: 12),
         SizedBox(
           height: 70,

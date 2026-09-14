@@ -25,7 +25,7 @@ class _SkillCoursesPageState extends State<SkillCoursesPage> {
         bottom: false,
         child: Column(
           children: [
-            _buildAppHeader(),
+            _buildAppHeader(context),
             Expanded(
               child: SingleChildScrollView(
                 padding: const EdgeInsets.only(top: 12, bottom: 96),
@@ -54,7 +54,7 @@ class _SkillCoursesPageState extends State<SkillCoursesPage> {
   // ─────────────────────────────────────────────────────────────
   // APP HEADER
   // ─────────────────────────────────────────────────────────────
-  Widget _buildAppHeader() {
+  Widget _buildAppHeader(BuildContext context) {
     return Container(
       color: _cream,
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
@@ -63,7 +63,7 @@ class _SkillCoursesPageState extends State<SkillCoursesPage> {
           // Back button circle (glass)
           GestureDetector(
             onTap: () {
-              // TODO: Navigator.pop(context);
+              Navigator.pop(context);
             },
             child: Container(
               height: 40,
@@ -152,7 +152,7 @@ class _SkillCoursesPageState extends State<SkillCoursesPage> {
           scrollDirection: Axis.horizontal,
           padding: const EdgeInsets.only(right: 16),
           itemCount: skills.length,
-          separatorBuilder: (_, __) => const SizedBox(width: 12),
+          separatorBuilder: (_, _) => const SizedBox(width: 12),
           itemBuilder: (context, index) {
             final s = skills[index];
             final isSelected = index == _selectedSkillIndex;
@@ -268,7 +268,7 @@ class _SkillCoursesPageState extends State<SkillCoursesPage> {
         scrollDirection: Axis.horizontal,
         padding: const EdgeInsets.symmetric(horizontal: 16),
         itemCount: courses.length,
-        separatorBuilder: (_, __) => const SizedBox(width: 12),
+        separatorBuilder: (_, _) => const SizedBox(width: 12),
         itemBuilder: (context, index) {
           final c = courses[index];
           return _buildCourseCard(
@@ -322,7 +322,7 @@ class _SkillCoursesPageState extends State<SkillCoursesPage> {
                   Image.asset(
                     image,
                     fit: BoxFit.cover,
-                    errorBuilder: (_, __, ___) => Container(
+                    errorBuilder: (_, _, _) => Container(
                       color: Colors.grey.shade300,
                       child: const Icon(Icons.image,
                           color: Colors.white, size: 32),
@@ -549,7 +549,7 @@ class _SkillCoursesPageState extends State<SkillCoursesPage> {
               width: 80,
               height: 80,
               fit: BoxFit.cover,
-              errorBuilder: (_, __, ___) => Container(
+              errorBuilder: (_, _, _) => Container(
                 width: 80,
                 height: 80,
                 color: Colors.grey.shade300,

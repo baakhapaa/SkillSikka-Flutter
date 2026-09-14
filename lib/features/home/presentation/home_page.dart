@@ -16,13 +16,15 @@ class HomePage extends StatefulWidget {
   State<HomePage> createState() => _HomePageState();
 }
 
-class _HomePageState extends State<HomePage> {
+class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin {
   late final PageController _promoController;
+  late final AnimationController _heroController;
   Timer? _promoTimer;
   int _activePromoIndex = 0;
   int _heroFrontIndex = 4;
   double _heroDragDistance = 0;
   int _heroDirection = 1;
+  bool _heroAnimating = false;
   int _selectedClassIndex = 0;
   int _selectedBootcampDays = 4;
   int _hoveredClassIndex = -1;
@@ -80,6 +82,25 @@ class _HomePageState extends State<HomePage> {
   void initState() {
     super.initState();
     _promoController = PageController();
+    _heroController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 420),
+    )..addStatusListener((status) {
+        if (status == AnimationStatus.completed && _heroAnimating) {
+          setState(() {
+            _heroFrontIndex = (_heroFrontIndex + _heroDirection + 5) % 5;
+            _heroDragDistance = 0;
+            _heroAnimating = false;
+          });
+          _heroController.reset();
+        }
+        if (status == AnimationStatus.dismissed && _heroAnimating) {
+          setState(() {
+            _heroDragDistance = 0;
+            _heroAnimating = false;
+          });
+        }
+      });
     _promoTimer = Timer.periodic(const Duration(seconds: 4), (_) {
       if (!_promoController.hasClients) return;
       final nextPage = (_activePromoIndex + 1) % _promoSlides.length;
@@ -91,19 +112,26 @@ class _HomePageState extends State<HomePage> {
     });
   }
 
-  void _advanceHero(int direction) {
-    setState(() {
-      _heroDirection = direction;
-      _heroFrontIndex = (_heroFrontIndex + direction + 5) % 5;
-      _heroDragDistance = 0;
-    });
-  }
-
   @override
   void dispose() {
     _promoTimer?.cancel();
     _promoController.dispose();
+    _heroController.dispose();
     super.dispose();
+  }
+
+  void _finishHeroDrag() {
+    if (_heroAnimating) return;
+    _heroAnimating = true;
+    if (_heroDragDistance.abs() < 70) {
+      _heroController.reverse(
+        from: (_heroDragDistance.abs() / 220).clamp(0.0, 1.0).toDouble(),
+      );
+    } else {
+      _heroController.forward(
+        from: (_heroDragDistance.abs() / 220).clamp(0.0, 1.0).toDouble(),
+      );
+    }
   }
 
   @override
@@ -321,25 +349,70 @@ class _HomePageState extends State<HomePage> {
       ),
     ];
 
-    final orderedCards = List.generate(cards.length, (slotIndex) {
-      final contentIndex = (_heroFrontIndex + 1 + slotIndex) % cards.length;
-      final slot = cards[slotIndex];
-      return cards[contentIndex].copyWith(
-        left: slot.left,
-        top: slot.top,
-        width: slot.width,
-        height: slot.height,
-        imageHeight: slot.imageHeight,
-        titleSize: slot.titleSize,
-        descSize: slot.descSize,
-        avatarSize: slot.avatarSize,
-        nameSize: slot.nameSize,
-        showPlay: slot.showPlay,
-        playSize: slot.playSize,
-      );
-    });
-
     Widget heroStack() {
+      final currentSlots = List.generate(cards.length, (slotIndex) {
+        final contentIndex = switch (slotIndex) {
+          0 => (_heroFrontIndex - 2 + cards.length) % cards.length,
+          1 => (_heroFrontIndex - 1 + cards.length) % cards.length,
+          2 => (_heroFrontIndex + 2) % cards.length,
+          3 => (_heroFrontIndex + 1) % cards.length,
+          _ => _heroFrontIndex,
+        };
+        final slot = cards[slotIndex];
+        return cards[contentIndex].copyWith(
+          left: slot.left,
+          top: slot.top,
+          width: slot.width,
+          height: slot.height,
+          imageHeight: slot.imageHeight,
+          titleSize: slot.titleSize,
+          descSize: slot.descSize,
+          avatarSize: slot.avatarSize,
+          nameSize: slot.nameSize,
+          showPlay: slot.showPlay,
+          playSize: slot.playSize,
+        );
+      });
+      final targetFront = (_heroFrontIndex + _heroDirection + cards.length) % cards.length;
+      final targetSlot = _heroDirection > 0 ? 3 : 1;
+      final rawProgress = _heroAnimating
+          ? _heroController.value
+          : (_heroDragDistance.abs() / 220).clamp(0.0, 1.0).toDouble();
+      final progress = Curves.easeInOutCubic.transform(rawProgress);
+      final targetFrom = currentSlots[targetSlot];
+      final targetTo = cards[targetFront].copyWith(
+        left: cards[4].left,
+        top: cards[4].top,
+        width: cards[4].width,
+        height: cards[4].height,
+        imageHeight: cards[4].imageHeight,
+        titleSize: cards[4].titleSize,
+        descSize: cards[4].descSize,
+        avatarSize: cards[4].avatarSize,
+        nameSize: cards[4].nameSize,
+        showPlay: cards[4].showPlay,
+        playSize: cards[4].playSize,
+      );
+      double mix(double from, double to) => from + (to - from) * progress;
+      final movingTarget = targetFrom.copyWith(
+        left: mix(targetFrom.left, targetTo.left),
+        top: mix(targetFrom.top, targetTo.top),
+        width: mix(targetFrom.width, targetTo.width),
+        height: mix(targetFrom.height, targetTo.height),
+        imageHeight: mix(targetFrom.imageHeight, targetTo.imageHeight),
+        titleSize: mix(targetFrom.titleSize, targetTo.titleSize),
+        descSize: mix(targetFrom.descSize, targetTo.descSize),
+        avatarSize: mix(targetFrom.avatarSize, targetTo.avatarSize),
+        nameSize: mix(targetFrom.nameSize, targetTo.nameSize),
+        playSize: mix(targetFrom.playSize, targetTo.playSize),
+      );
+      final front = currentSlots[4];
+      final frontOffset = _heroAnimating
+          ? -_heroDirection * 220 * progress
+          : _heroDragDistance;
+      final frontScale = 1 - (0.035 * progress);
+      final targetScale = 0.965 + (0.035 * progress);
+
       return ClipRect(
         child: OverflowBox(
           maxWidth: trackW,
@@ -354,12 +427,32 @@ class _HomePageState extends State<HomePage> {
               child: Stack(
                 clipBehavior: Clip.none,
                 children: [
-                  for (final card in orderedCards)
-                    Positioned(
-                      left: card.left,
-                      top: card.top,
-                      child: _HeroBookCard(layout: card),
+                  for (var slot = 0; slot < currentSlots.length; slot++)
+                    if (slot != 4 && slot != targetSlot)
+                      Positioned(
+                        left: currentSlots[slot].left,
+                        top: currentSlots[slot].top,
+                        child: _HeroBookCard(layout: currentSlots[slot]),
+                      ),
+                  Positioned(
+                    left: movingTarget.left,
+                    top: movingTarget.top,
+                    child: Transform.scale(
+                      scale: targetScale,
+                      child: _HeroBookCard(layout: movingTarget),
                     ),
+                  ),
+                  Positioned(
+                    left: front.left + frontOffset,
+                    top: front.top,
+                    child: Transform.rotate(
+                      angle: -_heroDirection * 0.018 * progress,
+                      child: Transform.scale(
+                        scale: frontScale,
+                        child: _HeroBookCard(layout: front),
+                      ),
+                    ),
+                  ),
                 ],
               ),
             ),
@@ -375,33 +468,18 @@ class _HomePageState extends State<HomePage> {
         width: double.infinity,
         child: GestureDetector(
           behavior: HitTestBehavior.opaque,
-          onHorizontalDragUpdate: (details) {
-            setState(() => _heroDragDistance += details.delta.dx);
-          },
-          onHorizontalDragEnd: (details) {
-            if (_heroDragDistance.abs() > 40) {
-              _advanceHero(_heroDragDistance < 0 ? 1 : -1);
-            } else {
-              setState(() => _heroDragDistance = 0);
-            }
-          },
-          child: AnimatedSwitcher(
-            duration: const Duration(milliseconds: 480),
-            switchInCurve: Curves.easeOutCubic,
-            switchOutCurve: Curves.easeInCubic,
-            transitionBuilder: (child, animation) {
-              final start = Offset(_heroDirection > 0 ? 1 : -1, 0);
-              final slide = Tween<Offset>(begin: start, end: Offset.zero).animate(animation);
-              return SlideTransition(
-                position: slide,
-                child: FadeTransition(opacity: animation, child: child),
-              );
-            },
-            child: Transform.translate(
-              key: ValueKey(_heroFrontIndex),
-              offset: Offset(_heroDragDistance * 0.18, 0),
-              child: heroStack(),
-            ),
+          onHorizontalDragUpdate: _heroAnimating
+              ? null
+              : (details) => setState(() {
+                    _heroDragDistance += details.delta.dx;
+                    if (_heroDragDistance.abs() > 2) {
+                      _heroDirection = _heroDragDistance < 0 ? 1 : -1;
+                    }
+                  }),
+          onHorizontalDragEnd: _heroAnimating ? null : (_) => _finishHeroDrag(),
+          child: AnimatedBuilder(
+            animation: _heroController,
+            builder: (context, child) => heroStack(),
           ),
         ),
       ),

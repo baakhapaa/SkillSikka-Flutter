@@ -16,6 +16,7 @@ class SkillCoursesPage extends StatefulWidget {
 
 class _SkillCoursesPageState extends State<SkillCoursesPage> {
   int _selectedSkillIndex = 0;
+  int _hoveredSkillIndex = -1;
 
   @override
   Widget build(BuildContext context) {
@@ -156,72 +157,94 @@ class _SkillCoursesPageState extends State<SkillCoursesPage> {
           itemBuilder: (context, index) {
             final s = skills[index];
             final isSelected = index == _selectedSkillIndex;
+            final isHovered = index == _hoveredSkillIndex;
+            final isActive = isSelected || isHovered;
 
-            return GestureDetector(
-              onTap: () => setState(() => _selectedSkillIndex = index),
-              child: AnimatedContainer(
-                duration: const Duration(milliseconds: 180),
-                curve: Curves.easeOut,
-                width: 140,
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: isSelected
-                      ? Colors.white
-                      : const Color(0xFFFAFAFA),
-                  borderRadius: BorderRadius.circular(14),
-                  border: Border.all(color: const Color(0xFFF3F4F6)),
-                  boxShadow: isSelected
-                      ? const [
-                          BoxShadow(
-                            color: Color(0x1F000000),
-                            blurRadius: 10,
-                            offset: Offset(0, 3),
-                          ),
-                        ]
-                      : const [],
-                ),
-                child: Row(
-                  children: [
-                    Container(
-                      height: 36,
-                      width: 36,
-                      decoration: const BoxDecoration(
-                        color: Color(0xFFFFF4C7),
-                        shape: BoxShape.circle,
-                      ),
-                      child: Icon(
-                        s.$1,
-                        size: 18,
-                        color: const Color(0xFFE6BD1E),
-                      ),
+            return MouseRegion(
+              cursor: SystemMouseCursors.click,
+              onEnter: (_) => setState(() => _hoveredSkillIndex = index),
+              onExit: (_) => setState(() => _hoveredSkillIndex = -1),
+              child: GestureDetector(
+                onTap: () => setState(() => _selectedSkillIndex = index),
+                child: AnimatedContainer(
+                  duration: const Duration(milliseconds: 180),
+                  curve: Curves.easeOut,
+                  width: 140,
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      begin: Alignment.topCenter,
+                      end: Alignment.bottomCenter,
+                      colors: isActive
+                          ? [
+                              Colors.white.withValues(alpha: 0.98),
+                              const Color(0xFFF2F4F7).withValues(alpha: 0.7),
+                            ]
+                          : const [
+                              Color(0xFFFAFAFA),
+                              Color(0xFFF7F7F8),
+                            ],
                     ),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Text(
-                            s.$2,
-                            overflow: TextOverflow.ellipsis,
-                            style: GoogleFonts.manrope(
-                              fontSize: 11,
-                              fontWeight: FontWeight.w700,
-                              color: _titleInk,
+                    borderRadius: BorderRadius.circular(14),
+                    border: Border.all(color: Colors.white.withValues(alpha: isActive ? 0.9 : 0.55)),
+                    boxShadow: isActive
+                        ? const [
+                            BoxShadow(
+                              color: Color(0x24000000),
+                              blurRadius: 10,
+                              offset: Offset(0, 3),
                             ),
-                          ),
-                          Text(
-                            s.$3,
-                            overflow: TextOverflow.ellipsis,
-                            style: GoogleFonts.figtree(
-                              fontSize: 9,
-                              color: _gray,
+                            BoxShadow(
+                              color: Color(0xCCFFFFFF),
+                              blurRadius: 2,
+                              offset: Offset(0, -1),
                             ),
-                          ),
-                        ],
+                          ]
+                        : const [],
+                  ),
+                  child: Row(
+                    children: [
+                      Container(
+                        height: 36,
+                        width: 36,
+                        decoration: const BoxDecoration(
+                          color: Color(0xFFFFF4C7),
+                          shape: BoxShape.circle,
+                        ),
+                        child: Icon(
+                          s.$1,
+                          size: 18,
+                          color: const Color(0xFFE6BD1E),
+                        ),
                       ),
-                    ),
-                  ],
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Text(
+                              s.$2,
+                              overflow: TextOverflow.ellipsis,
+                              style: GoogleFonts.manrope(
+                                fontSize: 11,
+                                fontWeight: FontWeight.w700,
+                                color: _titleInk,
+                              ),
+                            ),
+                            Text(
+                              s.$3,
+                              overflow: TextOverflow.ellipsis,
+                              style: GoogleFonts.figtree(
+                                fontSize: 9,
+                                color: _gray,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
               ),
             );
@@ -403,22 +426,7 @@ class _SkillCoursesPageState extends State<SkillCoursesPage> {
                 ),
               ),
               const Spacer(),
-              Container(
-                padding: const EdgeInsets.symmetric(
-                    horizontal: 10, vertical: 6),
-                decoration: BoxDecoration(
-                  color: _ink,
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Text(
-                  'View',
-                  style: GoogleFonts.figtree(
-                    fontSize: 10,
-                    fontWeight: FontWeight.w600,
-                    color: Colors.white,
-                  ),
-                ),
-              ),
+              _GlassActionButton(onTap: () {}),
             ],
           ),
         ],
@@ -617,6 +625,71 @@ class _SkillCoursesPageState extends State<SkillCoursesPage> {
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+class _GlassActionButton extends StatefulWidget {
+  const _GlassActionButton({required this.onTap});
+
+  final VoidCallback onTap;
+
+  @override
+  State<_GlassActionButton> createState() => _GlassActionButtonState();
+}
+
+class _GlassActionButtonState extends State<_GlassActionButton> {
+  bool _hovered = false;
+  bool _pressed = false;
+
+  @override
+  Widget build(BuildContext context) {
+    return MouseRegion(
+      cursor: SystemMouseCursors.click,
+      onEnter: (_) => setState(() => _hovered = true),
+      onExit: (_) => setState(() {
+        _hovered = false;
+        _pressed = false;
+      }),
+      child: GestureDetector(
+        onTapDown: (_) => setState(() => _pressed = true),
+        onTapCancel: () => setState(() => _pressed = false),
+        onTapUp: (_) => setState(() => _pressed = false),
+        onTap: widget.onTap,
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 160),
+          curve: Curves.easeOut,
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topCenter,
+              end: Alignment.bottomCenter,
+              colors: [
+                Colors.white.withValues(alpha: _hovered ? 0.98 : 0.86),
+                const Color(0xFFF2F4F7).withValues(alpha: _pressed ? 0.78 : 0.58),
+              ],
+            ),
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(color: Colors.white.withValues(alpha: 0.85)),
+            boxShadow: [
+              BoxShadow(
+                color: _hovered ? const Color(0x2E000000) : const Color(0x22000000),
+                blurRadius: _hovered ? 10 : 7,
+                offset: Offset(0, _pressed ? 1 : 3),
+              ),
+              const BoxShadow(color: Color(0xCCFFFFFF), blurRadius: 2, offset: Offset(0, -1)),
+            ],
+          ),
+          child: Text(
+            'View',
+            style: GoogleFonts.figtree(
+              fontSize: 10,
+              fontWeight: FontWeight.w700,
+              color: _titleInk,
+            ),
+          ),
+        ),
       ),
     );
   }

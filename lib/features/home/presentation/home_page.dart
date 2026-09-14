@@ -774,8 +774,7 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
     );
   }
 
-  /// Glossy / skeuomorphic glass: outer drop shadow + inset bevel.
-  /// Selected chips use a top inset (pressed). Idle chips use a bottom inset (raised).
+  /// Glossy / skeuomorphic glass: soft white fill, bevel highlight, and raised shadow.
   Widget _glossyGlassButton({
     required Widget child,
     required bool pressed,
@@ -784,14 +783,21 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
     required BorderRadius radius,
     required EdgeInsetsGeometry padding,
   }) {
-    return Container(
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 160),
+      curve: Curves.easeOut,
       decoration: BoxDecoration(
         borderRadius: radius,
         boxShadow: [
           BoxShadow(
-            color: hovered ? const Color(0x55000000) : const Color(0x40000000),
-            blurRadius: hovered ? 4 : 1,
-            offset: Offset(0, pressed ? 1 : 2),
+            color: hovered ? const Color(0x2E000000) : const Color(0x22000000),
+            blurRadius: hovered ? 10 : 7,
+            offset: Offset(0, pressed ? 1 : 3),
+          ),
+          const BoxShadow(
+            color: Color(0xCCFFFFFF),
+            blurRadius: 2,
+            offset: Offset(0, -1),
           ),
         ],
       ),
@@ -799,7 +805,23 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
         borderRadius: radius,
         child: Stack(
           children: [
-            Positioned.fill(child: ColoredBox(color: fill)),
+            Positioned.fill(child: ColoredBox(color: fill.withValues(alpha: 0.72))),
+            Positioned.fill(
+              child: IgnorePointer(
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      begin: Alignment.topCenter,
+                      end: Alignment.bottomCenter,
+                      colors: [
+                        Colors.white.withValues(alpha: hovered ? 0.96 : 0.82),
+                        const Color(0xFFF3F4F6).withValues(alpha: 0.55),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ),
             Positioned.fill(
               child: IgnorePointer(
                 child: DecoratedBox(
@@ -807,8 +829,8 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
                     gradient: LinearGradient(
                       begin: pressed ? Alignment.topCenter : Alignment.bottomCenter,
                       end: pressed ? Alignment.bottomCenter : Alignment.topCenter,
-                      colors: const [
-                        Color(0x40000000),
+                      colors: [
+                        pressed ? const Color(0x22000000) : const Color(0x26000000),
                         Color(0x00000000),
                       ],
                       stops: pressed ? [0, 0.55] : [0, 0.4],
@@ -826,7 +848,7 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
                         begin: Alignment.topCenter,
                         end: Alignment.bottomCenter,
                         colors: [
-                          Colors.white.withValues(alpha: hovered ? 0.95 : 0.7),
+                          Colors.white.withValues(alpha: hovered ? 0.9 : 0.58),
                           Colors.white.withValues(alpha: 0),
                         ],
                         stops: const [0, 0.45],
@@ -1191,7 +1213,7 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
                     onTap: () {
                       Navigator.of(context).push(
                         MaterialPageRoute(
-                          builder: (_) => const AllInstructorsPage(),
+                          builder: (_) => const TopInstructorsPage(),
                         ),
                       );
                     },

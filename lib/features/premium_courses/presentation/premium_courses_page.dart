@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:skillsikka/features/premium_courses/presentation/premium_course_details_page.dart';
 
 const _pageBackground = Color(0xFFF9FAFB);
 const _ink = Color(0xFF201C15);
@@ -180,7 +181,12 @@ class _CarouselCourseCard extends StatelessWidget {
   final _PremiumCourse course;
 
   @override
-  Widget build(BuildContext context) => Container(
+  Widget build(BuildContext context) => GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: () => Navigator.of(context).push(
+          MaterialPageRoute(builder: (_) => const CourseDetailsPage()),
+        ),
+        child: Container(
         width: 220,
         padding: const EdgeInsets.all(12),
         decoration: BoxDecoration(
@@ -200,10 +206,15 @@ class _CarouselCourseCard extends StatelessWidget {
           const SizedBox(height: 8),
           Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
             Text(course.price, style: GoogleFonts.manrope(fontSize: 14, fontWeight: FontWeight.w800, color: const Color(0xFF524C00))),
-            _ViewButton(onTap: () {}),
+            _ViewButton(
+              onTap: () => Navigator.of(context).push(
+                MaterialPageRoute(builder: (_) => const CourseDetailsPage()),
+              ),
+            ),
           ]),
         ]),
-      );
+      ),
+    );
 }
 
 class _ListCourseCard extends StatelessWidget {
@@ -211,7 +222,12 @@ class _ListCourseCard extends StatelessWidget {
   final _PremiumCourse course;
 
   @override
-  Widget build(BuildContext context) => Container(
+  Widget build(BuildContext context) => GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: () => Navigator.of(context).push(
+          MaterialPageRoute(builder: (_) => const CourseDetailsPage()),
+        ),
+        child: Container(
         height: 106,
         padding: const EdgeInsets.all(12),
         decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(16), border: Border.all(color: const Color(0xFFF3F4F6))),
@@ -236,7 +252,8 @@ class _ListCourseCard extends StatelessWidget {
             ]),
           ),
         ]),
-      );
+      ),
+    );
 }
 
 class _MetaRow extends StatelessWidget {

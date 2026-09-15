@@ -36,6 +36,7 @@ dependencies:
   flutter_riverpod: ^2.6.1
   go_router: ^15.1.2
   google_fonts: ^6.2.1
+  video_player: ^2.8.6
 
   # The following adds the Cupertino Icons font to your application.
   # Use with the CupertinoIcons class for iOS style icons.
@@ -72,7 +73,8 @@ flutter:
     - assets/figma/face/
     - assets/figma/premiumcourse/
     - assets/figma/skillcourse/
-    - assets/figma/instructors/
+    - assets/figma/skillcourse/
+    - assets/figma/stlearning/
     - assets/figma/learning/course_banner.png
     - assets/figma/learning/chemistry.png
     - assets/figma/learning/python.png

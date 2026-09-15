@@ -20,6 +20,7 @@ class CourseDetailsPage extends StatefulWidget {
 class _CourseDetailsPageState extends State<CourseDetailsPage> {
   late final VideoPlayerController _videoController;
   bool _videoReady = false;
+  bool _showFullDescription = false;
 
   @override
   void initState() {
@@ -292,7 +293,7 @@ class _CourseDetailsPageState extends State<CourseDetailsPage> {
                 width: 14,
                 height: 14,
                 colorFilter: const ColorFilter.mode(
-                  Color(0xFF22C55E),
+                  Color(0xFFFBBF24),
                   BlendMode.srcIn,
                 ),
               ),
@@ -309,9 +310,13 @@ class _CourseDetailsPageState extends State<CourseDetailsPage> {
             children: [
               SvgPicture.asset(
                 'assets/figma/stlearning/language.svg',
-                width: 14,
-                height: 14,
-                colorFilter: const ColorFilter.mode(_gray, BlendMode.srcIn),
+                width: 18,
+                height: 18,
+                semanticsLabel: 'Available languages',
+                colorFilter: const ColorFilter.mode(
+                  Color(0xFFFBBF24),
+                  BlendMode.srcIn,
+                ),
               ),
               const SizedBox(width: 8),
               Text(
@@ -374,7 +379,7 @@ class _CourseDetailsPageState extends State<CourseDetailsPage> {
                     width: 14,
                     height: 14,
                     colorFilter: const ColorFilter.mode(
-                      Color(0xFF22C55E),
+                      Color(0xFFFBBF24),
                       BlendMode.srcIn,
                     ),
                   ),
@@ -632,12 +637,52 @@ class _CourseDetailsPageState extends State<CourseDetailsPage> {
             ),
           ),
           const SizedBox(height: 8),
-          Text(
-            'Show more',
-            style: GoogleFonts.figtree(
-              fontSize: 12,
-              color: const Color(0xFF5D2EE6),
-              fontWeight: FontWeight.w600,
+          if (_showFullDescription) ...[
+            Text(
+              'Improved guided labs, added CI/CD examples, and expanded the '
+              'AWS security modules with practical exercises.',
+              style: GoogleFonts.figtree(
+                fontSize: 13,
+                color: _gray,
+                height: 1.5,
+              ),
+            ),
+            const SizedBox(height: 12),
+            Text(
+              'v 2.0 - October 2024',
+              style: GoogleFonts.manrope(
+                fontSize: 16,
+                fontWeight: FontWeight.w700,
+                color: _ink,
+              ),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              'Updated the project material and added beginner-friendly '
+              'deployment walkthroughs.',
+              style: GoogleFonts.figtree(
+                fontSize: 13,
+                color: _gray,
+                height: 1.5,
+              ),
+            ),
+            const SizedBox(height: 8),
+          ],
+          GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onTap: () => setState(
+              () => _showFullDescription = !_showFullDescription,
+            ),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(vertical: 4),
+              child: Text(
+                _showFullDescription ? 'Show less' : 'Show more',
+                style: GoogleFonts.figtree(
+                  fontSize: 12,
+                  color: const Color(0xFF5D2EE6),
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
             ),
           ),
         ],

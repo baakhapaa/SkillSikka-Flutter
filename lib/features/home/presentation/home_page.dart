@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:skillsikka/features/instructors/presentation/instructor_page.dart';
 import 'package:skillsikka/features/books/presentation/book_details.dart';
+import 'package:skillsikka/features/premium_courses/presentation/premium_course_details_page.dart';
 import 'package:skillsikka/features/premium_courses/presentation/premium_courses_page.dart';
 import 'package:skillsikka/features/recommendedcourse/presentation/recommended_course.dart';
 import 'package:skillsikka/features/skill_courses/presentation/skill_courses.dart';
@@ -1445,7 +1446,10 @@ class _HomePageState extends State<HomePage>
   }
 
   Widget _buildPremiumCard({required String image, required String avatar}) {
-    return Container(
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: _openPremiumCourseDetails,
+      child: Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         color: Colors.white,
@@ -1681,7 +1685,7 @@ class _HomePageState extends State<HomePage>
                     ],
                   ),
                   child: ElevatedButton(
-                    onPressed: () {},
+                    onPressed: _openPremiumCourseDetails,
                     style: ElevatedButton.styleFrom(
                       backgroundColor: Colors.transparent,
                       foregroundColor: const Color(0xFF1B1B1B),
@@ -1713,6 +1717,13 @@ class _HomePageState extends State<HomePage>
           ),
         ],
       ),
+      ),
+    );
+  }
+
+  void _openPremiumCourseDetails() {
+    Navigator.of(context).push(
+      MaterialPageRoute(builder: (_) => const CourseDetailsPage()),
     );
   }
 

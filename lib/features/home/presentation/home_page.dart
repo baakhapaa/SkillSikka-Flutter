@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:skillsikka/features/instructors/presentation/instructor_page.dart';
 import 'package:skillsikka/features/premium_courses/presentation/premium_courses_page.dart';
+import 'package:skillsikka/features/recommendedcourse/presentation/recommended_course.dart';
 import 'package:skillsikka/features/skill_courses/presentation/skill_courses.dart';
 
 const _cream = Color(0xFFFAF9F6);
@@ -1755,7 +1756,26 @@ class _HomePageState extends State<HomePage>
       padding: const EdgeInsets.fromLTRB(12, 16, 12, 16),
       child: Column(
         children: [
-          _buildSectionHeader('Recommended Books'),
+          _buildSectionHeader(
+            'Recommended Books',
+            trailing: GestureDetector(
+              onTap: () {
+                Navigator.of(context).push(
+                  MaterialPageRoute(
+                    builder: (_) => const BrowseCategoriesPage(),
+                  ),
+                );
+              },
+              child: Text(
+                'See All',
+                style: GoogleFonts.figtree(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                  color: _gray,
+                ),
+              ),
+            ),
+          ),
           const SizedBox(height: 16),
           for (var i = 0; i < books.length; i++) ...[
             Padding(

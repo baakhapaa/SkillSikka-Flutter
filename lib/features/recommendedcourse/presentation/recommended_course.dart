@@ -8,6 +8,18 @@ const _gray = Color(0xFF4B5563);
 const _softGray = Color(0xFF8D887F);
 const _border = Color(0xFFEAEAEA);
 
+// Author avatars — cycle through these 8 images
+const _authorAvatars = <String>[
+  'assets/figma/instructors/instructor.png',
+  'assets/figma/instructors/instructor1.png',
+  'assets/figma/instructors/instructor2.png',
+  'assets/figma/instructors/instructor3.png',
+  'assets/figma/instructors/instructor4.png',
+  'assets/figma/instructors/instructor5.png',
+  'assets/figma/instructors/instructor6.png',
+  'assets/figma/instructors/instructor7.png',
+];
+
 class BrowseCategoriesPage extends StatefulWidget {
   const BrowseCategoriesPage({super.key});
 
@@ -39,7 +51,8 @@ class _BrowseCategoriesPageState extends State<BrowseCategoriesPage> {
       title: 'The Art of Problem Solving (Intro)',
       category: 'Math',
       tags: ['Beginner', 'Practice-heavy'],
-      description: 'Strengthen problem-solving with guided practice.',
+      description:
+          'Strengthen logic, visualization, and critical thinking with step-by-step math problem solving guides and real world mental-model exercises.',
       author: 'R. L. Smith',
       rating: '4.7',
     ),
@@ -161,7 +174,8 @@ class _BrowseCategoriesPageState extends State<BrowseCategoriesPage> {
             _buildNavigationBar(),
             Expanded(
               child: SingleChildScrollView(
-                padding: const EdgeInsets.fromLTRB(16, 12, 16, 104),
+                // Bottom padding removed — list ends flush
+                padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
@@ -179,7 +193,7 @@ class _BrowseCategoriesPageState extends State<BrowseCategoriesPage> {
       ),
     );
   }
-  
+
   Widget _buildNavigationBar() {
     return Container(
       height: 56,
@@ -212,7 +226,6 @@ class _BrowseCategoriesPageState extends State<BrowseCategoriesPage> {
             ),
           ),
           const Spacer(),
-          // Filter button
           Container(
             padding: const EdgeInsets.all(8),
             decoration: BoxDecoration(
@@ -220,11 +233,7 @@ class _BrowseCategoriesPageState extends State<BrowseCategoriesPage> {
               borderRadius: BorderRadius.circular(999),
               border: Border.all(color: const Color(0xFFF3F4F6)),
             ),
-            child: const Icon(
-              Icons.tune,
-              size: 18,
-              color: _ink,
-            ),
+            child: const Icon(Icons.tune, size: 18, color: _ink),
           ),
         ],
       ),
@@ -246,18 +255,12 @@ class _BrowseCategoriesPageState extends State<BrowseCategoriesPage> {
           Expanded(
             child: TextField(
               controller: _searchController,
-              style: GoogleFonts.figtree(
-                fontSize: 14,
-                color: _ink,
-              ),
+              style: GoogleFonts.figtree(fontSize: 14, color: _ink),
               decoration: InputDecoration(
                 isDense: true,
                 border: InputBorder.none,
                 hintText: 'Search books...',
-                hintStyle: GoogleFonts.figtree(
-                  fontSize: 14,
-                  color: _softGray,
-                ),
+                hintStyle: GoogleFonts.figtree(fontSize: 14, color: _softGray),
               ),
             ),
           ),
@@ -292,8 +295,8 @@ class _BrowseCategoriesPageState extends State<BrowseCategoriesPage> {
                 cursor: SystemMouseCursors.click,
                 onEnter: (_) => setState(() => _hoveredCategory = index),
                 onExit: (_) => setState(() => _hoveredCategory = -1),
-               child: GestureDetector(
-                 child: Center(
+                child: GestureDetector(
+                  child: Center(
                     child: _glassChip(
                       label: _categories[index].label,
                       icon: _categories[index].icon,
@@ -387,11 +390,7 @@ class _BrowseCategoriesPageState extends State<BrowseCategoriesPage> {
         mainAxisSize: MainAxisSize.min,
         children: [
           if (icon != null) ...[
-            Icon(
-              icon,
-              size: 14,
-              color: hovered ? _ink : _gray,
-            ),
+            Icon(icon, size: 14, color: hovered ? _ink : _gray),
             const SizedBox(width: 6),
           ],
           Text(
@@ -406,8 +405,6 @@ class _BrowseCategoriesPageState extends State<BrowseCategoriesPage> {
       ),
     );
   }
-
-
 
   Widget _buildPopularBooksSection() {
     return Column(
@@ -436,9 +433,10 @@ class _BrowseCategoriesPageState extends State<BrowseCategoriesPage> {
         const SizedBox(height: 16),
         Column(
           children: [
-            for (final book in _books) ...[
-              _buildBookRow(book),
-              const SizedBox(height: 8),
+            for (var i = 0; i < _books.length; i++) ...[
+              _buildBookRow(_books[i], i),
+              // Only add spacing BETWEEN rows, not after the last one
+              if (i != _books.length - 1) const SizedBox(height: 8),
             ],
           ],
         ),
@@ -446,7 +444,10 @@ class _BrowseCategoriesPageState extends State<BrowseCategoriesPage> {
     );
   }
 
-  Widget _buildBookRow(_Book book) {
+  Widget _buildBookRow(_Book book, int index) {
+    // Cycle through the 8 instructor avatars
+    final avatar = _authorAvatars[index % _authorAvatars.length];
+
     return GestureDetector(
       behavior: HitTestBehavior.opaque,
       onTap: () {
@@ -469,111 +470,118 @@ class _BrowseCategoriesPageState extends State<BrowseCategoriesPage> {
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-          ClipRRect(
-            borderRadius: BorderRadius.circular(4),
-            child: Image.asset(
-              book.image,
-              width: 80,
-              height: 114,
-              fit: BoxFit.cover,
-              errorBuilder: (_, _, _) => Container(
+            // ── Book cover (fits into 80x114) ──────────────────
+            ClipRRect(
+              borderRadius: BorderRadius.circular(4),
+              child: SizedBox(
                 width: 80,
                 height: 114,
-                color: Colors.grey.shade300,
-                child: const Icon(Icons.menu_book, color: Colors.white),
+                child: Image.asset(
+                  book.image,
+                  fit: BoxFit.cover,
+                  errorBuilder: (_, _, _) => Container(
+                    color: Colors.grey.shade300,
+                    child: const Icon(Icons.menu_book, color: Colors.white),
+                  ),
+                ),
               ),
             ),
-          ),
-          const SizedBox(width: 12),
-          // Book info
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  book.title,
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                  style: GoogleFonts.manrope(
-                    fontSize: 14,
-                    fontWeight: FontWeight.w700,
-                    height: 1.35,
-                    color: Colors.black,
-                  ),
-                ),
-                const SizedBox(height: 2),
-                Text(
-                  book.category,
-                  style: GoogleFonts.manrope(
-                    fontSize: 12,
-                    color: Colors.black54,
-                  ),
-                ),
-                const SizedBox(height: 4),
-                // Tags row
-                Wrap(
-                  spacing: 6,
-                  runSpacing: 4,
-                  children: [
-                    for (final tag in book.tags) _buildTag(tag),
-                  ],
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  book.description,
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                  style: GoogleFonts.manrope(
-                    fontSize: 12,
-                    color: Colors.black54,
-                    height: 1.4,
-                  ),
-                ),
-                const SizedBox(height: 8),
-                Row(
-                  children: [
-                    Container(
-                      width: 20,
-                      height: 20,
-                      decoration: const BoxDecoration(
-                        color: Color(0xFFE5E7EB),
-                        shape: BoxShape.circle,
-                      ),
-                      child: const Icon(
-                        Icons.person,
-                        size: 14,
-                        color: Colors.black54,
-                      ),
+            const SizedBox(width: 12),
+            // ── Book info ──────────────────────────────────────
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    book.title,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: GoogleFonts.manrope(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w700,
+                      height: 1.35,
+                      color: Colors.black,
                     ),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: Text(
-                        book.author,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: GoogleFonts.manrope(
-                          fontSize: 12,
-                          fontWeight: FontWeight.w500,
-                          color: Colors.black,
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    book.category,
+                    style: GoogleFonts.manrope(
+                      fontSize: 12,
+                      color: Colors.black54,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Wrap(
+                    spacing: 6,
+                    runSpacing: 4,
+                    children: [for (final tag in book.tags) _buildTag(tag)],
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    book.description,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: GoogleFonts.manrope(
+                      fontSize: 12,
+                      color: Colors.black54,
+                      height: 1.4,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Row(
+                    children: [
+                      // ── Author avatar (circular, 20x20) ──────
+                      ClipOval(
+                        child: SizedBox(
+                          width: 20,
+                          height: 20,
+                          child: Image.asset(
+                            avatar,
+                            fit: BoxFit.cover,
+                            errorBuilder: (_, _, _) => Container(
+                              color: const Color(0xFFE5E7EB),
+                              child: const Icon(
+                                Icons.person,
+                                size: 14,
+                                color: Colors.black54,
+                              ),
+                            ),
+                          ),
                         ),
                       ),
-                    ),
-                    const Icon(Icons.star,
-                        color: Color(0xFFFBBF24), size: 12),
-                    const SizedBox(width: 4),
-                    Text(
-                      book.rating,
-                      style: GoogleFonts.figtree(
-                        fontSize: 10,
-                        fontWeight: FontWeight.w700,
-                        color: _ink,
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          book.author,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: GoogleFonts.manrope(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w500,
+                            color: Colors.black,
+                          ),
+                        ),
                       ),
-                    ),
-                  ],
-                ),
-              ],
+                      const Icon(
+                        Icons.star,
+                        color: Color(0xFFFBBF24),
+                        size: 12,
+                      ),
+                      const SizedBox(width: 4),
+                      Text(
+                        book.rating,
+                        style: GoogleFonts.figtree(
+                          fontSize: 10,
+                          fontWeight: FontWeight.w700,
+                          color: _ink,
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
             ),
-          ),
           ],
         ),
       ),
@@ -593,10 +601,7 @@ class _BrowseCategoriesPageState extends State<BrowseCategoriesPage> {
       ),
       child: Text(
         text,
-        style: GoogleFonts.manrope(
-          fontSize: 12,
-          color: Colors.black,
-        ),
+        style: GoogleFonts.manrope(fontSize: 12, color: Colors.black),
       ),
     );
   }

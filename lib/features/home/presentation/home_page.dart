@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:skillsikka/features/events/presentation/event_details.dart';
 import 'package:skillsikka/features/instructors/presentation/instructor_page.dart';
 import 'package:skillsikka/features/books/presentation/book_details.dart';
 import 'package:skillsikka/features/premium_courses/presentation/premium_course_details_page.dart';
@@ -935,7 +936,24 @@ class _HomePageState extends State<HomePage>
         padding: const EdgeInsets.symmetric(vertical: 10),
         child: Column(
           children: [
-            _buildSectionHeader('Courses'),
+            _buildSectionHeader(
+              'Courses',
+              trailing: GestureDetector(
+                onTap: () {
+                  Navigator.of(context).push(
+                    MaterialPageRoute(builder: (_) => const SkillCoursesPage()),
+                  );
+                },
+                child: Text(
+                  'See All',
+                  style: GoogleFonts.figtree(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                    color: _gray,
+                  ),
+                ),
+              ),
+            ),
             const SizedBox(height: 14),
             SizedBox(
               height: 36,
@@ -1957,7 +1975,24 @@ class _HomePageState extends State<HomePage>
       padding: const EdgeInsets.only(top: 16, bottom: 8),
       child: Column(
         children: [
-          _buildSectionHeader('Event near you'),
+          _buildSectionHeader(
+            'Event near you',
+            trailing: GestureDetector(
+              onTap: () {
+                Navigator.of(context).push(
+                  MaterialPageRoute(builder: (_) => const EventDetailsPage()),
+                );
+              },
+              child: Text(
+                'See All',
+                style: GoogleFonts.figtree(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                  color: _gray,
+                ),
+              ),
+            ),
+          ),
           const SizedBox(height: 12),
           SizedBox(
             height: 220,
@@ -2052,23 +2087,37 @@ class _HomePageState extends State<HomePage>
                                   ),
                                 ),
                                 const Spacer(),
-                                _glassSurface(
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 12,
-                                    vertical: 6,
-                                  ),
-                                  child: Row(
-                                    children: [
-                                      Text(
-                                        'View',
-                                        style: GoogleFonts.figtree(
-                                          fontSize: 12,
-                                          fontWeight: FontWeight.w600,
-                                        ),
+                                GestureDetector(
+                                  onTap: () {
+                                    Navigator.push(
+                                      context,
+                                      MaterialPageRoute(
+                                        builder: (_) =>
+                                            const EventDetailsPage(),
                                       ),
-                                      const SizedBox(width: 4),
-                                      const Icon(Icons.arrow_forward, size: 12),
-                                    ],
+                                    );
+                                  },
+                                  child: _glassSurface(
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 12,
+                                      vertical: 6,
+                                    ),
+                                    child: Row(
+                                      children: [
+                                        Text(
+                                          'View',
+                                          style: GoogleFonts.figtree(
+                                            fontSize: 12,
+                                            fontWeight: FontWeight.w600,
+                                          ),
+                                        ),
+                                        const SizedBox(width: 4),
+                                        const Icon(
+                                          Icons.arrow_forward,
+                                          size: 12,
+                                        ),
+                                      ],
+                                    ),
                                   ),
                                 ),
                               ],

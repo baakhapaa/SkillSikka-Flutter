@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:skillsikka/features/instructors/presentation/instructor_page.dart';
+import 'package:skillsikka/features/books/presentation/book_details.dart';
 import 'package:skillsikka/features/premium_courses/presentation/premium_courses_page.dart';
 import 'package:skillsikka/features/recommendedcourse/presentation/recommended_course.dart';
 import 'package:skillsikka/features/skill_courses/presentation/skill_courses.dart';
@@ -1340,7 +1341,7 @@ class _HomePageState extends State<HomePage>
           fit: StackFit.expand,
           children: [
             Image.asset(
-              'assets/figma/homescreen/instructor1.png',
+              'assets/figma/homescreen/instructor.png',
               fit: BoxFit.cover,
               errorBuilder: (c, e, s) => Container(color: Colors.grey.shade400),
             ),
@@ -1624,32 +1625,33 @@ class _HomePageState extends State<HomePage>
             child: Row(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                SizedBox(
-                  width: 94,
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 10),
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          'ENROLLMENT',
-                          style: GoogleFonts.inter(
-                            fontSize: 10,
-                            height: 1.0,
-                            color: const Color(0xFF8D887F),
+                Expanded(
+                  child: SizedBox(
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 10),
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'ENROLLMENT',
+                            style: GoogleFonts.inter(
+                              fontSize: 10,
+                              height: 1.0,
+                              color: const Color(0xFF8D887F),
+                            ),
                           ),
-                        ),
-                        Text(
-                          'Rs.24.99',
-                          style: GoogleFonts.manrope(
-                            fontSize: 17,
-                            height: 1.0,
-                            fontWeight: FontWeight.w500,
-                            color: const Color(0xFF524C00),
+                          Text(
+                            'Rs.24.99',
+                            style: GoogleFonts.manrope(
+                              fontSize: 17,
+                              height: 1.0,
+                              fontWeight: FontWeight.w500,
+                              color: const Color(0xFF524C00),
+                            ),
                           ),
-                        ),
-                      ],
+                        ],
+                      ),
                     ),
                   ),
                 ),
@@ -1780,100 +1782,121 @@ class _HomePageState extends State<HomePage>
           for (var i = 0; i < books.length; i++) ...[
             Padding(
               padding: const EdgeInsets.symmetric(vertical: 8),
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  ClipRRect(
-                    borderRadius: BorderRadius.circular(4),
-                    child: Image.asset(
-                      books[i].$1,
-                      width: 80,
-                      height: 114,
-                      fit: BoxFit.cover,
-                      errorBuilder: (c, e, s) => Container(
-                        width: 80,
-                        height: 114,
-                        color: Colors.grey.shade300,
-                        child: const Icon(Icons.menu_book, color: Colors.white),
+              child: GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onTap: () {
+                  Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder: (_) => BookDetailsPage(
+                        image: books[i].$1,
+                        title: books[i].$2,
+                        category: books[i].$3,
+                        tags: [books[i].$4, books[i].$5],
+                        description: books[i].$6,
+                        author: books[i].$7,
+                        rating: books[i].$8,
                       ),
                     ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          books[i].$2,
-                          style: GoogleFonts.inter(
-                            fontSize: 14,
-                            fontWeight: FontWeight.w700,
-                            color: Colors.black,
+                  );
+                },
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(4),
+                      child: Image.asset(
+                        books[i].$1,
+                        width: 80,
+                        height: 114,
+                        fit: BoxFit.cover,
+                        errorBuilder: (c, e, s) => Container(
+                          width: 80,
+                          height: 114,
+                          color: Colors.grey.shade300,
+                          child: const Icon(
+                            Icons.menu_book,
+                            color: Colors.white,
                           ),
                         ),
-                        Text(
-                          books[i].$3,
-                          style: GoogleFonts.inter(
-                            fontSize: 12,
-                            color: Colors.black54,
-                          ),
-                        ),
-                        const SizedBox(height: 4),
-                        Row(
-                          children: [
-                            _buildTag(books[i].$4),
-                            const SizedBox(width: 6),
-                            _buildTag(books[i].$5),
-                          ],
-                        ),
-                        const SizedBox(height: 4),
-                        Text(
-                          books[i].$6,
-                          style: GoogleFonts.inter(
-                            fontSize: 12,
-                            color: Colors.black54,
-                          ),
-                        ),
-                        const SizedBox(height: 8),
-                        Row(
-                          children: [
-                            ClipOval(
-                              child: Image.asset(
-                                books[i].$9,
-                                width: 20,
-                                height: 20,
-                                fit: BoxFit.cover,
-                              ),
-                            ),
-                            const SizedBox(width: 8),
-                            Text(
-                              books[i].$7,
-                              style: GoogleFonts.inter(
-                                fontSize: 12,
-                                fontWeight: FontWeight.w500,
-                                color: Colors.black,
-                              ),
-                            ),
-                            const Spacer(),
-                            const Icon(
-                              Icons.star,
-                              color: Color(0xFFFBBF24),
-                              size: 12,
-                            ),
-                            const SizedBox(width: 4),
-                            Text(
-                              books[i].$8,
-                              style: GoogleFonts.figtree(
-                                fontSize: 10,
-                                fontWeight: FontWeight.w700,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ],
+                      ),
                     ),
-                  ),
-                ],
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            books[i].$2,
+                            style: GoogleFonts.inter(
+                              fontSize: 14,
+                              fontWeight: FontWeight.w700,
+                              color: Colors.black,
+                            ),
+                          ),
+                          Text(
+                            books[i].$3,
+                            style: GoogleFonts.inter(
+                              fontSize: 12,
+                              color: Colors.black54,
+                            ),
+                          ),
+                          const SizedBox(height: 4),
+                          Row(
+                            children: [
+                              _buildTag(books[i].$4),
+                              const SizedBox(width: 6),
+                              _buildTag(books[i].$5),
+                            ],
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            books[i].$6,
+                            style: GoogleFonts.inter(
+                              fontSize: 12,
+                              color: Colors.black54,
+                            ),
+                          ),
+                          const SizedBox(height: 8),
+                          Row(
+                            children: [
+                              ClipOval(
+                                child: Image.asset(
+                                  books[i].$9,
+                                  width: 20,
+                                  height: 20,
+                                  fit: BoxFit.cover,
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                              Text(
+                                books[i].$7,
+                                style: GoogleFonts.inter(
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w500,
+                                  color: Colors.black,
+                                ),
+                              ),
+                              const Spacer(),
+                              const Icon(
+                                Icons.star,
+                                color: Color(0xFFFBBF24),
+                                size: 12,
+                              ),
+                              const SizedBox(width: 4),
+                              Text(
+                                books[i].$8,
+                                style: GoogleFonts.figtree(
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
               ),
             ),
             if (i != books.length - 1)

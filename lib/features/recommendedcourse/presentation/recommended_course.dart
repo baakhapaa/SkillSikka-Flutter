@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:skillsikka/features/books/presentation/book_details.dart';
 
 const _bg = Color(0xFFFAF9F6);
 const _ink = Color(0xFF111827);
@@ -446,11 +447,28 @@ class _BrowseCategoriesPageState extends State<BrowseCategoriesPage> {
   }
 
   Widget _buildBookRow(_Book book) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 8),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: () {
+        Navigator.of(context).push(
+          MaterialPageRoute(
+            builder: (_) => BookDetailsPage(
+              image: book.image,
+              title: book.title,
+              category: book.category,
+              tags: book.tags,
+              description: book.description,
+              author: book.author,
+              rating: book.rating,
+            ),
+          ),
+        );
+      },
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 8),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
           ClipRRect(
             borderRadius: BorderRadius.circular(4),
             child: Image.asset(
@@ -556,7 +574,8 @@ class _BrowseCategoriesPageState extends State<BrowseCategoriesPage> {
               ],
             ),
           ),
-        ],
+          ],
+        ),
       ),
     );
   }

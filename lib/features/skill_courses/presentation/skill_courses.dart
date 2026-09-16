@@ -34,8 +34,7 @@ class _SkillCoursesPageState extends State<SkillCoursesPage> {
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
                     _buildSkillsGrid(),
-                    // Extra breathing room between the skill filters and Top Course.
-                    const SizedBox(height: 28),
+                    const SizedBox(height: 14),
                     _buildSectionHeader('Top Course'),
                     const SizedBox(height: 18),
                     _buildTopCoursesCarousel(),
@@ -146,7 +145,7 @@ class _SkillCoursesPageState extends State<SkillCoursesPage> {
         height: 64,
         child: ListView.separated(
           scrollDirection: Axis.horizontal,
-          padding: const EdgeInsets.only(right: 8),
+          padding: const EdgeInsets.symmetric(horizontal: 4),
           itemCount: skills.length,
           separatorBuilder: (_, _) => const SizedBox(width: 12),
           itemBuilder: (context, index) {
@@ -155,97 +154,103 @@ class _SkillCoursesPageState extends State<SkillCoursesPage> {
             final isHovered = index == _hoveredSkillIndex;
             final isActive = isSelected || isHovered;
 
-            return MouseRegion(
-              cursor: SystemMouseCursors.click,
-              onEnter: (_) => setState(() => _hoveredSkillIndex = index),
-              onExit: (_) => setState(() => _hoveredSkillIndex = -1),
-              child: GestureDetector(
-                onTap: () => setState(() => _selectedSkillIndex = index),
-               child: AnimatedScale(
-                 scale: isHovered ? 1.05 : 1.0,
-                 duration: const Duration(milliseconds: 180),
-                 curve: Curves.easeOut,
-                 child: AnimatedContainer(
-                   duration: const Duration(milliseconds: 180),
-                  curve: Curves.easeOut,
-                  width: 140,
-                  padding: const EdgeInsets.all(10),
-                  decoration: BoxDecoration(
-                    gradient: LinearGradient(
-                      begin: Alignment.topCenter,
-                      end: Alignment.bottomCenter,
-                      colors: isActive
-                          ? [
-                              Colors.white.withValues(alpha: 0.98),
-                              const Color(0xFFF2F4F7).withValues(alpha: 0.7),
-                            ]
-                          : const [Color(0xFFFAFAFA), Color(0xFFF7F7F8)],
-                    ),
-                    borderRadius: BorderRadius.circular(14),
-                    border: Border.all(
-                      color: Colors.white.withValues(
-                        alpha: isActive ? 0.9 : 0.55,
+            return Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 4),
+              child: MouseRegion(
+                cursor: SystemMouseCursors.click,
+                onEnter: (_) => setState(() => _hoveredSkillIndex = index),
+                onExit: (_) => setState(() => _hoveredSkillIndex = -1),
+                child: GestureDetector(
+                  onTap: () => setState(() => _selectedSkillIndex = index),
+                  child: AnimatedScale(
+                    scale: isHovered ? 1.05 : 1.0,
+                    duration: const Duration(milliseconds: 180),
+                    curve: Curves.easeOut,
+                    child: AnimatedContainer(
+                      duration: const Duration(milliseconds: 180),
+                      curve: Curves.easeOut,
+                      width: 140,
+                      padding: const EdgeInsets.all(10),
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(
+                          begin: Alignment.topCenter,
+                          end: Alignment.bottomCenter,
+                          colors: isActive
+                              ? [
+                                  Colors.white.withValues(alpha: 0.98),
+                                  const Color(
+                                    0xFFF2F4F7,
+                                  ).withValues(alpha: 0.7),
+                                ]
+                              : const [Color(0xFFFAFAFA), Color(0xFFF7F7F8)],
+                        ),
+                        borderRadius: BorderRadius.circular(14),
+                        border: Border.all(
+                          color: Colors.white.withValues(
+                            alpha: isActive ? 0.9 : 0.55,
+                          ),
+                        ),
+                        boxShadow: isActive
+                            ? const [
+                                BoxShadow(
+                                  color: Color(0x24000000),
+                                  blurRadius: 10,
+                                  offset: Offset(0, 3),
+                                ),
+                                BoxShadow(
+                                  color: Color(0xCCFFFFFF),
+                                  blurRadius: 2,
+                                  offset: Offset(0, -1),
+                                ),
+                              ]
+                            : const [],
+                      ),
+                      child: Row(
+                        children: [
+                          Container(
+                            height: 36,
+                            width: 36,
+                            decoration: const BoxDecoration(
+                              color: Color(0xFFFFF4C7),
+                              shape: BoxShape.circle,
+                            ),
+                            child: Icon(
+                              s.$1,
+                              size: 18,
+                              color: const Color(0xFFE6BD1E),
+                            ),
+                          ),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                Text(
+                                  s.$2,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: GoogleFonts.manrope(
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.w700,
+                                    color: _titleInk,
+                                  ),
+                                ),
+                                Text(
+                                  s.$3,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: GoogleFonts.figtree(
+                                    fontSize: 9,
+                                    color: _gray,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
                       ),
                     ),
-                    boxShadow: isActive
-                        ? const [
-                            BoxShadow(
-                              color: Color(0x24000000),
-                              blurRadius: 10,
-                              offset: Offset(0, 3),
-                            ),
-                            BoxShadow(
-                              color: Color(0xCCFFFFFF),
-                              blurRadius: 2,
-                              offset: Offset(0, -1),
-                            ),
-                          ]
-                        : const [],
-                  ),
-                  child: Row(
-                    children: [
-                      Container(
-                        height: 36,
-                        width: 36,
-                        decoration: const BoxDecoration(
-                          color: Color(0xFFFFF4C7),
-                          shape: BoxShape.circle,
-                        ),
-                        child: Icon(
-                          s.$1,
-                          size: 18,
-                          color: const Color(0xFFE6BD1E),
-                        ),
-                      ),
-                      const SizedBox(width: 10),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            Text(
-                              s.$2,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: GoogleFonts.manrope(
-                                fontSize: 11,
-                                fontWeight: FontWeight.w700,
-                                color: _titleInk,
-                              ),
-                            ),
-                            Text(
-                              s.$3,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: GoogleFonts.figtree(
-                                fontSize: 9,
-                                color: _gray,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ],
                   ),
                 ),
               ),

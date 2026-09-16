@@ -217,31 +217,12 @@ class _AllCoursesPageState extends State<AllCoursesPage> {
     return AnimatedContainer(
       duration: const Duration(milliseconds: 160),
       curve: Curves.easeOut,
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
       decoration: BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topCenter,
-          end: Alignment.bottomCenter,
-          colors: [
-            Colors.white.withValues(alpha: hovered ? 0.98 : 0.84),
-            const Color(0xFFF3F4F6).withValues(
-              alpha: pressed
-                  ? 0.72
-                  : hovered
-                  ? 0.62
-                  : 0.55,
-            ),
-          ],
-        ),
         borderRadius: BorderRadius.circular(14),
-        border: Border.all(
-          color: Colors.white.withValues(alpha: hovered ? 0.9 : 0.8),
-          width: hovered ? 1.5 : 1,
-        ),
         boxShadow: [
           BoxShadow(
-            color: hovered ? const Color(0x3A000000) : const Color(0x22000000),
-            blurRadius: hovered ? 13 : 7,
+            color: hovered ? const Color(0x2E000000) : const Color(0x22000000),
+            blurRadius: hovered ? 10 : 7,
             offset: Offset(0, pressed ? 1 : 3),
           ),
           const BoxShadow(
@@ -249,21 +230,84 @@ class _AllCoursesPageState extends State<AllCoursesPage> {
             blurRadius: 2,
             offset: Offset(0, -1),
           ),
-          if (hovered)
-            const BoxShadow(
-              color: Color(0x55FFFFFF),
-              blurRadius: 8,
-              spreadRadius: 1,
-              offset: Offset(0, -3),
-            ),
         ],
       ),
-      child: Text(
-        label,
-        style: GoogleFonts.figtree(
-          fontSize: 12,
-          fontWeight: FontWeight.w600,
-          color: _ink,
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(14),
+        child: Stack(
+          children: [
+            Positioned.fill(
+              child: ColoredBox(color: Colors.white.withValues(alpha: 0.72)),
+            ),
+            Positioned.fill(
+              child: IgnorePointer(
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      begin: Alignment.topCenter,
+                      end: Alignment.bottomCenter,
+                      colors: [
+                        Colors.white.withValues(alpha: hovered ? 0.96 : 0.82),
+                        const Color(0xFFF3F4F6).withValues(alpha: 0.55),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ),
+            Positioned.fill(
+              child: IgnorePointer(
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      begin: pressed
+                          ? Alignment.topCenter
+                          : Alignment.bottomCenter,
+                      end: pressed
+                          ? Alignment.bottomCenter
+                          : Alignment.topCenter,
+                      colors: [
+                        pressed
+                            ? const Color(0x22000000)
+                            : const Color(0x26000000),
+                        Color(0x00000000),
+                      ],
+                      stops: pressed ? [0, 0.55] : [0, 0.4],
+                    ),
+                  ),
+                ),
+              ),
+            ),
+            if (!pressed || hovered)
+              Positioned.fill(
+                child: IgnorePointer(
+                  child: DecoratedBox(
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        begin: Alignment.topCenter,
+                        end: Alignment.bottomCenter,
+                        colors: [
+                          Colors.white.withValues(alpha: hovered ? 0.9 : 0.58),
+                          Colors.white.withValues(alpha: 0),
+                        ],
+                        stops: const [0, 0.45],
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+              child: Text(
+                label,
+                style: GoogleFonts.figtree(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                  color: _ink,
+                ),
+              ),
+            ),
+          ],
         ),
       ),
     );

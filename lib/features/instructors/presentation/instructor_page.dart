@@ -84,6 +84,22 @@ class _TopInstructorsPageState extends State<TopInstructorsPage> {
       courses: '11 courses',
       rating: '4.8',
     ),
+    _Instructor(
+      image: 'assets/figma/instructors/instructor6.png',
+      name: 'Summin Limbu',
+      specialty: 'Data Sceince Lecturer',
+      students: '68,110 students',
+      courses: '16 courses',
+      rating: '4.5',
+    ),
+    _Instructor(
+      image: 'assets/figma/instructors/instructor2.png',
+      name: 'Jenisha Thapa Magar',
+      specialty: 'Stats Analyst & Report Writer',
+      students: '78,760 students',
+      courses: '18 courses',
+      rating: '4.9',
+    ),
   ];
 
   @override

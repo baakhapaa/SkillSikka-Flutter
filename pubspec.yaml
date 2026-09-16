@@ -76,6 +76,7 @@ flutter:
     - assets/figma/stlearning/
     - assets/figma/event/
     - assets/figma/instructors/
+    - assets/figma/courses/
     - assets/figma/learning/course_banner.png
     - assets/figma/learning/chemistry.png
     - assets/figma/learning/python.png

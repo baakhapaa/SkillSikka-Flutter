@@ -5,6 +5,7 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:skillsikka/features/events/presentation/event_details.dart';
 import 'package:skillsikka/features/instructors/presentation/instructor_page.dart';
 import 'package:skillsikka/features/books/presentation/book_details.dart';
+import 'package:skillsikka/features/courses/presentation/courses.dart';
 import 'package:skillsikka/features/premium_courses/presentation/premium_course_details_page.dart';
 import 'package:skillsikka/features/premium_courses/presentation/premium_courses_page.dart';
 import 'package:skillsikka/features/recommendedcourse/presentation/recommended_course.dart';
@@ -211,42 +212,62 @@ class _HomePageState extends State<HomePage>
             fit: BoxFit.contain,
           ),
           const Spacer(),
-          _buildIconButton(Icons.notifications_none, hasBadge: true),
+          _buildIconButton(
+            Icons.notifications_none,
+            hasBadge: true,
+            semanticLabel: 'Notifications',
+          ),
           const SizedBox(width: 6),
-          _buildIconButton(Icons.search),
+          _buildIconButton(Icons.search, semanticLabel: 'Search'),
         ],
       ),
     );
   }
 
-  Widget _buildIconButton(IconData icon, {bool hasBadge = false}) {
-    return Stack(
-      clipBehavior: Clip.none,
-      children: [
-        Container(
-          width: 40,
-          height: 40,
-          decoration: BoxDecoration(
-            color: Colors.black.withValues(alpha: 0.05),
-            shape: BoxShape.circle,
+  Widget _buildIconButton(
+    IconData icon, {
+    bool hasBadge = false,
+    String? semanticLabel,
+  }) {
+    return Semantics(
+      label: semanticLabel ?? _describeIcon(icon),
+      button: true,
+      child: Stack(
+        clipBehavior: Clip.none,
+        children: [
+          Container(
+            width: 40,
+            height: 40,
+            decoration: BoxDecoration(
+              color: Colors.black.withValues(alpha: 0.05),
+              shape: BoxShape.circle,
+            ),
+            child: Icon(icon, color: _gray, size: 22),
           ),
-          child: Icon(icon, color: _gray, size: 22),
-        ),
-        if (hasBadge)
-          Positioned(
-            right: 10,
-            top: 10,
-            child: Container(
-              width: 6,
-              height: 6,
-              decoration: const BoxDecoration(
-                color: Color(0xFFFF5F1F),
-                shape: BoxShape.circle,
+          if (hasBadge)
+            Positioned(
+              right: 10,
+              top: 10,
+              child: Container(
+                width: 6,
+                height: 6,
+                decoration: const BoxDecoration(
+                  color: Color(0xFFFF5F1F),
+                  shape: BoxShape.circle,
+                ),
               ),
             ),
-          ),
-      ],
+        ],
+      ),
     );
+  }
+
+  static String _describeIcon(IconData icon) {
+    if (icon == Icons.notifications_none || icon == Icons.notifications) {
+      return 'Notifications';
+    }
+    if (icon == Icons.search) return 'Search';
+    return 'Icon button';
   }
 
   Widget _buildSectionHeader(String title, {Widget? trailing}) {
@@ -941,7 +962,7 @@ class _HomePageState extends State<HomePage>
               trailing: GestureDetector(
                 onTap: () {
                   Navigator.of(context).push(
-                    MaterialPageRoute(builder: (_) => const SkillCoursesPage()),
+                    MaterialPageRoute(builder: (_) => const AllCoursesPage()),
                   );
                 },
                 child: Text(

@@ -34,9 +34,10 @@ class _SkillCoursesPageState extends State<SkillCoursesPage> {
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
                     _buildSkillsGrid(),
-                    const SizedBox(height: 16),
+                    // Extra breathing room between the skill filters and Top Course.
+                    const SizedBox(height: 28),
                     _buildSectionHeader('Top Course'),
-                    const SizedBox(height: 14),
+                    const SizedBox(height: 18),
                     _buildTopCoursesCarousel(),
                     const SizedBox(height: 16),
                     _buildSectionHeader('Course'),
@@ -105,9 +106,6 @@ class _SkillCoursesPageState extends State<SkillCoursesPage> {
     );
   }
 
-  // ─────────────────────────────────────────────────────────────
-  // SECTION HEADER  ( |  Title )
-  // ─────────────────────────────────────────────────────────────
   Widget _buildSectionHeader(String title) {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16),
@@ -134,9 +132,6 @@ class _SkillCoursesPageState extends State<SkillCoursesPage> {
     );
   }
 
-  // ─────────────────────────────────────────────────────────────
-  // SKILLS GRID (horizontal scroller)
-  // ─────────────────────────────────────────────────────────────
   Widget _buildSkillsGrid() {
     final skills = [
       (Icons.code, 'Coding', '32 Courses'),
@@ -146,9 +141,9 @@ class _SkillCoursesPageState extends State<SkillCoursesPage> {
     ];
 
     return Padding(
-      padding: const EdgeInsets.only(left: 16, right: 0),
+      padding: const EdgeInsets.only(left: 16, right: 16),
       child: SizedBox(
-        height: 62,
+        height: 64,
         child: ListView.separated(
           scrollDirection: Axis.horizontal,
           padding: const EdgeInsets.only(right: 16),
@@ -170,7 +165,7 @@ class _SkillCoursesPageState extends State<SkillCoursesPage> {
                   duration: const Duration(milliseconds: 180),
                   curve: Curves.easeOut,
                   width: 140,
-                  padding: const EdgeInsets.all(12),
+                  padding: const EdgeInsets.all(10),
                   decoration: BoxDecoration(
                     gradient: LinearGradient(
                       begin: Alignment.topCenter,
@@ -226,6 +221,7 @@ class _SkillCoursesPageState extends State<SkillCoursesPage> {
                           children: [
                             Text(
                               s.$2,
+                              maxLines: 1,
                               overflow: TextOverflow.ellipsis,
                               style: GoogleFonts.manrope(
                                 fontSize: 11,
@@ -235,6 +231,7 @@ class _SkillCoursesPageState extends State<SkillCoursesPage> {
                             ),
                             Text(
                               s.$3,
+                              maxLines: 1,
                               overflow: TextOverflow.ellipsis,
                               style: GoogleFonts.figtree(
                                 fontSize: 9,
@@ -255,9 +252,6 @@ class _SkillCoursesPageState extends State<SkillCoursesPage> {
     );
   }
 
-  // ─────────────────────────────────────────────────────────────
-  // TOP COURSES CAROUSEL (horizontal cards)
-  // ─────────────────────────────────────────────────────────────
   Widget _buildTopCoursesCarousel() {
     final courses = [
       (

@@ -180,13 +180,14 @@ class _SkillCoursesPageState extends State<SkillCoursesPage> {
                               Colors.white.withValues(alpha: 0.98),
                               const Color(0xFFF2F4F7).withValues(alpha: 0.7),
                             ]
-                          : const [
-                              Color(0xFFFAFAFA),
-                              Color(0xFFF7F7F8),
-                            ],
+                          : const [Color(0xFFFAFAFA), Color(0xFFF7F7F8)],
                     ),
                     borderRadius: BorderRadius.circular(14),
-                    border: Border.all(color: Colors.white.withValues(alpha: isActive ? 0.9 : 0.55)),
+                    border: Border.all(
+                      color: Colors.white.withValues(
+                        alpha: isActive ? 0.9 : 0.55,
+                      ),
+                    ),
                     boxShadow: isActive
                         ? const [
                             BoxShadow(
@@ -347,8 +348,11 @@ class _SkillCoursesPageState extends State<SkillCoursesPage> {
                     fit: BoxFit.cover,
                     errorBuilder: (_, _, _) => Container(
                       color: Colors.grey.shade300,
-                      child: const Icon(Icons.image,
-                          color: Colors.white, size: 32),
+                      child: const Icon(
+                        Icons.image,
+                        color: Colors.white,
+                        size: 32,
+                      ),
                     ),
                   ),
                   Positioned(
@@ -356,7 +360,9 @@ class _SkillCoursesPageState extends State<SkillCoursesPage> {
                     left: 8,
                     child: Container(
                       padding: const EdgeInsets.symmetric(
-                          horizontal: 8, vertical: 4),
+                        horizontal: 8,
+                        vertical: 4,
+                      ),
                       decoration: BoxDecoration(
                         color: Colors.white.withValues(alpha: 0.85),
                         borderRadius: BorderRadius.circular(100),
@@ -591,8 +597,7 @@ class _SkillCoursesPageState extends State<SkillCoursesPage> {
                 const SizedBox(height: 6),
                 Row(
                   children: [
-                    const Icon(Icons.star,
-                        color: Color(0xFFFBBF24), size: 12),
+                    const Icon(Icons.star, color: Color(0xFFFBBF24), size: 12),
                     const SizedBox(width: 4),
                     Text(
                       rating,
@@ -667,18 +672,26 @@ class _GlassActionButtonState extends State<_GlassActionButton> {
               end: Alignment.bottomCenter,
               colors: [
                 Colors.white.withValues(alpha: _hovered ? 0.98 : 0.86),
-                const Color(0xFFF2F4F7).withValues(alpha: _pressed ? 0.78 : 0.58),
+                const Color(
+                  0xFFF2F4F7,
+                ).withValues(alpha: _pressed ? 0.78 : 0.58),
               ],
             ),
             borderRadius: BorderRadius.circular(14),
             border: Border.all(color: Colors.white.withValues(alpha: 0.85)),
             boxShadow: [
               BoxShadow(
-                color: _hovered ? const Color(0x2E000000) : const Color(0x22000000),
+                color: _hovered
+                    ? const Color(0x2E000000)
+                    : const Color(0x22000000),
                 blurRadius: _hovered ? 10 : 7,
                 offset: Offset(0, _pressed ? 1 : 3),
               ),
-              const BoxShadow(color: Color(0xCCFFFFFF), blurRadius: 2, offset: Offset(0, -1)),
+              const BoxShadow(
+                color: Color(0xCCFFFFFF),
+                blurRadius: 2,
+                offset: Offset(0, -1),
+              ),
             ],
           ),
           child: Text(

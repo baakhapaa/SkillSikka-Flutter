@@ -179,10 +179,8 @@ class _ShortFeedPageState extends State<ShortFeedPage>
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
-      builder: (context) => CommentsSheet(
-        video: _videoData,
-        onCommentAdded: _onCommentAdded,
-      ),
+      builder: (context) =>
+          CommentsSheet(video: _videoData, onCommentAdded: _onCommentAdded),
     );
   }
 
@@ -649,10 +647,8 @@ class _CommentsSheetState extends State<CommentsSheet> {
                             ScrollViewKeyboardDismissBehavior.onDrag,
                         padding: const EdgeInsets.only(top: 4, bottom: 12),
                         itemCount: _comments.length,
-                        separatorBuilder: (_, _) => const Divider(
-                          height: 1,
-                          color: Color(0xFF2C2C2E),
-                        ),
+                        separatorBuilder: (_, _) =>
+                            const Divider(height: 1, color: Color(0xFF2C2C2E)),
                         itemBuilder: (context, index) {
                           final comment = _comments[index];
                           return SizedBox(
@@ -673,58 +669,58 @@ class _CommentsSheetState extends State<CommentsSheet> {
                 top: false,
                 minimum: const EdgeInsets.only(top: 8, bottom: 10),
                 child: Row(
-                crossAxisAlignment: CrossAxisAlignment.end,
-                children: [
-                  ClipOval(
-                    child: Image.asset(
-                      widget.video.avatar,
-                      width: 36,
-                      height: 36,
-                      fit: BoxFit.cover,
-                    ),
-                  ),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: TextField(
-                      controller: _commentController,
-                      focusNode: _commentFocusNode,
-                      minLines: 1,
-                      maxLines: 4,
-                      textInputAction: TextInputAction.newline,
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontFamily: 'Figtree',
-                        fontSize: 13,
-                      ),
-                      decoration: InputDecoration(
-                        hintText: _replyingTo == null
-                            ? 'Add a comment...'
-                            : 'Reply to @$_replyingTo...',
-                        hintStyle: const TextStyle(color: Color(0xFF9CA3AF)),
-                        filled: true,
-                        fillColor: const Color(0xFF2C2C2E),
-                        contentPadding: const EdgeInsets.symmetric(
-                          horizontal: 14,
-                          vertical: 10,
-                        ),
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(22),
-                          borderSide: BorderSide.none,
-                        ),
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  children: [
+                    ClipOval(
+                      child: Image.asset(
+                        widget.video.avatar,
+                        width: 36,
+                        height: 36,
+                        fit: BoxFit.cover,
                       ),
                     ),
-                  ),
-                  const SizedBox(width: 8),
-                  IconButton(
-                    onPressed: _addComment,
-                    tooltip: 'Post comment',
-                    style: IconButton.styleFrom(
-                      backgroundColor: const Color(0xFFFFD233),
-                      foregroundColor: Colors.black,
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: TextField(
+                        controller: _commentController,
+                        focusNode: _commentFocusNode,
+                        minLines: 1,
+                        maxLines: 4,
+                        textInputAction: TextInputAction.newline,
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontFamily: 'Figtree',
+                          fontSize: 13,
+                        ),
+                        decoration: InputDecoration(
+                          hintText: _replyingTo == null
+                              ? 'Add a comment...'
+                              : 'Reply to @$_replyingTo...',
+                          hintStyle: const TextStyle(color: Color(0xFF9CA3AF)),
+                          filled: true,
+                          fillColor: const Color(0xFF2C2C2E),
+                          contentPadding: const EdgeInsets.symmetric(
+                            horizontal: 14,
+                            vertical: 10,
+                          ),
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(22),
+                            borderSide: BorderSide.none,
+                          ),
+                        ),
+                      ),
                     ),
-                    icon: const Icon(Icons.send_rounded, size: 18),
-                  ),
-                ],
+                    const SizedBox(width: 8),
+                    IconButton(
+                      onPressed: _addComment,
+                      tooltip: 'Post comment',
+                      style: IconButton.styleFrom(
+                        backgroundColor: const Color(0xFFFFD233),
+                        foregroundColor: Colors.black,
+                      ),
+                      icon: const Icon(Icons.send_rounded, size: 18),
+                    ),
+                  ],
                 ),
               ),
             ],
@@ -733,6 +729,7 @@ class _CommentsSheetState extends State<CommentsSheet> {
       ),
     );
   }
+
   Widget _buildEmptyState() {
     return Center(
       child: Column(
@@ -809,74 +806,74 @@ class _CommentTileState extends State<_CommentTile> {
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-        ClipOval(
-          child: Image.asset(
-            widget.comment.avatar,
-            width: 36,
-            height: 36,
-            fit: BoxFit.cover,
+          ClipOval(
+            child: Image.asset(
+              widget.comment.avatar,
+              width: 36,
+              height: 36,
+              fit: BoxFit.cover,
+            ),
           ),
-        ),
-        const SizedBox(width: 10),
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                children: [
-                  Text(
-                    widget.comment.user,
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontFamily: 'Manrope',
-                      fontSize: 11,
-                      fontWeight: FontWeight.w700,
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Text(
+                      widget.comment.user,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontFamily: 'Manrope',
+                        fontSize: 11,
+                        fontWeight: FontWeight.w700,
+                      ),
                     ),
-                  ),
-                  const SizedBox(width: 8),
-                  Text(
-                    widget.comment.time == 'now'
-                        ? 'just now'
-                        : '${widget.comment.time} ago',
-                    style: const TextStyle(
-                      color: Color(0xFF9CA3AF),
-                      fontSize: 10,
+                    const SizedBox(width: 8),
+                    Text(
+                      widget.comment.time == 'now'
+                          ? 'just now'
+                          : '${widget.comment.time} ago',
+                      style: const TextStyle(
+                        color: Color(0xFF9CA3AF),
+                        fontSize: 10,
+                      ),
                     ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 4),
-              Text(
-                widget.comment.text,
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontFamily: 'Figtree',
-                  fontSize: 12,
-                  height: 1.25,
+                  ],
                 ),
-              ),
-              const SizedBox(height: 4),
-              InkWell(
-                onTap: widget.onReply,
-                borderRadius: BorderRadius.circular(4),
-                child: const Padding(
-                  padding: EdgeInsets.symmetric(vertical: 2),
-                  child: Text(
-                    'Reply',
-                    style: TextStyle(
-                      color: Color(0xFF9CA3AF),
-                      fontFamily: 'Figtree',
-                      fontSize: 10,
-                      fontWeight: FontWeight.w600,
-                    ),
+                const SizedBox(height: 4),
+                Text(
+                  widget.comment.text,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontFamily: 'Figtree',
+                    fontSize: 12,
+                    height: 1.25,
                   ),
                 ),
-              ),
-            ],
+                const SizedBox(height: 4),
+                InkWell(
+                  onTap: widget.onReply,
+                  borderRadius: BorderRadius.circular(4),
+                  child: const Padding(
+                    padding: EdgeInsets.symmetric(vertical: 2),
+                    child: Text(
+                      'Reply',
+                      style: TextStyle(
+                        color: Color(0xFF9CA3AF),
+                        fontFamily: 'Figtree',
+                        fontSize: 10,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
           ),
-        ),
           IconButton(
             onPressed: () => setState(() => _isLiked = !_isLiked),
             padding: EdgeInsets.zero,
@@ -1404,10 +1401,8 @@ class _ActionItem extends StatelessWidget {
         const SizedBox(height: 4),
         AnimatedSwitcher(
           duration: const Duration(milliseconds: 220),
-          transitionBuilder: (child, animation) => ScaleTransition(
-            scale: animation,
-            child: child,
-          ),
+          transitionBuilder: (child, animation) =>
+              ScaleTransition(scale: animation, child: child),
           child: Text(
             label,
             key: ValueKey(label),
@@ -1450,8 +1445,7 @@ class QuizScreen extends StatefulWidget {
   State<QuizScreen> createState() => _QuizScreenState();
 }
 
-class _QuizScreenState extends State<QuizScreen>
-    with TickerProviderStateMixin {
+class _QuizScreenState extends State<QuizScreen> with TickerProviderStateMixin {
   static const _questions = [
     QuizQuestion(
       questionText: 'What is the SI unit of force?',
@@ -1536,12 +1530,13 @@ class _QuizScreenState extends State<QuizScreen>
       parent: _questionController,
       curve: Curves.easeOut,
     );
-    _questionSlide = Tween<Offset>(
-      begin: const Offset(0.08, 0),
-      end: Offset.zero,
-    ).animate(
-      CurvedAnimation(parent: _questionController, curve: Curves.easeOutCubic),
-    );
+    _questionSlide =
+        Tween<Offset>(begin: const Offset(0.08, 0), end: Offset.zero).animate(
+          CurvedAnimation(
+            parent: _questionController,
+            curve: Curves.easeOutCubic,
+          ),
+        );
     _indicatorScale = Tween<double>(begin: 0.55, end: 1).animate(
       CurvedAnimation(parent: _indicatorController, curve: Curves.easeOutBack),
     );
@@ -1549,12 +1544,14 @@ class _QuizScreenState extends State<QuizScreen>
       parent: _indicatorController,
       curve: Curves.easeOut,
     );
-    _shake = TweenSequence<double>([
-      TweenSequenceItem(tween: Tween(begin: 0, end: -8), weight: 1),
-      TweenSequenceItem(tween: Tween(begin: -8, end: 8), weight: 2),
-      TweenSequenceItem(tween: Tween(begin: 8, end: -5), weight: 2),
-      TweenSequenceItem(tween: Tween(begin: -5, end: 0), weight: 1),
-    ]).animate(CurvedAnimation(parent: _shakeController, curve: Curves.easeOut));
+    _shake = TweenSequence<double>(
+      [
+        TweenSequenceItem(tween: Tween(begin: 0, end: -8), weight: 1),
+        TweenSequenceItem(tween: Tween(begin: -8, end: 8), weight: 2),
+        TweenSequenceItem(tween: Tween(begin: 8, end: -5), weight: 2),
+        TweenSequenceItem(tween: Tween(begin: -5, end: 0), weight: 1),
+      ],
+    ).animate(CurvedAnimation(parent: _shakeController, curve: Curves.easeOut));
     _questionController.forward();
   }
 
@@ -1789,17 +1786,15 @@ class _QuizScreenState extends State<QuizScreen>
             child: AnimatedBuilder(
               animation: _shakeController,
               builder: (context, child) {
-                final shouldShake = _selectedIndex == entry.key &&
+                final shouldShake =
+                    _selectedIndex == entry.key &&
                     !_question.options[entry.key].isCorrect;
                 return Transform.translate(
                   offset: Offset(shouldShake ? _shake.value : 0, 0),
                   child: child,
                 );
               },
-              child: _buildOptionCard(
-                index: entry.key,
-                option: entry.value,
-              ),
+              child: _buildOptionCard(index: entry.key, option: entry.value),
             ),
           ),
         ),
@@ -1818,23 +1813,20 @@ class _QuizScreenState extends State<QuizScreen>
     );
   }
 
-  Widget _buildOptionCard({
-    required int index,
-    required AnswerOption option,
-  }) {
+  Widget _buildOptionCard({required int index, required AnswerOption option}) {
     final isSelected = _selectedIndex == index;
     final isAnswered = _selectedIndex != null;
     final isCorrectAnswer = isAnswered && option.isCorrect;
     final color = isSelected
         ? (option.isCorrect ? const Color(0xFFE9F8EF) : const Color(0xFFFFEEEE))
         : isCorrectAnswer
-            ? const Color(0xFFE9F8EF)
-            : Colors.white;
+        ? const Color(0xFFE9F8EF)
+        : Colors.white;
     final borderColor = isSelected
         ? (option.isCorrect ? const Color(0xFF22A05A) : const Color(0xFFE34D59))
         : isCorrectAnswer
-            ? const Color(0xFF22A05A)
-            : const Color(0xFFEAEAEA);
+        ? const Color(0xFF22A05A)
+        : const Color(0xFFEAEAEA);
     final label = String.fromCharCode(65 + index);
 
     return Semantics(
@@ -1996,7 +1988,9 @@ class _QuizScreenState extends State<QuizScreen>
         width: double.infinity,
         padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 24),
         decoration: BoxDecoration(
-          color: onTap == null ? const Color(0xFFEAEAEA) : const Color(0xFFFFD233),
+          color: onTap == null
+              ? const Color(0xFFEAEAEA)
+              : const Color(0xFFFFD233),
           borderRadius: BorderRadius.circular(100),
         ),
         child: Row(

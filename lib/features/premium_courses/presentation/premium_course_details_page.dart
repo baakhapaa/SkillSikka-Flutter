@@ -26,9 +26,7 @@ class _CourseDetailsPageState extends State<CourseDetailsPage> {
   void initState() {
     super.initState();
     _videoController =
-        VideoPlayerController.asset(
-            "assets/figma/stlearning/Give me 4.23 Minutes and I'll improve your DESIGN by 160%.mp4",
-          )
+        VideoPlayerController.asset("assets/figma/stlearning/video.mp4")
           ..initialize().then((_) {
             if (mounted) setState(() => _videoReady = true);
           });
@@ -87,9 +85,6 @@ class _CourseDetailsPageState extends State<CourseDetailsPage> {
     );
   }
 
-  // ─────────────────────────────────────────────────────────────
-  // NAVIGATION HEADER
-  // ─────────────────────────────────────────────────────────────
   Widget _buildNavigationHeader() {
     return Container(
       padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
@@ -128,9 +123,6 @@ class _CourseDetailsPageState extends State<CourseDetailsPage> {
     );
   }
 
-  // ─────────────────────────────────────────────────────────────
-  // BANNER (video)
-  // ─────────────────────────────────────────────────────────────
   Widget _buildBannerSection() {
     return SizedBox(
       height: 210,
@@ -185,9 +177,6 @@ class _CourseDetailsPageState extends State<CourseDetailsPage> {
     );
   }
 
-  // ─────────────────────────────────────────────────────────────
-  // CORE DETAILS
-  // ─────────────────────────────────────────────────────────────
   Widget _buildCoreDetails() {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16),
@@ -310,8 +299,8 @@ class _CourseDetailsPageState extends State<CourseDetailsPage> {
             children: [
               SvgPicture.asset(
                 'assets/figma/stlearning/language.svg',
-                width: 18,
-                height: 18,
+                width: 14,
+                height: 14,
                 semanticsLabel: 'Available languages',
                 colorFilter: const ColorFilter.mode(
                   Color(0xFFFBBF24),

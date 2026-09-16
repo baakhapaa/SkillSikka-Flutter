@@ -308,7 +308,6 @@ class _HomePageState extends State<HomePage>
   }
 
   Widget _buildHeroCarousel() {
-    // Pixel layout from Figma HTML/CSS: 439.4 x 317.1 track, 5 overlapping cards.
     const trackW = 439.4;
     const trackH = 317.1;
     const cards = <_HeroCardLayout>[
@@ -467,14 +466,20 @@ class _HomePageState extends State<HomePage>
                       Positioned(
                         left: currentSlots[slot].left,
                         top: currentSlots[slot].top,
-                        child: _HeroBookCard(layout: currentSlots[slot]),
+                        child: _HeroBookCard(
+                          layout: currentSlots[slot],
+                          onTap: _openPremiumCourseDetails,
+                        ),
                       ),
                   Positioned(
                     left: movingTarget.left,
                     top: movingTarget.top,
                     child: Transform.scale(
                       scale: targetScale,
-                      child: _HeroBookCard(layout: movingTarget),
+                      child: _HeroBookCard(
+                        layout: movingTarget,
+                        onTap: _openPremiumCourseDetails,
+                      ),
                     ),
                   ),
                   Positioned(
@@ -484,7 +489,10 @@ class _HomePageState extends State<HomePage>
                       angle: -_heroDirection * 0.018 * progress,
                       child: Transform.scale(
                         scale: frontScale,
-                        child: _HeroBookCard(layout: front),
+                        child: _HeroBookCard(
+                          layout: front,
+                          onTap: _openPremiumCourseDetails,
+                        ),
                       ),
                     ),
                   ),
@@ -2252,16 +2260,20 @@ class _HeroCardLayout {
 }
 
 class _HeroBookCard extends StatelessWidget {
-  const _HeroBookCard({required this.layout});
+  const _HeroBookCard({required this.layout, required this.onTap});
 
   final _HeroCardLayout layout;
+  final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
-    return SizedBox(
-      width: layout.width,
-      height: layout.height,
-      child: Stack(
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: onTap,
+      child: SizedBox(
+        width: layout.width,
+        height: layout.height,
+        child: Stack(
         clipBehavior: Clip.none,
         children: [
           // ── Card body ─────────────────────────────────────────────
@@ -2443,6 +2455,7 @@ class _HeroBookCard extends StatelessWidget {
               ),
             ),
         ],
+        ),
       ),
     );
   }

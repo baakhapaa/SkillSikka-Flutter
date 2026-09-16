@@ -130,10 +130,7 @@ class _EventDetailsPageState extends State<EventDetailsPage> {
       ),
     );
   }
-
-  // ─────────────────────────────────────────────────────────────
-  // BANNER  (assets/figma/event/event-banner.png)
-  // ─────────────────────────────────────────────────────────────
+  
   Widget _buildBanner() {
     return ClipRRect(
       borderRadius: BorderRadius.circular(16),

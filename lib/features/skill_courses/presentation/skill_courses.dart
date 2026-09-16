@@ -141,12 +141,12 @@ class _SkillCoursesPageState extends State<SkillCoursesPage> {
     ];
 
     return Padding(
-      padding: const EdgeInsets.only(left: 16, right: 16),
+      padding: const EdgeInsets.fromLTRB(20, 8, 20, 20),
       child: SizedBox(
         height: 64,
         child: ListView.separated(
           scrollDirection: Axis.horizontal,
-          padding: const EdgeInsets.only(right: 16),
+          padding: const EdgeInsets.only(right: 8),
           itemCount: skills.length,
           separatorBuilder: (_, _) => const SizedBox(width: 12),
           itemBuilder: (context, index) {
@@ -161,8 +161,12 @@ class _SkillCoursesPageState extends State<SkillCoursesPage> {
               onExit: (_) => setState(() => _hoveredSkillIndex = -1),
               child: GestureDetector(
                 onTap: () => setState(() => _selectedSkillIndex = index),
-                child: AnimatedContainer(
-                  duration: const Duration(milliseconds: 180),
+               child: AnimatedScale(
+                 scale: isHovered ? 1.05 : 1.0,
+                 duration: const Duration(milliseconds: 180),
+                 curve: Curves.easeOut,
+                 child: AnimatedContainer(
+                   duration: const Duration(milliseconds: 180),
                   curve: Curves.easeOut,
                   width: 140,
                   padding: const EdgeInsets.all(10),

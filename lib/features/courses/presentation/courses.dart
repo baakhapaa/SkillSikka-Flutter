@@ -87,7 +87,7 @@ class _AllCoursesPageState extends State<AllCoursesPage> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     _buildChips(),
-                    const SizedBox(height: 16),
+                    const SizedBox(height: 28),
                     _buildSectionHeader(),
                     const SizedBox(height: 16),
                     for (
@@ -166,10 +166,13 @@ class _AllCoursesPageState extends State<AllCoursesPage> {
   // CHIPS
   // ─────────────────────────────────────────────────────────────
   Widget _buildChips() {
-    return SizedBox(
-      height: 40,
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
+      child: SizedBox(
+      height: 44,
       child: ListView.separated(
         scrollDirection: Axis.horizontal,
+        padding: const EdgeInsets.symmetric(horizontal: 4),
         itemCount: _chips.length,
         separatorBuilder: (_, _) => const SizedBox(width: 8),
         itemBuilder: (context, index) {
@@ -182,15 +185,26 @@ class _AllCoursesPageState extends State<AllCoursesPage> {
             child: GestureDetector(
               onTap: () => setState(() => _selectedChip = index),
               child: Center(
-                child: _chip(
-                  label: _chips[index],
-                  pressed: selected,
-                  hovered: hovered,
+                child: AnimatedScale(
+                  scale: hovered ? 1.06 : 1.0,
+                  duration: const Duration(milliseconds: 160),
+                  curve: Curves.easeOut,
+                  child: AnimatedSlide(
+                    offset: hovered ? const Offset(0, -0.06) : Offset.zero,
+                    duration: const Duration(milliseconds: 180),
+                    curve: Curves.easeOut,
+                    child: _chip(
+                      label: _chips[index],
+                      pressed: selected,
+                      hovered: hovered,
+                    ),
+                  ),
                 ),
               ),
             ),
           );
         },
+        ),
       ),
     );
   }
@@ -210,15 +224,24 @@ class _AllCoursesPageState extends State<AllCoursesPage> {
           end: Alignment.bottomCenter,
           colors: [
             Colors.white.withValues(alpha: hovered ? 0.98 : 0.84),
-            const Color(0xFFF3F4F6).withValues(alpha: pressed ? 0.72 : 0.55),
+            const Color(0xFFF3F4F6).withValues(
+              alpha: pressed
+                  ? 0.72
+                  : hovered
+                  ? 0.62
+                  : 0.55,
+            ),
           ],
         ),
         borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: Colors.white.withValues(alpha: 0.8)),
+        border: Border.all(
+          color: Colors.white.withValues(alpha: hovered ? 0.9 : 0.8),
+          width: hovered ? 1.5 : 1,
+        ),
         boxShadow: [
           BoxShadow(
-            color: hovered ? const Color(0x2E000000) : const Color(0x22000000),
-            blurRadius: hovered ? 10 : 7,
+            color: hovered ? const Color(0x3A000000) : const Color(0x22000000),
+            blurRadius: hovered ? 13 : 7,
             offset: Offset(0, pressed ? 1 : 3),
           ),
           const BoxShadow(
@@ -226,6 +249,13 @@ class _AllCoursesPageState extends State<AllCoursesPage> {
             blurRadius: 2,
             offset: Offset(0, -1),
           ),
+          if (hovered)
+            const BoxShadow(
+              color: Color(0x55FFFFFF),
+              blurRadius: 8,
+              spreadRadius: 1,
+              offset: Offset(0, -3),
+            ),
         ],
       ),
       child: Text(

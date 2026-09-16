@@ -1468,281 +1468,281 @@ class _HomePageState extends State<HomePage>
       behavior: HitTestBehavior.opaque,
       onTap: _openPremiumCourseDetails,
       child: Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(24),
-        border: Border.all(color: const Color(0xFFE7E7E7)),
-        boxShadow: [
-          BoxShadow(
-            color: const Color(0xFF1C1917).withValues(alpha: 0.04),
-            blurRadius: 24,
-            offset: const Offset(0, 12),
-          ),
-        ],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Stack(
-            children: [
-              ClipRRect(
-                borderRadius: const BorderRadius.vertical(
-                  top: Radius.circular(18),
-                ),
-                child: Image.asset(
-                  image,
-                  height: 235,
-                  width: double.infinity,
-                  fit: BoxFit.cover,
-                  errorBuilder: (c, e, s) => Container(
-                    height: 235,
-                    color: Colors.grey.shade200,
-                    child: const Icon(
-                      Icons.image,
-                      color: Colors.white,
-                      size: 50,
-                    ),
-                  ),
-                ),
-              ),
-              Positioned(
-                top: 12,
-                left: 12,
-                child: Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 10,
-                    vertical: 6,
-                  ),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFFF9FAFB).withValues(alpha: 0.6),
-                    borderRadius: BorderRadius.circular(100),
-                  ),
-                  child: Text(
-                    'ART & CRAFT',
-                    style: GoogleFonts.inter(
-                      fontSize: 10,
-                      fontWeight: FontWeight.w500,
-                      letterSpacing: 0.4,
-                      color: const Color(0xFF191918),
-                    ),
-                  ),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 16),
-          Text(
-            'Learn: the art of problem solving',
-            style: GoogleFonts.inter(
-              fontSize: 18,
-              fontWeight: FontWeight.w700,
-              color: const Color(0xFF201C15),
-              height: 1.3,
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(24),
+          border: Border.all(color: const Color(0xFFE7E7E7)),
+          boxShadow: [
+            BoxShadow(
+              color: const Color(0xFF1C1917).withValues(alpha: 0.04),
+              blurRadius: 24,
+              offset: const Offset(0, 12),
             ),
-          ),
-          const SizedBox(height: 12),
-          Row(
-            children: [
-              ClipOval(
-                child: Image.asset(
-                  avatar,
-                  width: 32,
-                  height: 32,
-                  fit: BoxFit.cover,
-                ),
-              ),
-              const SizedBox(width: 10),
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    'Prof. Shuvanga Karki',
-                    style: GoogleFonts.inter(
-                      fontSize: 13,
-                      fontWeight: FontWeight.w600,
-                      color: const Color(0xFF201C15),
-                    ),
-                  ),
-                  Text(
-                    'Art Educator & Illustrator',
-                    style: GoogleFonts.inter(
-                      fontSize: 11,
-                      color: const Color(0xFF8D887F),
-                    ),
-                  ),
-                ],
-              ),
-              const Spacer(),
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.end,
-                children: [
-                  Row(
-                    children: [
-                      const Icon(
-                        Icons.star,
-                        color: Color(0xFFFFB01F),
-                        size: 16,
-                      ),
-                      const SizedBox(width: 4),
-                      Text(
-                        '4.9',
-                        style: GoogleFonts.inter(
-                          fontSize: 13,
-                          fontWeight: FontWeight.w700,
-                          color: const Color(0xFF8D887F),
-                        ),
-                      ),
-                      Text(
-                        '(128)',
-                        style: GoogleFonts.inter(
-                          fontSize: 13,
-                          color: const Color(0xFF8D887F),
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 4),
-                  Row(
-                    children: [
-                      const Icon(
-                        Icons.bar_chart,
-                        size: 12,
-                        color: Color(0xFF8D887F),
-                      ),
-                      const SizedBox(width: 4),
-                      Text(
-                        'Beginner Friendly',
-                        style: GoogleFonts.inter(
-                          fontSize: 10,
-                          fontWeight: FontWeight.w600,
-                          color: const Color(0xFF8D887F),
-                        ),
-                      ),
-                    ],
-                  ),
-                ],
-              ),
-            ],
-          ),
-          const SizedBox(height: 12),
-          Text(
-            'Master the art of problem solving. Bring brilliant ideas to life with easy, follow-along video steps perfect for young artists.',
-            style: GoogleFonts.inter(
-              fontSize: 13,
-              color: const Color(0xFF8D887F),
-              height: 1.4,
-            ),
-          ),
-          const SizedBox(height: 16),
-          const Divider(color: Color(0xFFF3F4F6)),
-          const SizedBox(height: 12),
-          Container(
-            height: 60,
-            padding: const EdgeInsets.symmetric(horizontal: 10),
-            decoration: BoxDecoration(
-              color: const Color(0xFFF2F1F7),
-              borderRadius: BorderRadius.circular(100),
-            ),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.center,
+          ],
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Stack(
               children: [
-                Expanded(
-                  child: SizedBox(
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 10),
-                      child: Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            'ENROLLMENT',
-                            style: GoogleFonts.inter(
-                              fontSize: 10,
-                              height: 1.0,
-                              color: const Color(0xFF8D887F),
-                            ),
-                          ),
-                          Text(
-                            'Rs.24.99',
-                            style: GoogleFonts.manrope(
-                              fontSize: 17,
-                              height: 1.0,
-                              fontWeight: FontWeight.w500,
-                              color: const Color(0xFF524C00),
-                            ),
-                          ),
-                        ],
+                ClipRRect(
+                  borderRadius: const BorderRadius.vertical(
+                    top: Radius.circular(18),
+                  ),
+                  child: Image.asset(
+                    image,
+                    height: 235,
+                    width: double.infinity,
+                    fit: BoxFit.cover,
+                    errorBuilder: (c, e, s) => Container(
+                      height: 235,
+                      color: Colors.grey.shade200,
+                      child: const Icon(
+                        Icons.image,
+                        color: Colors.white,
+                        size: 50,
                       ),
                     ),
                   ),
                 ),
-                const SizedBox(width: 69),
-                Container(
-                  height: 38,
-                  width: 137,
-                  decoration: BoxDecoration(
-                    borderRadius: BorderRadius.circular(100),
-                    gradient: const LinearGradient(
-                      begin: Alignment.topCenter,
-                      end: Alignment.bottomCenter,
-                      colors: [Color(0xFFFFFFFF), Color(0xFFF3F4F6)],
+                Positioned(
+                  top: 12,
+                  left: 12,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 10,
+                      vertical: 6,
                     ),
-                    border: Border.all(color: Colors.white, width: 1),
-                    boxShadow: const [
-                      BoxShadow(
-                        color: Color(0x26000000),
-                        blurRadius: 5,
-                        offset: Offset(0, 3),
-                      ),
-                      BoxShadow(
-                        color: Color(0x80FFFFFF),
-                        blurRadius: 2,
-                        offset: Offset(0, -1),
-                      ),
-                    ],
-                  ),
-                  child: ElevatedButton(
-                    onPressed: _openPremiumCourseDetails,
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.transparent,
-                      foregroundColor: const Color(0xFF1B1B1B),
-                      shadowColor: Colors.transparent,
-                      elevation: 0,
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(100),
-                      ),
-                      padding: EdgeInsets.zero,
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFF9FAFB).withValues(alpha: 0.6),
+                      borderRadius: BorderRadius.circular(100),
                     ),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Text(
-                          'Start Learning',
-                          style: GoogleFonts.inter(
-                            fontSize: 13,
-                            fontWeight: FontWeight.w700,
-                          ),
-                        ),
-                        const SizedBox(width: 6),
-                        const Icon(Icons.arrow_forward, size: 14),
-                      ],
+                    child: Text(
+                      'ART & CRAFT',
+                      style: GoogleFonts.inter(
+                        fontSize: 10,
+                        fontWeight: FontWeight.w500,
+                        letterSpacing: 0.4,
+                        color: const Color(0xFF191918),
+                      ),
                     ),
                   ),
                 ),
               ],
             ),
-          ),
-        ],
-      ),
+            const SizedBox(height: 16),
+            Text(
+              'Learn: the art of problem solving',
+              style: GoogleFonts.inter(
+                fontSize: 18,
+                fontWeight: FontWeight.w700,
+                color: const Color(0xFF201C15),
+                height: 1.3,
+              ),
+            ),
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                ClipOval(
+                  child: Image.asset(
+                    avatar,
+                    width: 32,
+                    height: 32,
+                    fit: BoxFit.cover,
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Prof. Shuvanga Karki',
+                      style: GoogleFonts.inter(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
+                        color: const Color(0xFF201C15),
+                      ),
+                    ),
+                    Text(
+                      'Art Educator & Illustrator',
+                      style: GoogleFonts.inter(
+                        fontSize: 11,
+                        color: const Color(0xFF8D887F),
+                      ),
+                    ),
+                  ],
+                ),
+                const Spacer(),
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  children: [
+                    Row(
+                      children: [
+                        const Icon(
+                          Icons.star,
+                          color: Color(0xFFFFB01F),
+                          size: 16,
+                        ),
+                        const SizedBox(width: 4),
+                        Text(
+                          '4.9',
+                          style: GoogleFonts.inter(
+                            fontSize: 13,
+                            fontWeight: FontWeight.w700,
+                            color: const Color(0xFF8D887F),
+                          ),
+                        ),
+                        Text(
+                          '(128)',
+                          style: GoogleFonts.inter(
+                            fontSize: 13,
+                            color: const Color(0xFF8D887F),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 4),
+                    Row(
+                      children: [
+                        const Icon(
+                          Icons.bar_chart,
+                          size: 12,
+                          color: Color(0xFF8D887F),
+                        ),
+                        const SizedBox(width: 4),
+                        Text(
+                          'Beginner Friendly',
+                          style: GoogleFonts.inter(
+                            fontSize: 10,
+                            fontWeight: FontWeight.w600,
+                            color: const Color(0xFF8D887F),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            Text(
+              'Master the art of problem solving. Bring brilliant ideas to life with easy, follow-along video steps perfect for young artists.',
+              style: GoogleFonts.inter(
+                fontSize: 13,
+                color: const Color(0xFF8D887F),
+                height: 1.4,
+              ),
+            ),
+            const SizedBox(height: 16),
+            const Divider(color: Color(0xFFF3F4F6)),
+            const SizedBox(height: 12),
+            Container(
+              height: 60,
+              padding: const EdgeInsets.symmetric(horizontal: 10),
+              decoration: BoxDecoration(
+                color: const Color(0xFFF2F1F7),
+                borderRadius: BorderRadius.circular(100),
+              ),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Expanded(
+                    child: SizedBox(
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 10),
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'ENROLLMENT',
+                              style: GoogleFonts.inter(
+                                fontSize: 10,
+                                height: 1.0,
+                                color: const Color(0xFF8D887F),
+                              ),
+                            ),
+                            Text(
+                              'Rs.24.99',
+                              style: GoogleFonts.manrope(
+                                fontSize: 17,
+                                height: 1.0,
+                                fontWeight: FontWeight.w500,
+                                color: const Color(0xFF524C00),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 69),
+                  Container(
+                    height: 38,
+                    width: 137,
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(100),
+                      gradient: const LinearGradient(
+                        begin: Alignment.topCenter,
+                        end: Alignment.bottomCenter,
+                        colors: [Color(0xFFFFFFFF), Color(0xFFF3F4F6)],
+                      ),
+                      border: Border.all(color: Colors.white, width: 1),
+                      boxShadow: const [
+                        BoxShadow(
+                          color: Color(0x26000000),
+                          blurRadius: 5,
+                          offset: Offset(0, 3),
+                        ),
+                        BoxShadow(
+                          color: Color(0x80FFFFFF),
+                          blurRadius: 2,
+                          offset: Offset(0, -1),
+                        ),
+                      ],
+                    ),
+                    child: ElevatedButton(
+                      onPressed: _openPremiumCourseDetails,
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.transparent,
+                        foregroundColor: const Color(0xFF1B1B1B),
+                        shadowColor: Colors.transparent,
+                        elevation: 0,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(100),
+                        ),
+                        padding: EdgeInsets.zero,
+                      ),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Text(
+                            'Start Learning',
+                            style: GoogleFonts.inter(
+                              fontSize: 13,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                          const SizedBox(width: 6),
+                          const Icon(Icons.arrow_forward, size: 14),
+                        ],
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
 
   void _openPremiumCourseDetails() {
-    Navigator.of(context).push(
-      MaterialPageRoute(builder: (_) => const CourseDetailsPage()),
-    );
+    Navigator.of(
+      context,
+    ).push(MaterialPageRoute(builder: (_) => const CourseDetailsPage()));
   }
 
   Widget _buildRecommendedBooks() {

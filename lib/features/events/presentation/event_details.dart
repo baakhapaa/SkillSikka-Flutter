@@ -20,7 +20,6 @@ class EventDetailsPage extends StatefulWidget {
 class _EventDetailsPageState extends State<EventDetailsPage> {
   bool _bookmarked = false;
 
-  // Host + attendee avatars — all from assets/figma/instructors/
   static const _avatars = <String>[
     'assets/figma/instructors/instructor.png',
     'assets/figma/instructors/instructor1.png',
@@ -72,9 +71,6 @@ class _EventDetailsPageState extends State<EventDetailsPage> {
     );
   }
 
-  // ─────────────────────────────────────────────────────────────
-  // SCREEN HEADER
-  // ─────────────────────────────────────────────────────────────
   Widget _buildScreenHeader() {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
@@ -130,7 +126,7 @@ class _EventDetailsPageState extends State<EventDetailsPage> {
       ),
     );
   }
-  
+
   Widget _buildBanner() {
     return ClipRRect(
       borderRadius: BorderRadius.circular(16),
@@ -142,20 +138,13 @@ class _EventDetailsPageState extends State<EventDetailsPage> {
           fit: BoxFit.cover,
           errorBuilder: (_, _, _) => Container(
             color: Colors.grey.shade300,
-            child: const Icon(
-              Icons.event,
-              size: 60,
-              color: Colors.white,
-            ),
+            child: const Icon(Icons.event, size: 60, color: Colors.white),
           ),
         ),
       ),
     );
   }
 
-  // ─────────────────────────────────────────────────────────────
-  // TITLE + HOST
-  // ─────────────────────────────────────────────────────────────
   Widget _buildTitleHost() {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -204,10 +193,7 @@ class _EventDetailsPageState extends State<EventDetailsPage> {
                 ),
                 Text(
                   'Mathematics Dept Head',
-                  style: GoogleFonts.figtree(
-                    fontSize: 11,
-                    color: _gray,
-                  ),
+                  style: GoogleFonts.figtree(fontSize: 11, color: _gray),
                 ),
               ],
             ),
@@ -217,9 +203,6 @@ class _EventDetailsPageState extends State<EventDetailsPage> {
     );
   }
 
-  // ─────────────────────────────────────────────────────────────
-  // INFO CARDS
-  // ─────────────────────────────────────────────────────────────
   Widget _buildInfoCards() {
     return Column(
       children: [
@@ -281,10 +264,7 @@ class _EventDetailsPageState extends State<EventDetailsPage> {
                 const SizedBox(height: 2),
                 Text(
                   subtitle,
-                  style: GoogleFonts.figtree(
-                    fontSize: 11,
-                    color: _gray,
-                  ),
+                  style: GoogleFonts.figtree(fontSize: 11, color: _gray),
                 ),
               ],
             ),
@@ -294,9 +274,6 @@ class _EventDetailsPageState extends State<EventDetailsPage> {
     );
   }
 
-  // ─────────────────────────────────────────────────────────────
-  // ABOUT
-  // ─────────────────────────────────────────────────────────────
   Widget _buildAboutSection() {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -314,19 +291,12 @@ class _EventDetailsPageState extends State<EventDetailsPage> {
           'Dive deep into higher-level analytical calculus and practical '
           'applications of college algebra with visual graph proofs and '
           'interactive query sessions.',
-          style: GoogleFonts.figtree(
-            fontSize: 13,
-            height: 1.5,
-            color: _gray,
-          ),
+          style: GoogleFonts.figtree(fontSize: 13, height: 1.5, color: _gray),
         ),
       ],
     );
   }
 
-  // ─────────────────────────────────────────────────────────────
-  // WHAT YOU'LL LEARN
-  // ─────────────────────────────────────────────────────────────
   Widget _buildWhatYouLearn() {
     const items = [
       'Integration & derivatives made practical',
@@ -376,9 +346,6 @@ class _EventDetailsPageState extends State<EventDetailsPage> {
     );
   }
 
-  // ─────────────────────────────────────────────────────────────
-  // ATTENDEES (uses instructor avatars)
-  // ─────────────────────────────────────────────────────────────
   Widget _buildAttendees() {
     const avatarCount = 4;
     const avatarSize = 28.0;
@@ -426,18 +393,12 @@ class _EventDetailsPageState extends State<EventDetailsPage> {
         const SizedBox(width: 12),
         Text(
           '120+ attending',
-          style: GoogleFonts.figtree(
-            fontSize: 12,
-            color: _gray,
-          ),
+          style: GoogleFonts.figtree(fontSize: 12, color: _gray),
         ),
       ],
     );
   }
 
-  // ─────────────────────────────────────────────────────────────
-  // REGISTER BUTTON
-  // ─────────────────────────────────────────────────────────────
   Widget _buildRegisterButton() {
     return GestureDetector(
       onTap: () {

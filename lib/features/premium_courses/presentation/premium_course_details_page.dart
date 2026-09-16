@@ -403,7 +403,6 @@ class _CourseDetailsPageState extends State<CourseDetailsPage> {
     );
   }
 
-
   Widget _buildCurriculum() {
     const modules = [
       ('Introduction and Course Agenda', '4 lessons', '45 mins'),
@@ -670,9 +669,8 @@ class _CourseDetailsPageState extends State<CourseDetailsPage> {
           ],
           GestureDetector(
             behavior: HitTestBehavior.opaque,
-            onTap: () => setState(
-              () => _showFullDescription = !_showFullDescription,
-            ),
+            onTap: () =>
+                setState(() => _showFullDescription = !_showFullDescription),
             child: Padding(
               padding: const EdgeInsets.symmetric(vertical: 4),
               child: Text(

@@ -73,9 +73,9 @@ flutter:
     - assets/figma/face/
     - assets/figma/premiumcourse/
     - assets/figma/skillcourse/
-    - assets/figma/skillcourse/
     - assets/figma/stlearning/
     - assets/figma/event/
+    - assets/figma/instructors/
     - assets/figma/learning/course_banner.png
     - assets/figma/learning/chemistry.png
     - assets/figma/learning/python.png

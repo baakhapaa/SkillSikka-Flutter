@@ -205,7 +205,8 @@ class _TopInstructorsPageState extends State<TopInstructorsPage> {
         itemCount: _categories.length,
         separatorBuilder: (_, _) => const SizedBox(width: 8),
         itemBuilder: (context, index) {
-          final active = index == _selectedCategory || index == _hoveredCategory;
+          final active =
+              index == _selectedCategory || index == _hoveredCategory;
           return MouseRegion(
             cursor: SystemMouseCursors.click,
             onEnter: (_) => setState(() => _hoveredCategory = index),
@@ -302,18 +303,18 @@ class _TopInstructorsPageState extends State<TopInstructorsPage> {
               Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-          if (icon != null) ...[
-            Icon(icon, size: 14, color: hovered ? _ink : _gray),
-            const SizedBox(width: 6),
-          ],
-          Text(
-            label,
-            style: GoogleFonts.figtree(
-              fontSize: 12,
-              fontWeight: FontWeight.w600,
-              color: _ink,
-            ),
-          ),
+                  if (icon != null) ...[
+                    Icon(icon, size: 14, color: hovered ? _ink : _gray),
+                    const SizedBox(width: 6),
+                  ],
+                  Text(
+                    label,
+                    style: GoogleFonts.figtree(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                      color: _ink,
+                    ),
+                  ),
                 ],
               ),
               if (hovered)

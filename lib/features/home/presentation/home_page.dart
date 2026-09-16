@@ -10,6 +10,7 @@ import 'package:skillsikka/features/premium_courses/presentation/premium_course_
 import 'package:skillsikka/features/premium_courses/presentation/premium_courses_page.dart';
 import 'package:skillsikka/features/recommendedcourse/presentation/recommended_course.dart';
 import 'package:skillsikka/features/skill_courses/presentation/skill_courses.dart';
+import 'package:skillsikka/features/search/presentation/search_page.dart';
 
 const _cream = Color(0xFFFAF9F6);
 const _ink = Color(0xFF282828);
@@ -218,20 +219,32 @@ class _HomePageState extends State<HomePage>
             semanticLabel: 'Notifications',
           ),
           const SizedBox(width: 6),
-          _buildIconButton(Icons.search, semanticLabel: 'Search'),
+          _buildIconButton(
+          Icons.search,
+          semanticLabel: 'Search',
+          onTap: () {
+            Navigator.of(context).push(
+              MaterialPageRoute(builder: (_) => const SearchPage()),
+            );
+          },
+        ),
         ],
       ),
     );
   }
 
-  Widget _buildIconButton(
-    IconData icon, {
-    bool hasBadge = false,
-    String? semanticLabel,
-  }) {
-    return Semantics(
-      label: semanticLabel ?? _describeIcon(icon),
-      button: true,
+Widget _buildIconButton(
+  IconData icon, {
+  bool hasBadge = false,
+  String? semanticLabel,
+  VoidCallback? onTap,
+}) {
+  return Semantics(
+    label: semanticLabel ?? _describeIcon(icon),
+    button: true,
+    child: GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: onTap,
       child: Stack(
         clipBehavior: Clip.none,
         children: [
@@ -259,8 +272,9 @@ class _HomePageState extends State<HomePage>
             ),
         ],
       ),
-    );
-  }
+    ),
+  );
+}
 
   static String _describeIcon(IconData icon) {
     if (icon == Icons.notifications_none || icon == Icons.notifications) {

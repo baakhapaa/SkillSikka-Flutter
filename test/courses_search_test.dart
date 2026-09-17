@@ -4,8 +4,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:google_fonts/google_fonts.dart';
-// The font package exposes its test asset manifest through this internal API.
-// ignore: implementation_imports
 import 'package:google_fonts/src/google_fonts_base.dart' as font_assets;
 import 'package:skillsikka/features/courses/presentation/courses.dart';
 import 'package:skillsikka/features/search/presentation/search_page.dart';

@@ -5,9 +5,9 @@ import 'package:video_player/video_player.dart';
 const _bg = Color(0xFFFFFFFF);
 const _ink = Color(0xFF111827);
 const _gray = Color(0xFF4B5563);
-const _softGray = Color(0xFF6B7280);
 const _border = Color(0xFFEAEAEA);
 const _yellow = Color(0xFFE6B800);
+const _softGray = Color(0xFF737D8C);
 
 class IctBootcampPage extends StatefulWidget {
   const IctBootcampPage({super.key});
@@ -21,6 +21,7 @@ class _IctBootcampPageState extends State<IctBootcampPage> {
   int _selectedTab = 0;
   bool _autoPlay = true;
   bool _autoNext = true;
+  bool _descriptionExpanded = false;
   late final VideoPlayerController _videoController;
   bool _videoReady = false;
 
@@ -46,7 +47,7 @@ class _IctBootcampPageState extends State<IctBootcampPage> {
     _LessonSection(
       title: 'Section 1: Research & Strategy Foundations',
       lessons: [
-        _Lesson(number: 1, title: 'Demo', duration: '22:10', isDemo: true),
+        _Lesson(number: 1, title: 'Demo', duration: '22:10'),
         _Lesson(
             number: 2,
             title: 'Defining the Product Strategy Grid',
@@ -151,6 +152,7 @@ class _IctBootcampPageState extends State<IctBootcampPage> {
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
                   _buildHero(),
+                  _buildVideoProgress(),
                   _buildPlayerControls(),
                   _buildCourseInfoSection(),
                   _buildCourseNavigationTabs(),
@@ -168,9 +170,6 @@ class _IctBootcampPageState extends State<IctBootcampPage> {
     );
   }
 
-  // ─────────────────────────────────────────────────────────────
-  // HERO (dark backdrop, centered poster, white circle back button)
-  // ─────────────────────────────────────────────────────────────
   Widget _buildHero() {
     return Container(
       height: 222,
@@ -192,7 +191,7 @@ class _IctBootcampPageState extends State<IctBootcampPage> {
                     fit: BoxFit.contain,
                   ),
           ),
-          if (!_videoReady || !_videoController.value.isPlaying)
+          if (_videoReady)
             Center(
               child: GestureDetector(
                 onTap: () {
@@ -203,11 +202,13 @@ class _IctBootcampPageState extends State<IctBootcampPage> {
                         : _videoController.play();
                   });
                 },
-                child: Image.asset(
-                  'assets/figma/bootcamp/play.png',
-                  width: 52,
-                  height: 52,
-                ),
+                child: _videoController.value.isPlaying
+                    ? const Icon(Icons.pause, size: 52, color: Colors.white)
+                    : Image.asset(
+                        'assets/figma/bootcamp/play.png',
+                        width: 52,
+                        height: 52,
+                      ),
               ),
             ),
           // White circular back button
@@ -239,9 +240,24 @@ class _IctBootcampPageState extends State<IctBootcampPage> {
     );
   }
 
-  // ─────────────────────────────────────────────────────────────
-  // PLAYER CONTROLS
-  // ─────────────────────────────────────────────────────────────
+  Widget _buildVideoProgress() {
+    return SizedBox(
+      height: 6,
+      child: _videoReady
+          ? VideoProgressIndicator(
+              _videoController,
+              allowScrubbing: true,
+              padding: EdgeInsets.zero,
+              colors: const VideoProgressColors(
+                playedColor: _yellow,
+                bufferedColor: Color(0xFFD1D1D1),
+                backgroundColor: Color(0xFFE5E7EB),
+              ),
+            )
+          : const ColoredBox(color: Color(0xFFD1D1D1)),
+    );
+  }
+
   Widget _buildPlayerControls() {
     return Container(
       color: Colors.white,
@@ -323,9 +339,6 @@ class _IctBootcampPageState extends State<IctBootcampPage> {
     );
   }
 
-  // ─────────────────────────────────────────────────────────────
-  // COURSE INFO SECTION (no card border)
-  // ─────────────────────────────────────────────────────────────
   Widget _buildCourseInfoSection() {
     return Container(
       color: Colors.white,
@@ -340,18 +353,18 @@ class _IctBootcampPageState extends State<IctBootcampPage> {
                 borderRadius: BorderRadius.circular(8),
                 child: Image.asset(
                   'assets/figma/bootcamp/course-poster.png',
-                  width: 80,
-                  height: 110,
+                  width: 130,
+                  height: 178,
                   fit: BoxFit.cover,
-                  errorBuilder: (_, __, ___) => Container(
-                    width: 80,
-                    height: 110,
+                  errorBuilder: (_, _, _) => Container(
+                    width: 130,
+                    height: 178,
                     color: const Color(0xFFE5E7EB),
                     child: const Icon(Icons.image, color: Colors.white),
                   ),
                 ),
               ),
-              const SizedBox(width: 16),
+              const SizedBox(width: 22),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -359,7 +372,7 @@ class _IctBootcampPageState extends State<IctBootcampPage> {
                     RichText(
                       text: TextSpan(
                         style: GoogleFonts.manrope(
-                          fontSize: 18,
+                          fontSize: 24,
                           fontWeight: FontWeight.w800,
                           color: _ink,
                           height: 1.25,
@@ -368,7 +381,7 @@ class _IctBootcampPageState extends State<IctBootcampPage> {
                           TextSpan(text: '4 days\n'),
                           TextSpan(
                             text: 'ICT & AI BOOTCAMP at Sundarbazar.',
-                            style: TextStyle(fontSize: 18),
+                            style: TextStyle(fontSize: 24),
                           ),
                         ],
                       ),
@@ -383,15 +396,7 @@ class _IctBootcampPageState extends State<IctBootcampPage> {
                       ),
                     ),
                     const SizedBox(height: 6),
-                    Row(
-                      children: [
-                        _buildMetaTag('HD', highlighted: true),
-                        const SizedBox(width: 4),
-                        _buildMetaTag('CC'),
-                        const SizedBox(width: 4),
-                        _buildMetaTag('ENG'),
-                      ],
-                    ),
+                    _buildMetaTag('HD', highlighted: true),
                   ],
                 ),
               ),
@@ -399,32 +404,42 @@ class _IctBootcampPageState extends State<IctBootcampPage> {
           ),
           const SizedBox(height: 14),
           Text(
-            'Master the foundations of design strategy, brand framework '
-            'design, and digital delivery systems. Learn to align creative '
-            'output directly to tangible business indicators.',
+            _descriptionExpanded
+                ? 'Master the foundations of design strategy, brand framework '
+                    'design, and digital delivery systems. Learn to align '
+                    'creative output directly to tangible business indicators.'
+                : 'Master the foundations of design strategy, brand framework '
+                    'design, and digital delivery systems.',
             style: GoogleFonts.figtree(
               fontSize: 13,
               height: 1.5,
               color: _gray,
             ),
           ),
+          if (_descriptionExpanded) ...[
+            const SizedBox(height: 12),
+            _buildMetaRow(
+              'Instructor:',
+              'Shuvanga Karki, Amrit Bhandari, Shahil Paudel, Sudip Gurung, '
+                  'Sushant Sapkota, Shreesum Manandhar, Nadish Manandhar, Anjesh Pathak',
+            ),
+            const SizedBox(height: 6),
+            _buildMetaRow('Released:', 'Oct 2026'),
+            const SizedBox(height: 6),
+            _buildMetaRow(
+              'Status:',
+              'Completed',
+              valueColor: const Color(0xFF10B981),
+            ),
+          ],
           const SizedBox(height: 12),
-          _buildMetaRow(
-            'Instructor:',
-            'Shuvanga Karki, Amrit Bhandari, Shahil Paudel, Sudip, '
-                'Sushant Sapkota, Shreesam, Nadish Manandhar, Anjesh',
-          ),
-          const SizedBox(height: 6),
-          _buildMetaRow('Released:', 'Oct 2026', valueColor: _gray),
-          const SizedBox(height: 6),
-          _buildMetaRow('Status:', 'Complete',
-              valueColor: const Color(0xFF10B981)),
-          const SizedBox(height: 4),
           GestureDetector(
             behavior: HitTestBehavior.opaque,
-            onTap: () {},
+            onTap: () => setState(
+              () => _descriptionExpanded = !_descriptionExpanded,
+            ),
             child: Text(
-              '[less]',
+              _descriptionExpanded ? '[less]' : '[more]',
               style: GoogleFonts.figtree(
                 fontSize: 13,
                 fontWeight: FontWeight.w700,
@@ -487,9 +502,7 @@ class _IctBootcampPageState extends State<IctBootcampPage> {
     );
   }
 
-  // ─────────────────────────────────────────────────────────────
-  // COURSE NAVIGATION TABS
-  // ─────────────────────────────────────────────────────────────
+
   Widget _buildCourseNavigationTabs() {
     const tabs = ['Lessons', 'Resources', 'Q&A'];
     return Container(
@@ -530,9 +543,6 @@ class _IctBootcampPageState extends State<IctBootcampPage> {
     );
   }
 
-  // ─────────────────────────────────────────────────────────────
-  // LESSONS MODULE
-  // ─────────────────────────────────────────────────────────────
   Widget _buildLessonsModuleContainer() {
     return Container(
       margin: const EdgeInsets.symmetric(horizontal: 16),
@@ -550,7 +560,7 @@ class _IctBootcampPageState extends State<IctBootcampPage> {
             child: ListView.separated(
               scrollDirection: Axis.horizontal,
               itemCount: _days.length,
-              separatorBuilder: (_, __) => const SizedBox(width: 8),
+              separatorBuilder: (_, _) => const SizedBox(width: 8),
               itemBuilder: (context, index) {
                 final selected = index == _selectedDay;
                 return GestureDetector(
@@ -630,21 +640,33 @@ class _IctBootcampPageState extends State<IctBootcampPage> {
       ),
       child: Row(
         children: [
-          Container(
-            width: 18,
-            height: 18,
-            decoration: const BoxDecoration(shape: BoxShape.circle),
-            child: Center(
-              child: Text(
-                '${lesson.number}',
-                style: GoogleFonts.jetBrainsMono(
-                  fontSize: 10,
-                  fontWeight: FontWeight.w500,
-                  color: _ink,
+          if (lesson.number == 1)
+            Image.asset(
+              'assets/figma/bootcamp/greentick.png',
+              width: 20,
+              height: 20,
+            )
+          else if (lesson.number >= 3)
+            Image.asset(
+              'assets/figma/bootcamp/greytick.png',
+              width: 20,
+              height: 20,
+            )
+          else
+            SizedBox(
+              width: 20,
+              height: 20,
+              child: Center(
+                child: Text(
+                  '${lesson.number}',
+                  style: GoogleFonts.jetBrainsMono(
+                    fontSize: 10,
+                    fontWeight: FontWeight.w500,
+                    color: _ink,
+                  ),
                 ),
               ),
             ),
-          ),
           const SizedBox(width: 8),
           Expanded(
             child: Column(
@@ -652,27 +674,6 @@ class _IctBootcampPageState extends State<IctBootcampPage> {
               children: [
                 Row(
                   children: [
-                    if (lesson.isDemo) ...[
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 4,
-                          vertical: 1,
-                        ),
-                        decoration: BoxDecoration(
-                          color: const Color(0x26F59E0B),
-                          borderRadius: BorderRadius.circular(3),
-                        ),
-                        child: Text(
-                          'Demo',
-                          style: GoogleFonts.figtree(
-                            fontSize: 9,
-                            fontWeight: FontWeight.w700,
-                            color: const Color(0xFFF59E0B),
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: 4),
-                    ],
                     Expanded(
                       child: Text(
                         lesson.title,
@@ -715,14 +716,12 @@ class _Lesson {
     required this.number,
     required this.title,
     required this.duration,
-    this.isDemo = false,
     this.isActive = false,
   });
 
   final int number;
   final String title;
   final String duration;
-  final bool isDemo;
   final bool isActive;
 }
 

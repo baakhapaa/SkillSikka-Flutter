@@ -583,17 +583,18 @@ Widget _buildIconButton(
         ),
         const SizedBox(height: 12),
         SizedBox(
-          height: 70,
+          height: 60,
           child: ListView.separated(
             padding: const EdgeInsets.symmetric(horizontal: 16),
             scrollDirection: Axis.horizontal,
             itemCount: courses.length,
-            separatorBuilder: (c, i) => const SizedBox(width: 12),
+            separatorBuilder: (c, i) => const SizedBox(width: 14),
             itemBuilder: (context, index) {
               final c = courses[index];
               return Container(
+                constraints: const BoxConstraints(minWidth: 140),
                 padding: const EdgeInsets.symmetric(
-                  horizontal: 10,
+                  horizontal: 12,
                   vertical: 10,
                 ),
                 decoration: BoxDecoration(
@@ -622,7 +623,7 @@ Widget _buildIconButton(
                         size: 18,
                       ),
                     ),
-                    const SizedBox(width: 8),
+                    const SizedBox(width: 10),
                     Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       mainAxisAlignment: MainAxisAlignment.center,

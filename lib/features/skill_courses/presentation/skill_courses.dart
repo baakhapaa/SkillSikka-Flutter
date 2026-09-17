@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:skillsikka/features/search/presentation/search_page.dart';
 
 const _cream = Color(0xFFFAF9F6);
 const _ink = Color(0xFF282828);
@@ -34,13 +35,13 @@ class _SkillCoursesPageState extends State<SkillCoursesPage> {
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
                     _buildSkillsGrid(),
-                    const SizedBox(height: 14),
+                    const SizedBox(height: 20),
                     _buildSectionHeader('Top Course'),
                     const SizedBox(height: 18),
                     _buildTopCoursesCarousel(),
                     const SizedBox(height: 16),
                     _buildSectionHeader('Course'),
-                    const SizedBox(height: 14),
+                    const SizedBox(height: 32),
                     _buildTopRatedList(),
                   ],
                 ),
@@ -98,7 +99,13 @@ class _SkillCoursesPageState extends State<SkillCoursesPage> {
               borderRadius: BorderRadius.circular(30),
               border: Border.all(color: const Color(0xFFF3F4F6)),
             ),
-            child: const Icon(Icons.search, size: 20, color: _ink),
+            child: IconButton(
+              tooltip: 'Search courses',
+              onPressed: () => Navigator.of(
+                context,
+              ).push(MaterialPageRoute(builder: (_) => const SearchPage())),
+              icon: const Icon(Icons.search, size: 20, color: _ink),
+            ),
           ),
         ],
       ),
@@ -140,14 +147,14 @@ class _SkillCoursesPageState extends State<SkillCoursesPage> {
     ];
 
     return Padding(
-      padding: const EdgeInsets.fromLTRB(20, 8, 20, 20),
+      padding: const EdgeInsets.only(top: 8),
       child: SizedBox(
-        height: 64,
+        height: 60,
         child: ListView.separated(
           scrollDirection: Axis.horizontal,
-          padding: const EdgeInsets.symmetric(horizontal: 4),
+          padding: const EdgeInsets.symmetric(horizontal: 16),
           itemCount: skills.length,
-          separatorBuilder: (_, _) => const SizedBox(width: 12),
+          separatorBuilder: (_, _) => const SizedBox(width: 14),
           itemBuilder: (context, index) {
             final s = skills[index];
             final isSelected = index == _selectedSkillIndex;
@@ -155,7 +162,7 @@ class _SkillCoursesPageState extends State<SkillCoursesPage> {
             final isActive = isSelected || isHovered;
 
             return Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 4),
+              padding: EdgeInsets.zero,
               child: MouseRegion(
                 cursor: SystemMouseCursors.click,
                 onEnter: (_) => setState(() => _hoveredSkillIndex = index),
@@ -170,7 +177,10 @@ class _SkillCoursesPageState extends State<SkillCoursesPage> {
                       duration: const Duration(milliseconds: 180),
                       curve: Curves.easeOut,
                       width: 140,
-                      padding: const EdgeInsets.all(10),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 10,
+                      ),
                       decoration: BoxDecoration(
                         gradient: LinearGradient(
                           begin: Alignment.topCenter,
@@ -290,7 +300,7 @@ class _SkillCoursesPageState extends State<SkillCoursesPage> {
     ];
 
     return SizedBox(
-      height: 300,
+      height: 260,
       child: ListView.separated(
         scrollDirection: Axis.horizontal,
         padding: const EdgeInsets.symmetric(horizontal: 16),
@@ -338,11 +348,9 @@ class _SkillCoursesPageState extends State<SkillCoursesPage> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           // Thumbnail
-          ClipRRect(
-            borderRadius: BorderRadius.circular(10),
-            child: SizedBox(
-              height: 120,
-              width: double.infinity,
+          Expanded(
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(10),
               child: Stack(
                 fit: StackFit.expand,
                 children: [
@@ -411,12 +419,17 @@ class _SkillCoursesPageState extends State<SkillCoursesPage> {
                   color: _ink,
                 ),
               ),
-              const Spacer(),
-              Text(
-                students,
-                style: GoogleFonts.figtree(
-                  fontSize: 11,
-                  color: const Color(0xFF8D887F),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  students,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  textAlign: TextAlign.end,
+                  style: GoogleFonts.figtree(
+                    fontSize: 11,
+                    color: const Color(0xFF8D887F),
+                  ),
                 ),
               ),
             ],

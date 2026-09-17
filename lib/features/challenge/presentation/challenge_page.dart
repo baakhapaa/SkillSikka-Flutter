@@ -20,22 +20,10 @@ class _ChallengesPageState extends State<ChallengesPage> {
   final _searchController = TextEditingController();
 
   static const _categories = <_ChallengeCategory>[
-    _ChallengeCategory(
-      label: 'Coding',
-      icon: Icons.code,
-    ),
-    _ChallengeCategory(
-      label: 'Design',
-      icon: Icons.brush_outlined,
-    ),
-    _ChallengeCategory(
-      label: 'Math',
-      icon: Icons.calculate_outlined,
-    ),
-    _ChallengeCategory(
-      label: 'Science',
-      icon: Icons.science_outlined,
-    ),
+    _ChallengeCategory(label: 'Coding', icon: Icons.code),
+    _ChallengeCategory(label: 'Design', icon: Icons.brush_outlined),
+    _ChallengeCategory(label: 'Math', icon: Icons.calculate_outlined),
+    _ChallengeCategory(label: 'Science', icon: Icons.science_outlined),
   ];
 
   static const _challenges = <_Challenge>[
@@ -108,49 +96,49 @@ class _ChallengesPageState extends State<ChallengesPage> {
     );
   }
 
-Widget _buildHeaderRow() {
-  return Row(
-    children: [
-      Text(
-        'Challenges',
-        style: GoogleFonts.manrope(
-          fontSize: 24,
-          fontWeight: FontWeight.w800,
-          color: _ink,
+  Widget _buildHeaderRow() {
+    return Row(
+      children: [
+        Text(
+          'Challenges',
+          style: GoogleFonts.manrope(
+            fontSize: 24,
+            fontWeight: FontWeight.w800,
+            color: _ink,
+          ),
         ),
-      ),
-      const Spacer(),
-      Container(
-        padding: const EdgeInsets.fromLTRB(8, 4, 12, 4),
-        decoration: BoxDecoration(
-          color: const Color(0xFFFFF6E8),
-          borderRadius: BorderRadius.circular(100),
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Image.asset(
-              'assets/figma/challenges/Vector.png',
-              width: 14,
-              height: 14,
-              color: const Color.fromARGB(255, 255, 171, 35),
-              colorBlendMode: BlendMode.srcIn,
-            ),
-            const SizedBox(width: 4),
-            Text(
-              '450 XP',
-              style: GoogleFonts.figtree(
-                fontSize: 12,
-                fontWeight: FontWeight.w700,
-                color: _ink,
+        const Spacer(),
+        Container(
+          padding: const EdgeInsets.fromLTRB(8, 4, 12, 4),
+          decoration: BoxDecoration(
+            color: const Color(0xFFFFF6E8),
+            borderRadius: BorderRadius.circular(100),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Image.asset(
+                'assets/figma/challenges/Vector.png',
+                width: 14,
+                height: 14,
+                color: const Color.fromARGB(255, 255, 171, 35),
+                colorBlendMode: BlendMode.srcIn,
               ),
-            ),
-          ],
+              const SizedBox(width: 4),
+              Text(
+                '450 XP',
+                style: GoogleFonts.figtree(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w700,
+                  color: _ink,
+                ),
+              ),
+            ],
+          ),
         ),
-      ),
-    ],
-  );
-}
+      ],
+    );
+  }
 
   Widget _buildSearchBar() {
     return Container(
@@ -167,18 +155,12 @@ Widget _buildHeaderRow() {
           Expanded(
             child: TextField(
               controller: _searchController,
-              style: GoogleFonts.figtree(
-                fontSize: 14,
-                color: _ink,
-              ),
+              style: GoogleFonts.figtree(fontSize: 14, color: _ink),
               decoration: InputDecoration(
                 isDense: true,
                 border: InputBorder.none,
                 hintText: 'Search active competitions...',
-                hintStyle: GoogleFonts.figtree(
-                  fontSize: 14,
-                  color: _softGray,
-                ),
+                hintStyle: GoogleFonts.figtree(fontSize: 14, color: _softGray),
               ),
             ),
           ),
@@ -186,6 +168,7 @@ Widget _buildHeaderRow() {
       ),
     );
   }
+
   Widget _buildCategoriesTrack() {
     return SizedBox(
       height: 38,
@@ -324,7 +307,7 @@ Widget _buildHeaderRow() {
       ),
     );
   }
-  
+
   Widget _buildActiveCompetitionsLabel() {
     return Text(
       'Active Competitions',
@@ -361,10 +344,7 @@ Widget _buildHeaderRow() {
           Row(
             children: [
               Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 8,
-                  vertical: 4,
-                ),
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                 decoration: BoxDecoration(
                   color: const Color(0xFFF9FAFB),
                   borderRadius: BorderRadius.circular(6),
@@ -383,10 +363,7 @@ Widget _buildHeaderRow() {
               const SizedBox(width: 4),
               Text(
                 challenge.timeLeft,
-                style: GoogleFonts.figtree(
-                  fontSize: 12,
-                  color: _gray,
-                ),
+                style: GoogleFonts.figtree(fontSize: 12, color: _gray),
               ),
             ],
           ),
@@ -407,10 +384,7 @@ Widget _buildHeaderRow() {
               const SizedBox(width: 6),
               Text(
                 challenge.players,
-                style: GoogleFonts.figtree(
-                  fontSize: 12,
-                  color: _gray,
-                ),
+                style: GoogleFonts.figtree(fontSize: 12, color: _gray),
               ),
               const Spacer(),
               GestureDetector(

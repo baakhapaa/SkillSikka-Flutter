@@ -17,10 +17,10 @@ class AppShell extends StatefulWidget {
 class _AppShellState extends State<AppShell> {
   int _selectedIndex = 0;
 
-  static const _pages = <Widget>[
+  static final _pages = <Widget>[
     HomePage(),
     ShortPage(),
-    ChallengePage(),
+    ChallengesPage(),
     MyLearningPage(),
     ProfilePage(),
   ];

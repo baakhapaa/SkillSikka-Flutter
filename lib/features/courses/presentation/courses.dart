@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:skillsikka/features/search/presentation/search_page.dart';
 
 const _bg = Color(0xFFFAF9F6);
 const _ink = Color(0xFF111827);
@@ -149,13 +150,20 @@ class _AllCoursesPageState extends State<AllCoursesPage> {
           ),
           const Spacer(),
           Container(
-            padding: const EdgeInsets.all(8),
+            width: 40,
+            height: 40,
             decoration: BoxDecoration(
               color: Colors.white,
               borderRadius: BorderRadius.circular(30),
               border: Border.all(color: const Color(0xFFF3F4F6)),
             ),
-            child: const Icon(Icons.search, size: 20, color: _ink),
+            child: IconButton(
+              tooltip: 'Search courses',
+              onPressed: () => Navigator.of(context).push(
+                MaterialPageRoute(builder: (_) => const SearchPage()),
+              ),
+              icon: const Icon(Icons.search, size: 20, color: _ink),
+            ),
           ),
         ],
       ),

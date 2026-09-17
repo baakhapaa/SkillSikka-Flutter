@@ -8,7 +8,7 @@ plugins {
     id("dev.flutter.flutter-gradle-plugin")
 }
 
-extensions.configure<ApplicationExtension> {
+android {
     namespace = "com.baakhapaa.skillsikka"
     compileSdk = flutter.compileSdkVersion
     ndkVersion = flutter.ndkVersion

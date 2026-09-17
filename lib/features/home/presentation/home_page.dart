@@ -1,5 +1,7 @@
 import 'dart:async';
 
+import 'instructor_carousel.dart';
+
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:skillsikka/features/events/presentation/event_details.dart';
@@ -1294,7 +1296,7 @@ Widget _buildIconButton(
 
   Widget _buildTopInstructors() {
     return ColoredBox(
-      color: const Color(0xFFEEEEEE),
+      color: const Color(0xFFF8F9FC),
       child: Column(
         children: [
           SizedBox(
@@ -1344,126 +1346,8 @@ Widget _buildIconButton(
               ),
             ),
           ),
-          SizedBox(
-            height: 213,
-            child: ListView(
-              padding: const EdgeInsets.fromLTRB(18, 30, 18, 18),
-              scrollDirection: Axis.horizontal,
-              children: [
-                _buildFeaturedInstructor(),
-                const SizedBox(width: 16),
-                SizedBox(
-                  width: 205.72,
-                  height: 165,
-                  child: Stack(
-                    children: const [
-                      Positioned(
-                        left: 0,
-                        child: _InstructorPeekSlice(
-                          image: 'assets/figma/homescreen/instructor2.png',
-                          imageOffsetX: 0,
-                        ),
-                      ),
-                      Positioned(
-                        left: 53.43,
-                        child: _InstructorPeekSlice(
-                          image: 'assets/figma/homescreen/instructor3.png',
-                          imageOffsetX: -11.52,
-                        ),
-                      ),
-                      Positioned(
-                        left: 106.86,
-                        child: _InstructorPeekSlice(
-                          image: 'assets/figma/homescreen/instructor4.png',
-                          imageOffsetX: -23.05,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-          ),
+          const InstructorCarousel(),
         ],
-      ),
-    );
-  }
-
-  Widget _buildFeaturedInstructor() {
-    return Container(
-      width: 178,
-      height: 165,
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(8),
-        boxShadow: const [BoxShadow(color: Color(0x40ADC0FF), blurRadius: 20)],
-      ),
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(8),
-        child: Stack(
-          fit: StackFit.expand,
-          children: [
-            Image.asset(
-              'assets/figma/homescreen/instructor.png',
-              fit: BoxFit.cover,
-              errorBuilder: (c, e, s) => Container(color: Colors.grey.shade400),
-            ),
-            const DecoratedBox(
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  begin: Alignment.topCenter,
-                  end: Alignment.bottomCenter,
-                  colors: [Color(0x00666666), Color(0x80000000)],
-                  stops: [0, 0.96],
-                ),
-              ),
-            ),
-            Padding(
-              padding: const EdgeInsets.fromLTRB(8, 0, 8, 9),
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.end,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    'Shuvanga Karki',
-                    style: GoogleFonts.manrope(
-                      color: const Color(0xFFFFF8E2),
-                      fontSize: 10,
-                      fontWeight: FontWeight.w800,
-                    ),
-                  ),
-                  Text(
-                    'Adobe Certified Instructure',
-                    style: GoogleFonts.inter(
-                      color: const Color(0xFFFFF8E2),
-                      fontSize: 8,
-                      fontWeight: FontWeight.w500,
-                    ),
-                  ),
-                  Text.rich(
-                    TextSpan(
-                      text: '915,213 students\n',
-                      style: GoogleFonts.inter(
-                        color: const Color(0xFFFFF8E2),
-                        fontSize: 8,
-                        fontWeight: FontWeight.w500,
-                      ),
-                      children: [
-                        TextSpan(
-                          text: '40 courses',
-                          style: GoogleFonts.inter(
-                            color: const Color(0xFFFFF8E2),
-                            fontSize: 8,
-                            fontWeight: FontWeight.w700,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ],
-        ),
       ),
     );
   }
@@ -2475,39 +2359,3 @@ class _HeroBookCard extends StatelessWidget {
   }
 }
 
-class _InstructorPeekSlice extends StatelessWidget {
-  const _InstructorPeekSlice({required this.image, required this.imageOffsetX});
-
-  final String image;
-  final double imageOffsetX;
-
-  @override
-  Widget build(BuildContext context) {
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(8),
-      child: SizedBox(
-        width: 45.43,
-        height: 165,
-        child: Stack(
-          clipBehavior: Clip.hardEdge,
-          children: [
-            Positioned(
-              left: imageOffsetX,
-              child: Image.asset(
-                image,
-                width: 150,
-                height: 165,
-                fit: BoxFit.cover,
-                errorBuilder: (c, e, s) => Container(
-                  width: 150,
-                  height: 165,
-                  color: Colors.grey.shade400,
-                ),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}

@@ -408,7 +408,7 @@ class _ShortFeedPageState extends State<ShortFeedPage>
             mainAxisSize: MainAxisSize.min,
             children: [
               Image.asset(
-                'assets/images/book.png',
+                'assets/images/book-open.png',
                 width: 14,
                 height: 14,
                 fit: BoxFit.contain,

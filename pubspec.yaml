@@ -78,6 +78,7 @@ flutter:
     - assets/figma/instructors/
     - assets/figma/courses/
     - assets/figma/challenges/
+    - assets/figma/bootcamp/
     - assets/figma/notification/
     - assets/figma/learning/course_banner.png
     - assets/figma/learning/chemistry.png

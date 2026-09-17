@@ -14,6 +14,7 @@ import 'package:skillsikka/features/recommendedcourse/presentation/recommended_c
 import 'package:skillsikka/features/skill_courses/presentation/skill_courses.dart';
 import 'package:skillsikka/features/search/presentation/search_page.dart';
 import 'package:skillsikka/features/notification/presentation/notification_page.dart';
+import 'package:skillsikka/features/bootcamp/presentation/bootcamp_page.dart';
 
 const _cream = Color(0xFFFAF9F6);
 const _ink = Color(0xFF282828);
@@ -741,15 +742,24 @@ Widget _buildIconButton(
             separatorBuilder: (c, i) => const SizedBox(width: 8),
             itemBuilder: (context, index) {
               final camp = camps[index];
-              return ClipRRect(
-                borderRadius: const BorderRadius.vertical(
-                  top: Radius.circular(12),
-                ),
-                child: SizedBox(
-                  width: 311,
-                  child: Stack(
-                    fit: StackFit.expand,
-                    children: [
+              return GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onTap: () {
+                  Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder: (_) => const IctBootcampPage(),
+                    ),
+                  );
+                },
+                child: ClipRRect(
+                  borderRadius: const BorderRadius.vertical(
+                    top: Radius.circular(12),
+                  ),
+                  child: SizedBox(
+                    width: 311,
+                    child: Stack(
+                      fit: StackFit.expand,
+                      children: [
                       Positioned.fill(
                         child: Image.asset(
                           camp.$1,
@@ -797,7 +807,8 @@ Widget _buildIconButton(
                           ],
                         ),
                       ),
-                    ],
+                      ],
+                    ),
                   ),
                 ),
               );

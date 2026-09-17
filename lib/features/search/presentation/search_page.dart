@@ -423,7 +423,7 @@ errorBuilder: (_, _, _) => Container(
           Row(
             children: [
               for (int i = 0; i < _creators.length; i++) ...[
-                _buildCreator(_creators[i]),
+                Flexible(child: _buildCreator(_creators[i])),
                 if (i < _creators.length - 1) const SizedBox(width: 16),
               ],
             ],

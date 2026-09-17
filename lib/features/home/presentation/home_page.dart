@@ -13,6 +13,7 @@ import 'package:skillsikka/features/premium_courses/presentation/premium_courses
 import 'package:skillsikka/features/recommendedcourse/presentation/recommended_course.dart';
 import 'package:skillsikka/features/skill_courses/presentation/skill_courses.dart';
 import 'package:skillsikka/features/search/presentation/search_page.dart';
+import 'package:skillsikka/features/notification/presentation/notification_page.dart';
 
 const _cream = Color(0xFFFAF9F6);
 const _ink = Color(0xFF282828);
@@ -219,6 +220,13 @@ class _HomePageState extends State<HomePage>
             Icons.notifications_none,
             hasBadge: true,
             semanticLabel: 'Notifications',
+            onTap: () {
+              Navigator.of(context).push(
+                MaterialPageRoute(
+                  builder: (_) => const NotificationsPage(),
+                ),
+              );
+            },
           ),
           const SizedBox(width: 6),
           _buildIconButton(

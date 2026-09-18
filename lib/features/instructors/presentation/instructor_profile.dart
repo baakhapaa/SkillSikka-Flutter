@@ -157,7 +157,6 @@ class _InstructorProfilePageState extends State<InstructorProfilePage> {
           GestureDetector(
             behavior: HitTestBehavior.opaque,
             onTap: () {
-              // TODO: share
             },
             child: Container(
               padding: const EdgeInsets.all(8),
@@ -437,7 +436,6 @@ class _InstructorProfilePageState extends State<InstructorProfilePage> {
               GestureDetector(
                 behavior: HitTestBehavior.opaque,
                 onTap: () {
-                  // TODO: navigate to all courses
                 },
                 child: Text(
                   'See All (40)',

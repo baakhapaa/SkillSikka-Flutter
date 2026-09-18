@@ -187,7 +187,6 @@ class _InstructorProfilePageState extends State<InstructorProfilePage> {
                   child: GestureDetector(
                     behavior: HitTestBehavior.opaque,
                     onTap: () {
-                      // TODO: pick new profile photo
                     },
                     child: Container(
                       width: 26,
@@ -273,11 +272,9 @@ class _InstructorProfilePageState extends State<InstructorProfilePage> {
             ),
           ),
           const SizedBox(height: 16),
-          // ── Edit Profile Settings button ─────────────────
           GestureDetector(
             behavior: HitTestBehavior.opaque,
             onTap: () {
-              // TODO: open settings
             },
             child: Container(
               height: 44,
@@ -489,7 +486,6 @@ class _InstructorProfilePageState extends State<InstructorProfilePage> {
               GestureDetector(
                 behavior: HitTestBehavior.opaque,
                 onTap: () {
-                  // TODO: edit bio
                 },
                 child: Container(
                   padding: const EdgeInsets.all(6),
@@ -558,7 +554,6 @@ class _InstructorProfilePageState extends State<InstructorProfilePage> {
                 GestureDetector(
                   behavior: HitTestBehavior.opaque,
                   onTap: () {
-                    // TODO: navigate to all saved shorts
                   },
                   child: Text(
                     'See All',
@@ -594,7 +589,6 @@ class _InstructorProfilePageState extends State<InstructorProfilePage> {
     return GestureDetector(
       behavior: HitTestBehavior.opaque,
       onTap: () {
-        // TODO: open short
       },
       child: Container(
         width: 164,
@@ -712,7 +706,6 @@ class _InstructorProfilePageState extends State<InstructorProfilePage> {
                 GestureDetector(
                   behavior: HitTestBehavior.opaque,
                   onTap: () {
-                    // TODO: navigate to all saved courses
                   },
                   child: Text(
                     'See All',
@@ -748,7 +741,6 @@ class _InstructorProfilePageState extends State<InstructorProfilePage> {
     return GestureDetector(
       behavior: HitTestBehavior.opaque,
       onTap: () {
-        // TODO: open course
       },
       child: Container(
         width: 164,
@@ -868,7 +860,6 @@ class _InstructorProfilePageState extends State<InstructorProfilePage> {
     return GestureDetector(
       behavior: HitTestBehavior.opaque,
       onTap: () {
-        // TODO: handle setting tap
       },
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),

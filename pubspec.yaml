@@ -80,6 +80,7 @@ flutter:
     - assets/figma/challenges/
     - assets/figma/bootcamp/
     - assets/figma/notification/
+    - assets/figma/instructorprofile/
     - assets/figma/learning/course_banner.png
     - assets/figma/learning/chemistry.png
     - assets/figma/learning/python.png

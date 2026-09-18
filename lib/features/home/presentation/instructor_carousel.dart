@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:skillsikka/features/instructors/presentation/instructor_profile.dart';
 
 class InstructorCarousel extends StatefulWidget {
   const InstructorCarousel({super.key});
@@ -74,7 +75,18 @@ class _InstructorCarouselState extends State<InstructorCarousel> {
                         borderRadius: BorderRadius.circular(8),
                         clipBehavior: Clip.antiAlias,
                         child: InkWell(
-                          onTap: () => setState(() => _selectedIndex = index),
+                          onTap: () {
+                            if (_selectedIndex != index) {
+                              setState(() => _selectedIndex = index);
+                              return;
+                            }
+
+                            Navigator.of(context).push(
+                              MaterialPageRoute(
+                                builder: (_) => const InstructorProfilePage(),
+                              ),
+                            );
+                          },
                           child: Stack(
                             fit: StackFit.expand,
                             children: [

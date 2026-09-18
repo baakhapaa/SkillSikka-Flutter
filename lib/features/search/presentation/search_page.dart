@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:skillsikka/features/instructors/presentation/instructor_profile.dart';
 
 const _bg = Color(0xFFFAF9F6);
 const _ink = Color(0xFF111827);
@@ -436,38 +437,51 @@ errorBuilder: (_, _, _) => Container(
   Widget _buildCreator(_Creator creator) {
     return SizedBox(
       width: 70,
-      child: Column(
-        children: [
-          ClipOval(
-            child: Image.asset(
-              creator.image,
-              width: 48,
-              height: 48,
-              fit: BoxFit.cover,
-errorBuilder: (_, _, _) => Container(
-                width: 48,
-                height: 48,
-                color: Colors.grey.shade300,
-                child: const Icon(
-                  Icons.person,
-                  color: Colors.white,
-                  size: 24,
+      child: Semantics(
+        button: true,
+        label: 'Open ${creator.handle} profile',
+        child: GestureDetector(
+          onTap: () {
+            Navigator.of(context).push(
+              MaterialPageRoute(
+                builder: (_) => const InstructorProfilePage(),
+              ),
+            );
+          },
+          child: Column(
+            children: [
+              ClipOval(
+                child: Image.asset(
+                  creator.image,
+                  width: 48,
+                  height: 48,
+                  fit: BoxFit.cover,
+                  errorBuilder: (_, _, _) => Container(
+                    width: 48,
+                    height: 48,
+                    color: Colors.grey.shade300,
+                    child: const Icon(
+                      Icons.person,
+                      color: Colors.white,
+                      size: 24,
+                    ),
+                  ),
                 ),
               ),
-            ),
+              const SizedBox(height: 6),
+              Text(
+                creator.handle,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                textAlign: TextAlign.center,
+                style: GoogleFonts.figtree(
+                  fontSize: 11,
+                  color: _gray,
+                ),
+              ),
+            ],
           ),
-          const SizedBox(height: 6),
-          Text(
-            creator.handle,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            textAlign: TextAlign.center,
-            style: GoogleFonts.figtree(
-              fontSize: 11,
-              color: _gray,
-            ),
-          ),
-        ],
+        ),
       ),
     );
   }

@@ -35,9 +35,9 @@ class _HomePageState extends State<HomePage>
   late final AnimationController _heroController;
   Timer? _promoTimer;
   int _activePromoIndex = 0;
-  int _heroFrontIndex = 4;
-  double _heroDragDistance = 0;
-  int _heroDirection = 1;
+  double _heroPos = 2;
+  double _heroSnapStart = 0;
+  double _heroSnapTarget = 0;
   bool _heroAnimating = false;
   int _selectedClassIndex = 0;
   int _selectedBootcampDays = 4;
@@ -92,30 +92,112 @@ class _HomePageState extends State<HomePage>
     ),
   ];
 
+  // X-ordered slot layouts for the weighted flow: far-left narrow, left mid,
+  // center front, right mid, far-right narrow.
+  static const _heroFlowSlots = <_HeroCardLayout>[
+    _HeroCardLayout(
+      left: 0,
+      top: 47,
+      width: 174.4,
+      height: 223.1,
+      imageHeight: 149.2,
+      titleSize: 11,
+      descSize: 6,
+      avatarSize: 15,
+      nameSize: 10,
+      playSize: 39.1,
+      playOpacity: 1,
+    ),
+    _HeroCardLayout(
+      left: 48,
+      top: 23,
+      width: 211.9,
+      height: 271.1,
+      imageHeight: 181.2,
+      titleSize: 12,
+      descSize: 9,
+      avatarSize: 20,
+      nameSize: 12,
+      playSize: 47.5,
+      playOpacity: 1,
+    ),
+    _HeroCardLayout(
+      left: 95.69,
+      top: 0,
+      width: 247.8,
+      height: 317.1,
+      imageHeight: 212,
+      titleSize: 14,
+      descSize: 10,
+      avatarSize: 28,
+      nameSize: 13,
+    ),
+    _HeroCardLayout(
+      left: 180,
+      top: 23,
+      width: 211.9,
+      height: 271.1,
+      imageHeight: 181.2,
+      titleSize: 12,
+      descSize: 9,
+      avatarSize: 20,
+      nameSize: 12,
+    ),
+    _HeroCardLayout(
+      left: 265,
+      top: 47,
+      width: 174.4,
+      height: 223.1,
+      imageHeight: 149.2,
+      titleSize: 11,
+      descSize: 6,
+      avatarSize: 15,
+      nameSize: 10,
+    ),
+  ];
+
+  // Zero-size collapse states pinned to each track edge, so cards shrink out
+  // of one side and grow back in from the other while swiping.
+  static const _heroCollapsedLeft = _HeroCardLayout(
+    left: 0,
+    top: 47,
+    width: 0,
+    height: 0,
+    imageHeight: 0,
+    titleSize: 0,
+    descSize: 0,
+    avatarSize: 0,
+    nameSize: 0,
+  );
+  static const _heroCollapsedRight = _HeroCardLayout(
+    left: 439.4,
+    top: 47,
+    width: 0,
+    height: 0,
+    imageHeight: 0,
+    titleSize: 0,
+    descSize: 0,
+    avatarSize: 0,
+    nameSize: 0,
+  );
+  static const _heroDragUnit = 66.25;
+
   @override
   void initState() {
     super.initState();
     _promoController = PageController();
-    _heroController =
-        AnimationController(
-          vsync: this,
-          duration: const Duration(milliseconds: 420),
-        )..addStatusListener((status) {
-          if (status == AnimationStatus.completed && _heroAnimating) {
-            setState(() {
-              _heroFrontIndex = (_heroFrontIndex + _heroDirection + 5) % 5;
-              _heroDragDistance = 0;
-              _heroAnimating = false;
-            });
-            _heroController.reset();
-          }
-          if (status == AnimationStatus.dismissed && _heroAnimating) {
-            setState(() {
-              _heroDragDistance = 0;
-              _heroAnimating = false;
-            });
-          }
+    _heroController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 420),
+    )..addStatusListener((status) {
+      if (status == AnimationStatus.completed && _heroAnimating) {
+        setState(() {
+          _heroPos = _heroSnapTarget;
+          _heroAnimating = false;
         });
+        _heroController.reset();
+      }
+    });
     _promoTimer = Timer.periodic(const Duration(seconds: 4), (_) {
       if (!_promoController.hasClients) return;
       final nextPage = (_activePromoIndex + 1) % _promoSlides.length;
@@ -138,15 +220,13 @@ class _HomePageState extends State<HomePage>
   void _finishHeroDrag() {
     if (_heroAnimating) return;
     _heroAnimating = true;
-    if (_heroDragDistance.abs() < 70) {
-      _heroController.reverse(
-        from: (_heroDragDistance.abs() / 220).clamp(0.0, 1.0).toDouble(),
-      );
-    } else {
-      _heroController.forward(
-        from: (_heroDragDistance.abs() / 220).clamp(0.0, 1.0).toDouble(),
-      );
+    _heroSnapStart = _heroPos;
+    _heroSnapTarget = _heroPos.roundToDouble();
+    if (_heroSnapTarget == _heroPos) {
+      _heroAnimating = false;
+      return;
     }
+    _heroController.forward(from: 0.0);
   }
 
   @override
@@ -339,142 +419,65 @@ Widget _buildIconButton(
   Widget _buildHeroCarousel() {
     const trackW = 439.4;
     const trackH = 317.1;
-    const cards = <_HeroCardLayout>[
-      _HeroCardLayout(
-        left: 0,
-        top: 47,
-        width: 174.4,
-        height: 223.1,
-        imageHeight: 149.2,
+    const heroItems = <({String image, String avatar})>[
+      (
         image: 'assets/figma/homescreen/Rectangle 3353.png',
-        titleSize: 11,
-        descSize: 6,
-        avatarSize: 15,
-        nameSize: 10,
         avatar: 'assets/figma/face/face1.png',
-        showPlay: true,
-        playSize: 39.1,
       ),
-      _HeroCardLayout(
-        left: 48,
-        top: 23,
-        width: 211.9,
-        height: 271.1,
-        imageHeight: 181.2,
+      (
         image: 'assets/figma/homescreen/Rectangle 3352.png',
-        titleSize: 12,
-        descSize: 9,
-        avatarSize: 20,
-        nameSize: 12,
         avatar: 'assets/figma/face/face2.png',
-        showPlay: true,
-        playSize: 47.5,
       ),
-      _HeroCardLayout(
-        left: 265,
-        top: 47,
-        width: 174.4,
-        height: 223.1,
-        imageHeight: 149.2,
+      (
         image: 'assets/figma/homescreen/Rectangle 3351.png',
-        titleSize: 11,
-        descSize: 6,
-        avatarSize: 15,
-        nameSize: 10,
         avatar: 'assets/figma/face/face3.png',
       ),
-      _HeroCardLayout(
-        left: 180,
-        top: 23,
-        width: 211.9,
-        height: 271.1,
-        imageHeight: 181.2,
+      (
         image: 'assets/figma/homescreen/Rectangle 3354.png',
-        titleSize: 12,
-        descSize: 9,
-        avatarSize: 20,
-        nameSize: 12,
         avatar: 'assets/figma/face/face5.png',
       ),
-      _HeroCardLayout(
-        left: 95.69,
-        top: 0,
-        width: 247.8,
-        height: 317.1,
-        imageHeight: 212,
+      (
         image: 'assets/figma/homescreen/Rectangle 3350.png',
-        titleSize: 14,
-        descSize: 10,
-        avatarSize: 28,
-        nameSize: 13,
         avatar: 'assets/figma/face/faace4.png',
       ),
     ];
 
     Widget heroStack() {
-      final currentSlots = List.generate(cards.length, (slotIndex) {
-        final contentIndex = switch (slotIndex) {
-          0 => (_heroFrontIndex - 2 + cards.length) % cards.length,
-          1 => (_heroFrontIndex - 1 + cards.length) % cards.length,
-          2 => (_heroFrontIndex + 2) % cards.length,
-          3 => (_heroFrontIndex + 1) % cards.length,
-          _ => _heroFrontIndex,
-        };
-        final slot = cards[slotIndex];
-        return cards[contentIndex].copyWith(
-          left: slot.left,
-          top: slot.top,
-          width: slot.width,
-          height: slot.height,
-          imageHeight: slot.imageHeight,
-          titleSize: slot.titleSize,
-          descSize: slot.descSize,
-          avatarSize: slot.avatarSize,
-          nameSize: slot.nameSize,
-          showPlay: slot.showPlay,
-          playSize: slot.playSize,
-        );
+      final t = Curves.easeInOutCubic.transform(_heroController.value);
+      final pos = _heroAnimating
+          ? _heroSnapStart + (_heroSnapTarget - _heroSnapStart) * t
+          : _heroPos;
+
+      final cards = <(double, double, Widget)>[];
+      for (var i = 0; i < heroItems.length; i++) {
+        // A wrapped copy re-enters from the opposite edge, so mid-swipe both
+        // edges show the same content like an endless conveyor.
+        final baseK = ((pos - i) / heroItems.length).floor();
+        for (var k = baseK; k <= baseK + 1; k++) {
+          final s = i - pos + heroItems.length * k;
+          if (s <= -1 || s >= 5) continue;
+          final layout = _layoutAt(s).copyWith(
+            image: heroItems[i].image,
+            avatar: heroItems[i].avatar,
+          );
+          cards.add((
+            -((s - 2).abs()),
+            s,
+            Positioned(
+              left: layout.left,
+              top: layout.top,
+              child: _HeroBookCard(
+                layout: layout,
+                onTap: _openPremiumCourseDetails,
+              ),
+            ),
+          ));
+        }
+      }
+      cards.sort((a, b) {
+        final byDepth = a.$1.compareTo(b.$1);
+        return byDepth != 0 ? byDepth : a.$2.compareTo(b.$2);
       });
-      final targetFront =
-          (_heroFrontIndex + _heroDirection + cards.length) % cards.length;
-      final targetSlot = _heroDirection > 0 ? 3 : 1;
-      final rawProgress = _heroAnimating
-          ? _heroController.value
-          : (_heroDragDistance.abs() / 220).clamp(0.0, 1.0).toDouble();
-      final progress = Curves.easeInOutCubic.transform(rawProgress);
-      final targetFrom = currentSlots[targetSlot];
-      final targetTo = cards[targetFront].copyWith(
-        left: cards[4].left,
-        top: cards[4].top,
-        width: cards[4].width,
-        height: cards[4].height,
-        imageHeight: cards[4].imageHeight,
-        titleSize: cards[4].titleSize,
-        descSize: cards[4].descSize,
-        avatarSize: cards[4].avatarSize,
-        nameSize: cards[4].nameSize,
-        showPlay: cards[4].showPlay,
-        playSize: cards[4].playSize,
-      );
-      double mix(double from, double to) => from + (to - from) * progress;
-      final movingTarget = targetFrom.copyWith(
-        left: mix(targetFrom.left, targetTo.left),
-        top: mix(targetFrom.top, targetTo.top),
-        width: mix(targetFrom.width, targetTo.width),
-        height: mix(targetFrom.height, targetTo.height),
-        imageHeight: mix(targetFrom.imageHeight, targetTo.imageHeight),
-        titleSize: mix(targetFrom.titleSize, targetTo.titleSize),
-        descSize: mix(targetFrom.descSize, targetTo.descSize),
-        avatarSize: mix(targetFrom.avatarSize, targetTo.avatarSize),
-        nameSize: mix(targetFrom.nameSize, targetTo.nameSize),
-        playSize: mix(targetFrom.playSize, targetTo.playSize),
-      );
-      final front = currentSlots[4];
-      final frontOffset = _heroAnimating
-          ? -_heroDirection * 220 * progress
-          : _heroDragDistance;
-      final frontScale = 1 - (0.035 * progress);
-      final targetScale = 0.965 + (0.035 * progress);
 
       return ClipRect(
         child: OverflowBox(
@@ -489,43 +492,7 @@ Widget _buildIconButton(
               height: trackH,
               child: Stack(
                 clipBehavior: Clip.none,
-                children: [
-                  for (var slot = 0; slot < currentSlots.length; slot++)
-                    if (slot != 4 && slot != targetSlot)
-                      Positioned(
-                        left: currentSlots[slot].left,
-                        top: currentSlots[slot].top,
-                        child: _HeroBookCard(
-                          layout: currentSlots[slot],
-                          onTap: _openPremiumCourseDetails,
-                        ),
-                      ),
-                  Positioned(
-                    left: movingTarget.left,
-                    top: movingTarget.top,
-                    child: Transform.scale(
-                      scale: targetScale,
-                      child: _HeroBookCard(
-                        layout: movingTarget,
-                        onTap: _openPremiumCourseDetails,
-                      ),
-                    ),
-                  ),
-                  Positioned(
-                    left: front.left + frontOffset,
-                    top: front.top,
-                    child: Transform.rotate(
-                      angle: -_heroDirection * 0.018 * progress,
-                      child: Transform.scale(
-                        scale: frontScale,
-                        child: _HeroBookCard(
-                          layout: front,
-                          onTap: _openPremiumCourseDetails,
-                        ),
-                      ),
-                    ),
-                  ),
-                ],
+                children: [for (final card in cards) card.$3],
               ),
             ),
           ),
@@ -542,12 +509,9 @@ Widget _buildIconButton(
           behavior: HitTestBehavior.opaque,
           onHorizontalDragUpdate: _heroAnimating
               ? null
-              : (details) => setState(() {
-                  _heroDragDistance += details.delta.dx;
-                  if (_heroDragDistance.abs() > 2) {
-                    _heroDirection = _heroDragDistance < 0 ? 1 : -1;
-                  }
-                }),
+              : (details) => setState(
+                  () => _heroPos -= details.delta.dx / _heroDragUnit,
+                ),
           onHorizontalDragEnd: _heroAnimating ? null : (_) => _finishHeroDrag(),
           child: AnimatedBuilder(
             animation: _heroController,
@@ -556,6 +520,16 @@ Widget _buildIconButton(
         ),
       ),
     );
+  }
+
+  _HeroCardLayout _layoutAt(double s) {
+    if (s <= -1) return _heroCollapsedLeft;
+    if (s >= 5) return _heroCollapsedRight;
+    final lower = s.floor();
+    final t = s - lower;
+    final from = lower < 0 ? _heroCollapsedLeft : _heroFlowSlots[lower];
+    final to = lower >= 4 ? _heroCollapsedRight : _heroFlowSlots[lower + 1];
+    return _HeroCardLayout.lerp(from, to, t);
   }
 
   Widget _buildSkillCourses() {
@@ -2128,14 +2102,14 @@ class _HeroCardLayout {
     required this.width,
     required this.height,
     required this.imageHeight,
-    required this.image,
     required this.titleSize,
     required this.descSize,
     required this.avatarSize,
     required this.nameSize,
-    this.avatar = 'assets/figma/face/face1.png',
-    this.showPlay = false,
+    this.image = '',
+    this.avatar = '',
     this.playSize = 0,
+    this.playOpacity = 0,
   });
 
   final double left;
@@ -2144,13 +2118,13 @@ class _HeroCardLayout {
   final double height;
   final double imageHeight;
   final String image;
+  final String avatar;
   final double titleSize;
   final double descSize;
   final double avatarSize;
   final double nameSize;
-  final String avatar;
-  final bool showPlay;
   final double playSize;
+  final double playOpacity;
 
   _HeroCardLayout copyWith({
     double? left,
@@ -2162,8 +2136,10 @@ class _HeroCardLayout {
     double? descSize,
     double? avatarSize,
     double? nameSize,
-    bool? showPlay,
     double? playSize,
+    double? playOpacity,
+    String? image,
+    String? avatar,
   }) {
     return _HeroCardLayout(
       left: left ?? this.left,
@@ -2171,14 +2147,35 @@ class _HeroCardLayout {
       width: width ?? this.width,
       height: height ?? this.height,
       imageHeight: imageHeight ?? this.imageHeight,
-      image: image,
+      image: image ?? this.image,
+      avatar: avatar ?? this.avatar,
       titleSize: titleSize ?? this.titleSize,
       descSize: descSize ?? this.descSize,
       avatarSize: avatarSize ?? this.avatarSize,
       nameSize: nameSize ?? this.nameSize,
-      avatar: avatar,
-      showPlay: showPlay ?? this.showPlay,
       playSize: playSize ?? this.playSize,
+      playOpacity: playOpacity ?? this.playOpacity,
+    );
+  }
+
+  static _HeroCardLayout lerp(_HeroCardLayout a, _HeroCardLayout b, double t) {
+    double mix(double from, double to) => from + (to - from) * t;
+    double fontMix(double from, double to) =>
+        mix(from, to).clamp(0.5, double.infinity).toDouble();
+    return _HeroCardLayout(
+      left: mix(a.left, b.left),
+      top: mix(a.top, b.top),
+      width: mix(a.width, b.width),
+      height: mix(a.height, b.height),
+      imageHeight: mix(a.imageHeight, b.imageHeight),
+      image: a.image,
+      avatar: a.avatar,
+      titleSize: fontMix(a.titleSize, b.titleSize),
+      descSize: fontMix(a.descSize, b.descSize),
+      avatarSize: fontMix(a.avatarSize, b.avatarSize),
+      nameSize: fontMix(a.nameSize, b.nameSize),
+      playSize: mix(a.playSize, b.playSize),
+      playOpacity: mix(a.playOpacity, b.playOpacity),
     );
   }
 }
@@ -2357,23 +2354,26 @@ class _HeroBookCard extends StatelessWidget {
           ),
 
           // ── Play button ───────────────────────────────────────────
-          if (layout.showPlay)
+          if (layout.playSize > 0)
             Positioned(
               top: 0,
               right: 2,
-              child: ClipRRect(
-                borderRadius: BorderRadius.circular(22),
-                child: Container(
-                  width: layout.playSize,
-                  height: layout.playSize,
-                  decoration: BoxDecoration(
-                    color: Colors.white.withValues(alpha: 0.13),
-                    borderRadius: BorderRadius.circular(22),
-                  ),
-                  child: Icon(
-                    Icons.play_arrow_rounded,
-                    color: Colors.white.withValues(alpha: 0.9),
-                    size: layout.playSize * 0.55,
+              child: Opacity(
+                opacity: layout.playOpacity,
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(22),
+                  child: Container(
+                    width: layout.playSize,
+                    height: layout.playSize,
+                    decoration: BoxDecoration(
+                      color: Colors.white.withValues(alpha: 0.13),
+                      borderRadius: BorderRadius.circular(22),
+                    ),
+                    child: Icon(
+                      Icons.play_arrow_rounded,
+                      color: Colors.white.withValues(alpha: 0.9),
+                      size: layout.playSize * 0.55,
+                    ),
                   ),
                 ),
               ),

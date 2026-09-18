@@ -38,12 +38,7 @@ class _InstructorProfilePageState extends State<InstructorProfilePage> {
       duration: '4:12',
       savedAgo: 'Saved • 2h ago',
     ),
-    _SavedShort(
-      image: 'assets/figma/instructorprofile/ds.png',
-      title: 'Color Theory Basics',
-      duration: '3:08',
-      savedAgo: 'Saved • 1d ago',
-    ),
+   
     _SavedShort(
       image: 'assets/figma/instructorprofile/problem.png',
       title: 'Figma Auto Layout Tricks',
@@ -66,7 +61,7 @@ class _InstructorProfilePageState extends State<InstructorProfilePage> {
       instructor: 'Prof. Karki',
     ),
     _SavedCourse(
-      image: 'assets/figma/instructorprofile/ds.png',
+      image: 'assets/figma/instructorprofile/problem.png',
       title: 'UI Design Systems',
       progress: '32% Complete',
       instructor: 'Prof. Karki',

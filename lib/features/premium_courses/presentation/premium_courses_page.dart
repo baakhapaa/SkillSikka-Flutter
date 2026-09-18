@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:skillsikka/core/widgets/pressable_chip.dart';
 import 'package:skillsikka/features/premium_courses/presentation/premium_course_details_page.dart';
 
 const _pageBackground = Color(0xFFF9FAFB);
@@ -25,7 +26,6 @@ class _PremiumCoursesPageState extends State<PremiumCoursesPage> {
     'Music',
   ];
   int selectedCategory = 0;
-  int hoveredCategory = -1;
 
   static const courses = <_PremiumCourse>[
     _PremiumCourse(
@@ -193,64 +193,16 @@ class _PremiumCoursesPageState extends State<PremiumCoursesPage> {
         scrollDirection: Axis.horizontal,
         itemCount: categories.length,
         separatorBuilder: (_, _) => const SizedBox(width: 8),
-        itemBuilder: (context, index) {
-          final selected = selectedCategory == index;
-          final hovered = hoveredCategory == index;
-          return MouseRegion(
-            cursor: SystemMouseCursors.click,
-            onEnter: (_) => setState(() => hoveredCategory = index),
-            onExit: (_) => setState(() => hoveredCategory = -1),
-            child: GestureDetector(
-              onTap: () => setState(() => selectedCategory = index),
-              child: AnimatedContainer(
-                duration: const Duration(milliseconds: 160),
-                curve: Curves.easeOut,
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 14,
-                  vertical: 8,
-                ),
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    begin: Alignment.topCenter,
-                    end: Alignment.bottomCenter,
-                    colors: [
-                      Colors.white.withValues(alpha: hovered ? 0.98 : 0.86),
-                      const Color(
-                        0xFFF2F4F7,
-                      ).withValues(alpha: selected ? 0.76 : 0.56),
-                    ],
-                  ),
-                  borderRadius: BorderRadius.circular(14),
-                  border: Border.all(
-                    color: Colors.white.withValues(alpha: 0.85),
-                  ),
-                  boxShadow: [
-                    BoxShadow(
-                      color: hovered
-                          ? const Color(0x2E000000)
-                          : const Color(0x22000000),
-                      blurRadius: hovered ? 10 : 7,
-                      offset: Offset(0, selected ? 1 : 3),
-                    ),
-                    const BoxShadow(
-                      color: Color(0xCCFFFFFF),
-                      blurRadius: 2,
-                      offset: Offset(0, -1),
-                    ),
-                  ],
-                ),
-                child: Text(
-                  categories[index],
-                  style: GoogleFonts.figtree(
-                    fontSize: 13,
-                    fontWeight: FontWeight.w600,
-                    color: _ink,
-                  ),
-                ),
-              ),
-            ),
-          );
-        },
+        itemBuilder: (context, index) => Center(
+          child: PressableChip(
+            label: categories[index],
+            selected: selectedCategory == index,
+            onTap: () => setState(() => selectedCategory = index),
+            fontSize: 13,
+            fontWeight: FontWeight.w600,
+            textColor: _ink,
+          ),
+        ),
       ),
     );
   }
@@ -374,10 +326,16 @@ class _CarouselCourseCard extends StatelessWidget {
                   color: const Color(0xFF524C00),
                 ),
               ),
-              _ViewButton(
+              PressableChip(
+                label: 'View',
                 onTap: () => Navigator.of(context).push(
                   MaterialPageRoute(builder: (_) => const CourseDetailsPage()),
                 ),
+                fontSize: 10,
+                fontWeight: FontWeight.w700,
+                horizontalPadding: 12,
+                verticalPadding: 7,
+                textColor: _ink,
               ),
             ],
           ),
@@ -512,74 +470,6 @@ class _CourseImage extends StatelessWidget {
       errorBuilder: (_, _, _) => const ColoredBox(
         color: Color(0xFFF3F4F6),
         child: Icon(Icons.image_outlined, color: _muted),
-      ),
-    ),
-  );
-}
-
-class _ViewButton extends StatefulWidget {
-  const _ViewButton({required this.onTap});
-  final VoidCallback onTap;
-
-  @override
-  State<_ViewButton> createState() => _ViewButtonState();
-}
-
-class _ViewButtonState extends State<_ViewButton> {
-  bool _hovered = false;
-  bool _pressed = false;
-
-  @override
-  Widget build(BuildContext context) => MouseRegion(
-    cursor: SystemMouseCursors.click,
-    onEnter: (_) => setState(() => _hovered = true),
-    onExit: (_) => setState(() {
-      _hovered = false;
-      _pressed = false;
-    }),
-    child: GestureDetector(
-      onTapDown: (_) => setState(() => _pressed = true),
-      onTapCancel: () => setState(() => _pressed = false),
-      onTapUp: (_) => setState(() => _pressed = false),
-      onTap: widget.onTap,
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 160),
-        curve: Curves.easeOut,
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
-        decoration: BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
-            colors: [
-              Colors.white.withValues(alpha: _hovered ? 0.98 : 0.86),
-              const Color(0xFFF2F4F7).withValues(alpha: _pressed ? 0.78 : 0.58),
-            ],
-          ),
-          borderRadius: BorderRadius.circular(14),
-          border: Border.all(color: Colors.white.withValues(alpha: 0.85)),
-          boxShadow: [
-            BoxShadow(
-              color: _hovered
-                  ? const Color(0x2E000000)
-                  : const Color(0x22000000),
-              blurRadius: _hovered ? 10 : 7,
-              offset: Offset(0, _pressed ? 1 : 3),
-            ),
-            const BoxShadow(
-              color: Color(0xCCFFFFFF),
-              blurRadius: 2,
-              offset: Offset(0, -1),
-            ),
-          ],
-        ),
-        child: Text(
-          'View',
-          style: GoogleFonts.figtree(
-            fontSize: 10,
-            fontWeight: FontWeight.w700,
-            color: _ink,
-          ),
-        ),
       ),
     ),
   );

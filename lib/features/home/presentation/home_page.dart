@@ -295,9 +295,13 @@ Widget _buildIconButton(
     return 'Icon button';
   }
 
-  Widget _buildSectionHeader(String title, {Widget? trailing}) {
+  Widget _buildSectionHeader(
+    String title, {
+    Widget? trailing,
+    EdgeInsetsGeometry padding = const EdgeInsets.symmetric(horizontal: 16),
+  }) {
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16),
+      padding: padding,
       child: Row(
         children: [
           Text(
@@ -1379,6 +1383,7 @@ Widget _buildIconButton(
         children: [
           _buildSectionHeader(
             'Get Premium Courses',
+            padding: EdgeInsets.zero,
             trailing: GestureDetector(
               onTap: () {
                 Navigator.of(context).push(
@@ -1736,6 +1741,7 @@ Widget _buildIconButton(
         children: [
           _buildSectionHeader(
             'Recommended Books',
+            padding: EdgeInsets.zero,
             trailing: GestureDetector(
               onTap: () {
                 Navigator.of(context).push(

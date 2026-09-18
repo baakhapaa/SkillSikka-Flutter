@@ -23,8 +23,12 @@ class _IctBootcampPageState extends State<IctBootcampPage> {
   bool _autoNext = true;
   bool _descriptionExpanded = false;
   bool _showAllDiscussions = false;
+  bool _showEmojiPicker = false;
   late final VideoPlayerController _videoController;
   bool _videoReady = false;
+
+  // Comment composer
+  final TextEditingController _commentController = TextEditingController();
 
   // Q&A reply-thread state
   final Set<int> _expandedReplies = <int>{};
@@ -298,6 +302,12 @@ class _IctBootcampPageState extends State<IctBootcampPage> {
     ),
   ];
 
+  static const _emojiPalette = [
+    '😀', '😂', '🥹', '😍', '🤔', '🙌',
+    '🔥', '💯', '🚀', '✨', '🎯', '👏',
+    '😅', '🙏', '💡', '📚', '⭐', '❤️',
+  ];
+
   @override
   void initState() {
     super.initState();
@@ -310,6 +320,7 @@ class _IctBootcampPageState extends State<IctBootcampPage> {
 
   @override
   void dispose() {
+    _commentController.dispose();
     for (final c in _replyControllers.values) {
       c.dispose();
     }
@@ -1063,24 +1074,25 @@ class _IctBootcampPageState extends State<IctBootcampPage> {
             _buildCommentPost(index: i, comment: comments[i]),
             const SizedBox(height: 12),
           ],
-          GestureDetector(
-            behavior: HitTestBehavior.opaque,
-            onTap: () => setState(
-              () => _showAllDiscussions = !_showAllDiscussions,
-            ),
-            child: Padding(
-              padding: const EdgeInsets.symmetric(vertical: 8),
-              child: Text(
-                _showAllDiscussions ? 'View less' : 'View more',
-                textAlign: TextAlign.center,
-                style: GoogleFonts.figtree(
-                  fontSize: 13,
-                  height: 1.5,
-                  color: const Color(0xFF171717),
+          if (_qaComments.length > visibleCount)
+            GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onTap: () => setState(
+                () => _showAllDiscussions = !_showAllDiscussions,
+              ),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(vertical: 8),
+                child: Text(
+                  _showAllDiscussions ? 'View less' : 'View more',
+                  textAlign: TextAlign.center,
+                  style: GoogleFonts.figtree(
+                    fontSize: 13,
+                    height: 1.5,
+                    color: const Color(0xFF171717),
+                  ),
                 ),
               ),
             ),
-          ),
           const SizedBox(height: 12),
         ],
       ),
@@ -1131,6 +1143,7 @@ class _IctBootcampPageState extends State<IctBootcampPage> {
     );
   }
 
+  // ── Working input composer with emoji picker + send ────────
   Widget _buildInputComposer() {
     return Container(
       padding: const EdgeInsets.all(12),
@@ -1139,27 +1152,132 @@ class _IctBootcampPageState extends State<IctBootcampPage> {
         borderRadius: BorderRadius.circular(8),
         border: Border.all(color: _border),
       ),
-      child: Row(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Expanded(
-            child: Text(
-              'Add to the strategy discussion...',
-              style: GoogleFonts.figtree(
-                fontSize: 12,
-                color: _gray,
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              Expanded(
+                child: TextField(
+                  controller: _commentController,
+                  maxLines: null,
+                  minLines: 1,
+                  style: GoogleFonts.figtree(fontSize: 13, color: _ink),
+                  decoration: InputDecoration(
+                    isDense: true,
+                    border: InputBorder.none,
+                    hintText: 'Add to the strategy discussion...',
+                    hintStyle: GoogleFonts.figtree(
+                      fontSize: 12,
+                      color: _gray,
+                    ),
+                  ),
+                  onSubmitted: (_) => _submitComment(),
+                ),
               ),
-            ),
+              const SizedBox(width: 8),
+              // Emoji picker toggle
+              GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onTap: () =>
+                    setState(() => _showEmojiPicker = !_showEmojiPicker),
+                child: Icon(
+                  Icons.sentiment_satisfied_alt_outlined,
+                  size: 20,
+                  color: _showEmojiPicker ? _yellow : _gray,
+                ),
+              ),
+              const SizedBox(width: 8),
+              // Send button
+              GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onTap: _submitComment,
+                child: Container(
+                  padding: const EdgeInsets.all(6),
+                  decoration: BoxDecoration(
+                    color: _yellow,
+                    borderRadius: BorderRadius.circular(6),
+                  ),
+                  child: const Icon(Icons.send, size: 14, color: _ink),
+                ),
+              ),
+            ],
           ),
-          const Icon(
-            Icons.sentiment_satisfied_alt_outlined,
-            size: 14,
-            color: _gray,
-          ),
+          if (_showEmojiPicker) ...[
+            const SizedBox(height: 8),
+            _buildEmojiPicker(),
+          ],
         ],
       ),
     );
   }
 
+  Widget _buildEmojiPicker() {
+    return Container(
+      padding: const EdgeInsets.symmetric(vertical: 6),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF9FAFB),
+        borderRadius: BorderRadius.circular(6),
+        border: Border.all(color: _border),
+      ),
+      child: SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        padding: const EdgeInsets.symmetric(horizontal: 8),
+        child: Row(
+          children: [
+            for (final emoji in _emojiPalette)
+              GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onTap: () => _insertEmoji(emoji),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 4),
+                  child: Text(
+                    emoji,
+                    style: const TextStyle(fontSize: 22),
+                  ),
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _insertEmoji(String emoji) {
+    final text = _commentController.text;
+    final selection = _commentController.selection;
+    final start = selection.start < 0 ? text.length : selection.start;
+    final end = selection.end < 0 ? text.length : selection.end;
+    final newText = text.replaceRange(start, end, emoji);
+    _commentController.value = TextEditingValue(
+      text: newText,
+      selection: TextSelection.collapsed(offset: start + emoji.length),
+    );
+  }
+
+  void _submitComment() {
+    final text = _commentController.text.trim();
+    if (text.isEmpty) return;
+    setState(() {
+      _qaComments.insert(
+        0,
+        _Comment(
+          avatarPath: 'assets/figma/instructors/instructor.png',
+          username: 'you',
+          meta: 'just now • Student',
+          message: text,
+          likes: 0,
+        ),
+      );
+      _commentController.clear();
+      _showEmojiPicker = false;
+      _showAllDiscussions = false;
+    });
+    FocusScope.of(context).unfocus();
+  }
+
+  // ── Comment post card ──────────────────────────────────────
   Widget _buildCommentPost({
     required int index,
     required _Comment comment,
@@ -1176,7 +1294,6 @@ class _IctBootcampPageState extends State<IctBootcampPage> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // ── Header (no verified badge) ────────────────────
           Row(
             crossAxisAlignment: CrossAxisAlignment.center,
             children: [
@@ -1226,7 +1343,6 @@ class _IctBootcampPageState extends State<IctBootcampPage> {
             ],
           ),
           const SizedBox(height: 8),
-          // ── Message ────────────────────────────────────────
           Text(
             comment.message,
             style: GoogleFonts.figtree(
@@ -1236,7 +1352,6 @@ class _IctBootcampPageState extends State<IctBootcampPage> {
             ),
           ),
           const SizedBox(height: 8),
-          // ── Like + Reply ───────────────────────────────────
           Row(
             children: [
               GestureDetector(
@@ -1305,7 +1420,6 @@ class _IctBootcampPageState extends State<IctBootcampPage> {
               ),
             ],
           ),
-          // ── Replies thread ─────────────────────────────────
           if (repliesOpen) ...[
             const SizedBox(height: 12),
             for (final reply in comment.replies) ...[
@@ -1593,7 +1707,6 @@ class _Comment {
     required this.meta,
     required this.message,
     this.likes = 0,
-    this.isLiked = false,
     List<_Reply>? replies,
   }) : replies = replies ?? [];
 
@@ -1602,7 +1715,7 @@ class _Comment {
   final String meta;
   final String message;
   int likes;
-  bool isLiked;
+  bool isLiked = false;
   final List<_Reply> replies;
 }
 

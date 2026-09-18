@@ -26,21 +26,12 @@ class _IctBootcampPageState extends State<IctBootcampPage> {
   late final VideoPlayerController _videoController;
   bool _videoReady = false;
 
-  @override
-  void initState() {
-    super.initState();
-    _videoController = VideoPlayerController.asset(
-      'assets/figma/bootcamp/video.mp4',
-    )..initialize().then((_) {
-        if (mounted) setState(() => _videoReady = true);
-      });
-  }
+  // Q&A reply-thread state
+  final Set<int> _expandedReplies = <int>{};
+  final Map<int, TextEditingController> _replyControllers = {};
 
-  @override
-  void dispose() {
-    _videoController.dispose();
-    super.dispose();
-  }
+  TextEditingController _replyController(int index) =>
+      _replyControllers.putIfAbsent(index, () => TextEditingController());
 
   static const _days = ['Day 1', 'Day 2', 'Day 3', 'Day 4'];
 
@@ -213,6 +204,118 @@ class _IctBootcampPageState extends State<IctBootcampPage> {
       ],
     ),
   ];
+
+  final List<_Comment> _qaComments = [
+    _Comment(
+      avatarPath: 'assets/figma/instructors/instructor.png',
+      username: 'mira_sharma',
+      meta: '3h ago • Design Student',
+      message:
+          'These frameworks match precisely with the OKR models we deployed '
+          'last quarter. Highly recommend mapping Module 2 directly into your roadmap.',
+      likes: 24,
+    ),
+    _Comment(
+      avatarPath: 'assets/figma/instructors/instructor1.png',
+      username: 'sam_thapa',
+      meta: '5h ago • CS Undergrad',
+      message:
+          'Great breakdown in Section 1. The Product Strategy Grid template '
+          'saved me a full day of prep work last week.',
+      likes: 18,
+    ),
+    _Comment(
+      avatarPath: 'assets/figma/instructors/instructor2.png',
+      username: 'amy_rai',
+      meta: '8h ago • UX Student',
+      message:
+          'The stakeholder interview guide was surprisingly practical. '
+          'Would love to see a follow-up on synthesis techniques.',
+      likes: 12,
+    ),
+    _Comment(
+      avatarPath: 'assets/figma/instructors/instructor3.png',
+      username: 'raj_karki',
+      meta: '1d ago • Business Student',
+      message:
+          'Anyone else using Module 3 as a checklist for their Q1 planning? '
+          'It maps almost 1:1 to our quarterly OKRs.',
+      likes: 31,
+    ),
+    _Comment(
+      avatarPath: 'assets/figma/instructors/instructor4.png',
+      username: 'lea_gurung',
+      meta: '1d ago • Frontend Student',
+      message:
+          'The component library section paid for itself in one sprint. '
+          'Highly recommend the Figma kit if you\'re building a design system.',
+      likes: 9,
+    ),
+    _Comment(
+      avatarPath: 'assets/figma/instructors/instructor5.png',
+      username: 'nikhil_poudel',
+      meta: '2d ago • Math Student',
+      message:
+          'Nice to see actual real-world examples instead of just theory. '
+          'The visual proofs in Section 2 helped me finally get it.',
+      likes: 15,
+    ),
+    _Comment(
+      avatarPath: 'assets/figma/instructors/instructor6.png',
+      username: 'tara_maharjan',
+      meta: '2d ago • Physics Student',
+      message:
+          'Would love a deeper dive into the migration patterns discussed '
+          'in Section 3. Anyone have a link to the reference paper?',
+      likes: 7,
+    ),
+    _Comment(
+      avatarPath: 'assets/figma/instructors/instructor7.png',
+      username: 'bikash_shrestha',
+      meta: '3d ago • Engineering Student',
+      message:
+          'Just finished the whole bootcamp. Hands down the clearest '
+          'explanation of Design Thinking I\'ve seen on any platform.',
+      likes: 42,
+    ),
+    _Comment(
+      avatarPath: 'assets/figma/instructors/instructor.png',
+      username: 'priya_khadka',
+      meta: '3d ago • Design Student',
+      message:
+          'Does anyone know if the Figma kit works with the latest version? '
+          'I keep getting an asset error when I open it.',
+      likes: 5,
+    ),
+    _Comment(
+      avatarPath: 'assets/figma/instructors/instructor1.png',
+      username: 'arun_thapa',
+      meta: '4d ago • CS Student',
+      message:
+          'The Competitive Analysis Framework spreadsheet is worth the price '
+          'of admission alone. Already using it for my capstone.',
+      likes: 27,
+    ),
+  ];
+
+  @override
+  void initState() {
+    super.initState();
+    _videoController = VideoPlayerController.asset(
+      'assets/figma/bootcamp/video.mp4',
+    )..initialize().then((_) {
+        if (mounted) setState(() => _videoReady = true);
+      });
+  }
+
+  @override
+  void dispose() {
+    for (final c in _replyControllers.values) {
+      c.dispose();
+    }
+    _videoController.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -942,6 +1045,11 @@ class _IctBootcampPageState extends State<IctBootcampPage> {
   // Q&A TAB
   // ─────────────────────────────────────────────────────────────
   Widget _buildQaTab() {
+    const visibleCount = 6;
+    final comments = _showAllDiscussions
+        ? _qaComments
+        : _qaComments.take(visibleCount).toList();
+
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16),
       child: Column(
@@ -951,53 +1059,10 @@ class _IctBootcampPageState extends State<IctBootcampPage> {
           const SizedBox(height: 12),
           _buildInputComposer(),
           const SizedBox(height: 12),
-          _buildCommentPost(
-            avatarPath: 'assets/figma/instructors/instructor.png',
-            username: 'design_lead_mira',
-            meta: '3h ago • Staff Strategist',
-            message:
-                'These frameworks match precisely with the OKR models we deployed '
-                'last quarter. Highly recommend mapping Module 2 directly into your roadmap.',
-          ),
-          const SizedBox(height: 12),
-          _buildCommentPost(
-            avatarPath: 'assets/figma/instructors/instructor1.png',
-            username: 'dev_sam',
-            meta: '5h ago • Product Manager',
-            message:
-                'Great breakdown in Section 1. The Product Strategy Grid template '
-                'saved me a full day of prep work last week.',
-          ),
-          if (_showAllDiscussions) ...[
+          for (int i = 0; i < comments.length; i++) ...[
+            _buildCommentPost(index: i, comment: comments[i]),
             const SizedBox(height: 12),
-            _buildCommentPost(
-              avatarPath: 'assets/figma/instructors/instructor2.png',
-              username: 'ux_amy',
-              meta: '8h ago • UX Researcher',
-              message:
-                  'The stakeholder interview guide was surprisingly practical. '
-                  'Would love to see a follow-up on synthesis techniques.',
-            ),
-            const SizedBox(height: 12),
-            _buildCommentPost(
-              avatarPath: 'assets/figma/instructors/instructor3.png',
-              username: 'product_raj',
-              meta: '1d ago • Founder',
-              message:
-                  'Anyone else using Module 3 as a checklist for their Q1 planning? '
-                  'It maps almost 1:1 to our quarterly OKRs.',
-            ),
-            const SizedBox(height: 12),
-            _buildCommentPost(
-              avatarPath: 'assets/figma/instructors/instructor4.png',
-              username: 'frontend_lea',
-              meta: '2d ago • Frontend Lead',
-              message:
-                  'The component library section paid for itself in one sprint. '
-                  'Highly recommend the Figma kit if you\'re building a design system.',
-            ),
           ],
-          const SizedBox(height: 12),
           GestureDetector(
             behavior: HitTestBehavior.opaque,
             onTap: () => setState(
@@ -1022,7 +1087,6 @@ class _IctBootcampPageState extends State<IctBootcampPage> {
     );
   }
 
-  // ── Discussions header (title + count + Episode pill) ──────
   Widget _buildDiscussionHeader() {
     return Row(
       children: [
@@ -1042,7 +1106,7 @@ class _IctBootcampPageState extends State<IctBootcampPage> {
             borderRadius: BorderRadius.circular(8),
           ),
           child: Text(
-            '148',
+            '${_qaComments.length}',
             style: GoogleFonts.jetBrainsMono(
               fontSize: 10,
               fontWeight: FontWeight.w500,
@@ -1067,7 +1131,6 @@ class _IctBootcampPageState extends State<IctBootcampPage> {
     );
   }
 
-  // ── Input composer ─────────────────────────────────────────
   Widget _buildInputComposer() {
     return Container(
       padding: const EdgeInsets.all(12),
@@ -1097,13 +1160,12 @@ class _IctBootcampPageState extends State<IctBootcampPage> {
     );
   }
 
-  // ── Comment post card ──────────────────────────────────────
   Widget _buildCommentPost({
-    required String avatarPath,
-    required String username,
-    required String meta,
-    required String message,
+    required int index,
+    required _Comment comment,
   }) {
+    final repliesOpen = _expandedReplies.contains(index);
+
     return Container(
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
@@ -1114,12 +1176,13 @@ class _IctBootcampPageState extends State<IctBootcampPage> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          // ── Header (no verified badge) ────────────────────
           Row(
             crossAxisAlignment: CrossAxisAlignment.center,
             children: [
               ClipOval(
                 child: Image.asset(
-                  avatarPath,
+                  comment.avatarPath,
                   width: 24,
                   height: 24,
                   fit: BoxFit.cover,
@@ -1140,27 +1203,17 @@ class _IctBootcampPageState extends State<IctBootcampPage> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Row(
-                      children: [
-                        Text(
-                          username,
-                          style: GoogleFonts.figtree(
-                            fontSize: 12,
-                            fontWeight: FontWeight.w700,
-                            color: _ink,
-                          ),
-                        ),
-                        const SizedBox(width: 4),
-                        const Icon(
-                          Icons.verified,
-                          size: 10,
-                          color: Color(0xFF1D9BF0),
-                        ),
-                      ],
+                    Text(
+                      comment.username,
+                      style: GoogleFonts.figtree(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w700,
+                        color: _ink,
+                      ),
                     ),
                     const SizedBox(height: 1),
                     Text(
-                      meta,
+                      comment.meta,
                       style: GoogleFonts.figtree(
                         fontSize: 9,
                         fontWeight: FontWeight.w500,
@@ -1173,8 +1226,9 @@ class _IctBootcampPageState extends State<IctBootcampPage> {
             ],
           ),
           const SizedBox(height: 8),
+          // ── Message ────────────────────────────────────────
           Text(
-            message,
+            comment.message,
             style: GoogleFonts.figtree(
               fontSize: 14,
               height: 1.4,
@@ -1182,43 +1236,218 @@ class _IctBootcampPageState extends State<IctBootcampPage> {
             ),
           ),
           const SizedBox(height: 8),
+          // ── Like + Reply ───────────────────────────────────
           Row(
             children: [
-              _buildCommentAction(
-                icon: Icons.favorite_border,
-                label: 'React',
+              GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onTap: () => setState(() {
+                  comment.isLiked = !comment.isLiked;
+                  comment.likes += comment.isLiked ? 1 : -1;
+                }),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      comment.isLiked
+                          ? Icons.favorite
+                          : Icons.favorite_border,
+                      size: 12,
+                      color: comment.isLiked
+                          ? const Color(0xFFEF4444)
+                          : _gray,
+                    ),
+                    const SizedBox(width: 4),
+                    Text(
+                      comment.likes > 0 ? '${comment.likes}' : 'Like',
+                      style: GoogleFonts.manrope(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w500,
+                        color: comment.isLiked
+                            ? const Color(0xFFEF4444)
+                            : _gray,
+                      ),
+                    ),
+                  ],
+                ),
               ),
-              const SizedBox(width: 12),
-              _buildCommentAction(
-                icon: Icons.chat_bubble_outline,
-                label: 'Reply',
+              const SizedBox(width: 16),
+              GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onTap: () => setState(() {
+                  if (repliesOpen) {
+                    _expandedReplies.remove(index);
+                  } else {
+                    _expandedReplies.add(index);
+                  }
+                }),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Icon(
+                      Icons.chat_bubble_outline,
+                      size: 12,
+                      color: _gray,
+                    ),
+                    const SizedBox(width: 4),
+                    Text(
+                      comment.replies.isEmpty
+                          ? 'Reply'
+                          : 'Reply · ${comment.replies.length}',
+                      style: GoogleFonts.manrope(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w500,
+                        color: _gray,
+                      ),
+                    ),
+                  ],
+                ),
               ),
             ],
+          ),
+          // ── Replies thread ─────────────────────────────────
+          if (repliesOpen) ...[
+            const SizedBox(height: 12),
+            for (final reply in comment.replies) ...[
+              _buildReplyTile(reply),
+              const SizedBox(height: 8),
+            ],
+            _buildReplyComposer(index),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _buildReplyTile(_Reply reply) {
+    return Container(
+      padding: const EdgeInsets.all(8),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF9FAFB),
+        borderRadius: BorderRadius.circular(6),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          ClipOval(
+            child: Image.asset(
+              reply.avatarPath,
+              width: 20,
+              height: 20,
+              fit: BoxFit.cover,
+              errorBuilder: (_, _, _) => Container(
+                width: 20,
+                height: 20,
+                color: const Color(0xFFE5E7EB),
+                child: const Icon(
+                  Icons.person,
+                  size: 12,
+                  color: Colors.white,
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Text(
+                      reply.username,
+                      style: GoogleFonts.figtree(
+                        fontSize: 11,
+                        fontWeight: FontWeight.w700,
+                        color: _ink,
+                      ),
+                    ),
+                    const SizedBox(width: 6),
+                    Text(
+                      reply.timeAgo,
+                      style: GoogleFonts.figtree(
+                        fontSize: 9,
+                        color: _gray,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  reply.message,
+                  style: GoogleFonts.figtree(
+                    fontSize: 12,
+                    height: 1.4,
+                    color: _ink,
+                  ),
+                ),
+              ],
+            ),
           ),
         ],
       ),
     );
   }
 
-  Widget _buildCommentAction({
-    required IconData icon,
-    required String label,
-  }) {
+  Widget _buildReplyComposer(int index) {
+    final controller = _replyController(index);
     return Row(
-      mainAxisSize: MainAxisSize.min,
       children: [
-        Icon(icon, size: 12, color: _gray),
-        const SizedBox(width: 4),
-        Text(
-          label,
-          style: GoogleFonts.manrope(
-            fontSize: 12,
-            fontWeight: FontWeight.w500,
-            color: _gray,
+        Expanded(
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+            decoration: BoxDecoration(
+              color: const Color(0xFFF9FAFB),
+              borderRadius: BorderRadius.circular(6),
+              border: Border.all(color: _border),
+            ),
+            child: TextField(
+              controller: controller,
+              style: GoogleFonts.figtree(fontSize: 12, color: _ink),
+              decoration: InputDecoration(
+                isDense: true,
+                border: InputBorder.none,
+                hintText: 'Write a reply...',
+                hintStyle: GoogleFonts.figtree(
+                  fontSize: 12,
+                  color: _gray,
+                ),
+              ),
+              onSubmitted: (_) => _submitReply(index),
+            ),
+          ),
+        ),
+        const SizedBox(width: 8),
+        GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onTap: () => _submitReply(index),
+          child: Container(
+            padding: const EdgeInsets.all(8),
+            decoration: BoxDecoration(
+              color: _yellow,
+              borderRadius: BorderRadius.circular(6),
+            ),
+            child: const Icon(Icons.send, size: 14, color: _ink),
           ),
         ),
       ],
     );
+  }
+
+  void _submitReply(int index) {
+    final controller = _replyControllers[index];
+    if (controller == null || controller.text.trim().isEmpty) return;
+    setState(() {
+      _qaComments[index].replies.add(
+            _Reply(
+              avatarPath: 'assets/figma/instructors/instructor.png',
+              username: 'you',
+              message: controller.text.trim(),
+              timeAgo: 'just now',
+            ),
+          );
+      controller.clear();
+    });
   }
 
   // ─────────────────────────────────────────────────────────────
@@ -1355,4 +1584,38 @@ class _FormatColors {
   final Color iconBg;
   final Color badgeBg;
   final Color badgeText;
+}
+
+class _Comment {
+  _Comment({
+    required this.avatarPath,
+    required this.username,
+    required this.meta,
+    required this.message,
+    this.likes = 0,
+    this.isLiked = false,
+    List<_Reply>? replies,
+  }) : replies = replies ?? [];
+
+  final String avatarPath;
+  final String username;
+  final String meta;
+  final String message;
+  int likes;
+  bool isLiked;
+  final List<_Reply> replies;
+}
+
+class _Reply {
+  _Reply({
+    required this.avatarPath,
+    required this.username,
+    required this.message,
+    required this.timeAgo,
+  });
+
+  final String avatarPath;
+  final String username;
+  final String message;
+  final String timeAgo;
 }

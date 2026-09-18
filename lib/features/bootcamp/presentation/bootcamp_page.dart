@@ -139,6 +139,80 @@ class _IctBootcampPageState extends State<IctBootcampPage> {
     ),
   ];
 
+  static const _resourceSections = <_ResourceSection>[
+    _ResourceSection(
+      title: 'Section 1: Course Materials',
+      resources: [
+        _Resource(
+            title: 'Product Strategy Grid Template',
+            format: 'PDF',
+            formatStyle: _ResourceFormat.pdf),
+        _Resource(
+            title: 'Design Thinking Workbook',
+            format: 'PDF',
+            formatStyle: _ResourceFormat.pdf),
+        _Resource(
+            title: 'Stakeholder Interview Guide',
+            format: 'DOC',
+            formatStyle: _ResourceFormat.doc),
+        _Resource(
+            title: 'Competitive Analysis Framework',
+            format: 'XLS',
+            formatStyle: _ResourceFormat.xls),
+        _Resource(
+            title: 'User Survey Templates',
+            format: 'PDF',
+            formatStyle: _ResourceFormat.pdf),
+      ],
+    ),
+    _ResourceSection(
+      title: 'Section 2: Design Tools & Assets',
+      resources: [
+        _Resource(
+            title: 'Wireframing Kit',
+            format: 'Figma',
+            formatStyle: _ResourceFormat.figma),
+        _Resource(
+            title: 'Component Library',
+            format: 'Figma',
+            formatStyle: _ResourceFormat.figma),
+        _Resource(
+            title: 'Icon Pack',
+            format: 'SVG',
+            formatStyle: _ResourceFormat.svg),
+        _Resource(
+            title: 'Stock Photo Collection',
+            format: 'ZIP',
+            formatStyle: _ResourceFormat.zip),
+        _Resource(
+            title: 'Color Palette Guide',
+            format: 'PDF',
+            formatStyle: _ResourceFormat.pdf),
+      ],
+    ),
+    _ResourceSection(
+      title: 'Section 3: Additional Reading',
+      resources: [
+        _Resource(
+            title: 'UX Research Best Practices',
+            format: 'PDF',
+            formatStyle: _ResourceFormat.pdf),
+        _Resource(
+            title: 'Mobile Design Guidelines',
+            format: 'PDF',
+            formatStyle: _ResourceFormat.pdf),
+        _Resource(
+            title: 'Accessibility Checklist',
+            format: 'PDF',
+            formatStyle: _ResourceFormat.pdf),
+        _Resource(
+            title: 'Design System Documentation',
+            format: 'PDF',
+            formatStyle: _ResourceFormat.pdf),
+      ],
+    ),
+  ];
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -160,6 +234,10 @@ class _IctBootcampPageState extends State<IctBootcampPage> {
                     const SizedBox(height: 8),
                     _buildLessonsModuleContainer(),
                   ],
+                  if (_selectedTab == 1) ...[
+                    const SizedBox(height: 8),
+                    _buildResourcesTab(),
+                  ],
                   const SizedBox(height: 24),
                 ],
               ),
@@ -169,7 +247,7 @@ class _IctBootcampPageState extends State<IctBootcampPage> {
       ),
     );
   }
-
+  
   Widget _buildHero() {
     return Container(
       height: 222,
@@ -211,7 +289,6 @@ class _IctBootcampPageState extends State<IctBootcampPage> {
                       ),
               ),
             ),
-          // White circular back button
           Positioned(
             top: 12,
             left: 16,
@@ -257,7 +334,7 @@ class _IctBootcampPageState extends State<IctBootcampPage> {
           : const ColoredBox(color: Color(0xFFD1D1D1)),
     );
   }
-
+  
   Widget _buildPlayerControls() {
     return Container(
       color: Colors.white,
@@ -356,7 +433,7 @@ class _IctBootcampPageState extends State<IctBootcampPage> {
                   width: 130,
                   height: 178,
                   fit: BoxFit.cover,
-                  errorBuilder: (_, _, _) => Container(
+                  errorBuilder: (_,_,_) => Container(
                     width: 130,
                     height: 178,
                     color: const Color(0xFFE5E7EB),
@@ -502,12 +579,17 @@ class _IctBootcampPageState extends State<IctBootcampPage> {
     );
   }
 
-
   Widget _buildCourseNavigationTabs() {
     const tabs = ['Lessons', 'Resources', 'Q&A'];
     return Container(
-      color: Colors.white,
       padding: const EdgeInsets.symmetric(horizontal: 16),
+      decoration: const BoxDecoration(
+        color: Colors.white,
+        border: Border(
+          top: BorderSide(color: _border),
+          bottom: BorderSide(color: _border),
+        ),
+      ),
       child: Row(
         children: [
           for (int i = 0; i < tabs.length; i++)
@@ -542,6 +624,7 @@ class _IctBootcampPageState extends State<IctBootcampPage> {
       ),
     );
   }
+
 
   Widget _buildLessonsModuleContainer() {
     return Container(
@@ -591,9 +674,9 @@ class _IctBootcampPageState extends State<IctBootcampPage> {
           ),
           const SizedBox(height: 12),
           for (final section in _sections) ...[
-            _buildChapterHeader(section),
-            for (final lesson in section.lessons)
-              _buildLessonRow(lesson),
+            _buildChapterHeader(
+                section.title, section.lessons.length, 'lessons'),
+            for (final lesson in section.lessons) _buildLessonRow(lesson),
             const SizedBox(height: 6),
           ],
         ],
@@ -601,17 +684,17 @@ class _IctBootcampPageState extends State<IctBootcampPage> {
     );
   }
 
-  Widget _buildChapterHeader(_LessonSection section) {
+  Widget _buildChapterHeader(String title, int count, String countLabel) {
     return Container(
-      padding: const EdgeInsets.symmetric(vertical: 10),
+      padding: const EdgeInsets.fromLTRB(0, 18, 0, 8),
       decoration: const BoxDecoration(
-        border: Border(bottom: BorderSide(color: Color(0xFFD9D9D9))),
+        border: Border(bottom: BorderSide(color: _border)),
       ),
       child: Row(
         children: [
           Expanded(
             child: Text(
-              section.title,
+              title,
               style: GoogleFonts.figtree(
                 fontSize: 13,
                 fontWeight: FontWeight.w600,
@@ -620,9 +703,10 @@ class _IctBootcampPageState extends State<IctBootcampPage> {
             ),
           ),
           Text(
-            '${section.lessons.length} lessons',
+            '$count $countLabel',
             style: GoogleFonts.figtree(
               fontSize: 11,
+              fontWeight: FontWeight.w500,
               color: const Color(0xFF737D8C),
             ),
           ),
@@ -672,21 +756,15 @@ class _IctBootcampPageState extends State<IctBootcampPage> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Row(
-                  children: [
-                    Expanded(
-                      child: Text(
-                        lesson.title,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: GoogleFonts.figtree(
-                          fontSize: 12,
-                          fontWeight: FontWeight.w500,
-                          color: _ink,
-                        ),
-                      ),
-                    ),
-                  ],
+                Text(
+                  lesson.title,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: GoogleFonts.figtree(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w500,
+                    color: _ink,
+                  ),
                 ),
                 const SizedBox(height: 2),
                 Text(
@@ -709,6 +787,213 @@ class _IctBootcampPageState extends State<IctBootcampPage> {
       ),
     );
   }
+
+  Widget _buildResourcesTab() {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          for (final section in _resourceSections) ...[
+            _buildChapterHeader(
+              section.title,
+              section.resources.length,
+              'files',
+            ),
+            const SizedBox(height: 10),
+            for (final resource in section.resources) ...[
+              _buildResourceRow(resource),
+              const SizedBox(height: 10),
+            ],
+            const SizedBox(height: 8),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _buildResourceRow(_Resource resource) {
+    final colors = _formatColors(resource.formatStyle);
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: const Color(0xFFF3F4F6)),
+        boxShadow: const [
+          BoxShadow(
+            color: Color(0x05000000),
+            blurRadius: 2,
+            offset: Offset(0, 1),
+          ),
+        ],
+      ),
+      child: Row(
+        children: [
+          
+          Container(
+            width: 36,
+            height: 36,
+            decoration: BoxDecoration(
+              color: colors.iconBg,
+              borderRadius: BorderRadius.circular(8),
+            ),
+            alignment: Alignment.center,
+            child: Image.asset(
+              _formatIcon(resource.formatStyle),
+              width: 20,
+              height: 20,
+              errorBuilder: (_,_,_) => Icon(
+                _formatFallbackIcon(resource.formatStyle),
+                size: 20,
+                color: colors.badgeText,
+              ),
+            ),
+          ),
+          const SizedBox(width: 12),
+          
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  resource.title,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: GoogleFonts.figtree(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w600,
+                    color: _ink,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                  decoration: BoxDecoration(
+                    color: colors.badgeBg,
+                    borderRadius: BorderRadius.circular(4),
+                  ),
+                  child: Text(
+                    resource.format.toUpperCase(),
+                    style: GoogleFonts.figtree(
+                      fontSize: 9,
+                      fontWeight: FontWeight.w700,
+                      color: colors.badgeText,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          
+          GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onTap: () {
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(content: Text('Downloading ${resource.title}...')),
+              );
+            },
+            child: Container(
+              width: 32,
+              height: 32,
+              decoration: const BoxDecoration(
+                color: Color(0xFFF3F4F6),
+                shape: BoxShape.circle,
+              ),
+              alignment: Alignment.center,
+              child: Image.asset(
+                'assets/figma/bootcamp/download.png',
+                width: 16,
+                height: 16,
+                errorBuilder: (_,_,_) => const Icon(
+                  Icons.download_outlined,
+                  size: 16,
+                  color: _ink,
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+  
+  String _formatIcon(_ResourceFormat format) {
+    switch (format) {
+      case _ResourceFormat.pdf:
+        return 'assets/figma/bootcamp/pdf.png';
+      case _ResourceFormat.doc:
+        return 'assets/figma/bootcamp/doc.png';
+      case _ResourceFormat.xls:
+        return 'assets/figma/bootcamp/xls.png';
+      case _ResourceFormat.figma:
+        return 'assets/figma/bootcamp/figma.png';
+      case _ResourceFormat.svg:
+        return 'assets/figma/bootcamp/svg.png';
+      case _ResourceFormat.zip:
+        return 'assets/figma/bootcamp/zip.png';
+    }
+  }
+
+  IconData _formatFallbackIcon(_ResourceFormat format) {
+    switch (format) {
+      case _ResourceFormat.pdf:
+        return Icons.picture_as_pdf_outlined;
+      case _ResourceFormat.doc:
+        return Icons.description_outlined;
+      case _ResourceFormat.xls:
+        return Icons.table_chart_outlined;
+      case _ResourceFormat.figma:
+        return Icons.design_services_outlined;
+      case _ResourceFormat.svg:
+        return Icons.image_outlined;
+      case _ResourceFormat.zip:
+        return Icons.folder_zip_outlined;
+    }
+  }
+
+
+  _FormatColors _formatColors(_ResourceFormat format) {
+    switch (format) {
+      case _ResourceFormat.pdf:
+        return const _FormatColors(
+          iconBg: Color(0xFFFEE2E2),
+          badgeBg: Color(0xFFFEE2E2),
+          badgeText: Color(0xFF991B1B),
+        );
+      case _ResourceFormat.doc:
+        return const _FormatColors(
+          iconBg: Color(0xFFDBEAFE),
+          badgeBg: Color(0xFFDBEAFE),
+          badgeText: Color(0xFF1E40AF),
+        );
+      case _ResourceFormat.xls:
+        return const _FormatColors(
+          iconBg: Color(0xFFD1FAE5),
+          badgeBg: Color(0xFFD1FAE5),
+          badgeText: Color(0xFF065F46),
+        );
+      case _ResourceFormat.figma:
+        return const _FormatColors(
+          iconBg: Color(0xFFF3E8FF),
+          badgeBg: Color(0xFFF3E8FF),
+          badgeText: Color(0xFF6B21A8),
+        );
+      case _ResourceFormat.svg:
+        return const _FormatColors(
+          iconBg: Color(0xFFFEF3C7),
+          badgeBg: Color(0xFFFEF3C7),
+          badgeText: Color(0xFF92400E),
+        );
+      case _ResourceFormat.zip:
+        return const _FormatColors(
+          iconBg: Color(0xFFF3F4F6),
+          badgeBg: Color(0xFFF3F4F6),
+          badgeText: Color(0xFF374151),
+        );
+    }
+  }
 }
 
 class _Lesson {
@@ -730,4 +1015,37 @@ class _LessonSection {
 
   final String title;
   final List<_Lesson> lessons;
+}
+
+enum _ResourceFormat { pdf, doc, xls, figma, svg, zip }
+
+class _Resource {
+  const _Resource({
+    required this.title,
+    required this.format,
+    required this.formatStyle,
+  });
+
+  final String title;
+  final String format;
+  final _ResourceFormat formatStyle;
+}
+
+class _ResourceSection {
+  const _ResourceSection({required this.title, required this.resources});
+
+  final String title;
+  final List<_Resource> resources;
+}
+
+class _FormatColors {
+  const _FormatColors({
+    required this.iconBg,
+    required this.badgeBg,
+    required this.badgeText,
+  });
+
+  final Color iconBg;
+  final Color badgeBg;
+  final Color badgeText;
 }

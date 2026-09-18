@@ -22,6 +22,7 @@ class _IctBootcampPageState extends State<IctBootcampPage> {
   bool _autoPlay = true;
   bool _autoNext = true;
   bool _descriptionExpanded = false;
+  bool _showAllDiscussions = false;
   late final VideoPlayerController _videoController;
   bool _videoReady = false;
 
@@ -238,6 +239,10 @@ class _IctBootcampPageState extends State<IctBootcampPage> {
                     const SizedBox(height: 8),
                     _buildResourcesTab(),
                   ],
+                  if (_selectedTab == 2) ...[
+                    const SizedBox(height: 8),
+                    _buildQaTab(),
+                  ],
                   const SizedBox(height: 24),
                 ],
               ),
@@ -247,7 +252,10 @@ class _IctBootcampPageState extends State<IctBootcampPage> {
       ),
     );
   }
-  
+
+  // ─────────────────────────────────────────────────────────────
+  // HERO
+  // ─────────────────────────────────────────────────────────────
   Widget _buildHero() {
     return Container(
       height: 222,
@@ -334,7 +342,10 @@ class _IctBootcampPageState extends State<IctBootcampPage> {
           : const ColoredBox(color: Color(0xFFD1D1D1)),
     );
   }
-  
+
+  // ─────────────────────────────────────────────────────────────
+  // PLAYER CONTROLS
+  // ─────────────────────────────────────────────────────────────
   Widget _buildPlayerControls() {
     return Container(
       color: Colors.white,
@@ -416,6 +427,9 @@ class _IctBootcampPageState extends State<IctBootcampPage> {
     );
   }
 
+  // ─────────────────────────────────────────────────────────────
+  // COURSE INFO
+  // ─────────────────────────────────────────────────────────────
   Widget _buildCourseInfoSection() {
     return Container(
       color: Colors.white,
@@ -433,7 +447,7 @@ class _IctBootcampPageState extends State<IctBootcampPage> {
                   width: 130,
                   height: 178,
                   fit: BoxFit.cover,
-                  errorBuilder: (_,_,_) => Container(
+                  errorBuilder: (_, _, _) => Container(
                     width: 130,
                     height: 178,
                     color: const Color(0xFFE5E7EB),
@@ -579,6 +593,9 @@ class _IctBootcampPageState extends State<IctBootcampPage> {
     );
   }
 
+  // ─────────────────────────────────────────────────────────────
+  // TAB BAR
+  // ─────────────────────────────────────────────────────────────
   Widget _buildCourseNavigationTabs() {
     const tabs = ['Lessons', 'Resources', 'Q&A'];
     return Container(
@@ -625,7 +642,9 @@ class _IctBootcampPageState extends State<IctBootcampPage> {
     );
   }
 
-
+  // ─────────────────────────────────────────────────────────────
+  // LESSONS TAB
+  // ─────────────────────────────────────────────────────────────
   Widget _buildLessonsModuleContainer() {
     return Container(
       margin: const EdgeInsets.symmetric(horizontal: 16),
@@ -788,6 +807,9 @@ class _IctBootcampPageState extends State<IctBootcampPage> {
     );
   }
 
+  // ─────────────────────────────────────────────────────────────
+  // RESOURCES TAB
+  // ─────────────────────────────────────────────────────────────
   Widget _buildResourcesTab() {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16),
@@ -830,7 +852,6 @@ class _IctBootcampPageState extends State<IctBootcampPage> {
       ),
       child: Row(
         children: [
-          
           Container(
             width: 36,
             height: 36,
@@ -843,7 +864,7 @@ class _IctBootcampPageState extends State<IctBootcampPage> {
               _formatIcon(resource.formatStyle),
               width: 20,
               height: 20,
-              errorBuilder: (_,_,_) => Icon(
+              errorBuilder: (_, _, _) => Icon(
                 _formatFallbackIcon(resource.formatStyle),
                 size: 20,
                 color: colors.badgeText,
@@ -851,7 +872,6 @@ class _IctBootcampPageState extends State<IctBootcampPage> {
             ),
           ),
           const SizedBox(width: 12),
-          
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -886,7 +906,6 @@ class _IctBootcampPageState extends State<IctBootcampPage> {
               ],
             ),
           ),
-          
           GestureDetector(
             behavior: HitTestBehavior.opaque,
             onTap: () {
@@ -906,7 +925,7 @@ class _IctBootcampPageState extends State<IctBootcampPage> {
                 'assets/figma/bootcamp/download.png',
                 width: 16,
                 height: 16,
-                errorBuilder: (_,_,_) => const Icon(
+                errorBuilder: (_, _, _) => const Icon(
                   Icons.download_outlined,
                   size: 16,
                   color: _ink,
@@ -918,7 +937,293 @@ class _IctBootcampPageState extends State<IctBootcampPage> {
       ),
     );
   }
-  
+
+  // ─────────────────────────────────────────────────────────────
+  // Q&A TAB
+  // ─────────────────────────────────────────────────────────────
+  Widget _buildQaTab() {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          _buildDiscussionHeader(),
+          const SizedBox(height: 12),
+          _buildInputComposer(),
+          const SizedBox(height: 12),
+          _buildCommentPost(
+            avatarPath: 'assets/figma/instructors/instructor.png',
+            username: 'design_lead_mira',
+            meta: '3h ago • Staff Strategist',
+            message:
+                'These frameworks match precisely with the OKR models we deployed '
+                'last quarter. Highly recommend mapping Module 2 directly into your roadmap.',
+          ),
+          const SizedBox(height: 12),
+          _buildCommentPost(
+            avatarPath: 'assets/figma/instructors/instructor1.png',
+            username: 'dev_sam',
+            meta: '5h ago • Product Manager',
+            message:
+                'Great breakdown in Section 1. The Product Strategy Grid template '
+                'saved me a full day of prep work last week.',
+          ),
+          if (_showAllDiscussions) ...[
+            const SizedBox(height: 12),
+            _buildCommentPost(
+              avatarPath: 'assets/figma/instructors/instructor2.png',
+              username: 'ux_amy',
+              meta: '8h ago • UX Researcher',
+              message:
+                  'The stakeholder interview guide was surprisingly practical. '
+                  'Would love to see a follow-up on synthesis techniques.',
+            ),
+            const SizedBox(height: 12),
+            _buildCommentPost(
+              avatarPath: 'assets/figma/instructors/instructor3.png',
+              username: 'product_raj',
+              meta: '1d ago • Founder',
+              message:
+                  'Anyone else using Module 3 as a checklist for their Q1 planning? '
+                  'It maps almost 1:1 to our quarterly OKRs.',
+            ),
+            const SizedBox(height: 12),
+            _buildCommentPost(
+              avatarPath: 'assets/figma/instructors/instructor4.png',
+              username: 'frontend_lea',
+              meta: '2d ago • Frontend Lead',
+              message:
+                  'The component library section paid for itself in one sprint. '
+                  'Highly recommend the Figma kit if you\'re building a design system.',
+            ),
+          ],
+          const SizedBox(height: 12),
+          GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onTap: () => setState(
+              () => _showAllDiscussions = !_showAllDiscussions,
+            ),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(vertical: 8),
+              child: Text(
+                _showAllDiscussions ? 'View less' : 'View more',
+                textAlign: TextAlign.center,
+                style: GoogleFonts.figtree(
+                  fontSize: 13,
+                  height: 1.5,
+                  color: const Color(0xFF171717),
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(height: 12),
+        ],
+      ),
+    );
+  }
+
+  // ── Discussions header (title + count + Episode pill) ──────
+  Widget _buildDiscussionHeader() {
+    return Row(
+      children: [
+        Text(
+          'Discussions',
+          style: GoogleFonts.manrope(
+            fontSize: 14,
+            fontWeight: FontWeight.w600,
+            color: _ink,
+          ),
+        ),
+        const SizedBox(width: 6),
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+          decoration: BoxDecoration(
+            color: const Color(0xFFDDDCDB),
+            borderRadius: BorderRadius.circular(8),
+          ),
+          child: Text(
+            '148',
+            style: GoogleFonts.jetBrainsMono(
+              fontSize: 10,
+              fontWeight: FontWeight.w500,
+              color: _gray,
+            ),
+          ),
+        ),
+        const Spacer(),
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+          color: _yellow,
+          child: Text(
+            'Episode 2',
+            style: GoogleFonts.figtree(
+              fontSize: 12,
+              fontWeight: FontWeight.w700,
+              color: _ink,
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  // ── Input composer ─────────────────────────────────────────
+  Widget _buildInputComposer() {
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: _border),
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            child: Text(
+              'Add to the strategy discussion...',
+              style: GoogleFonts.figtree(
+                fontSize: 12,
+                color: _gray,
+              ),
+            ),
+          ),
+          const Icon(
+            Icons.sentiment_satisfied_alt_outlined,
+            size: 14,
+            color: _gray,
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ── Comment post card ──────────────────────────────────────
+  Widget _buildCommentPost({
+    required String avatarPath,
+    required String username,
+    required String meta,
+    required String message,
+  }) {
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: _border),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              ClipOval(
+                child: Image.asset(
+                  avatarPath,
+                  width: 24,
+                  height: 24,
+                  fit: BoxFit.cover,
+                  errorBuilder: (_, _, _) => Container(
+                    width: 24,
+                    height: 24,
+                    color: const Color(0xFFE5E7EB),
+                    child: const Icon(
+                      Icons.person,
+                      size: 14,
+                      color: Colors.white,
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Text(
+                          username,
+                          style: GoogleFonts.figtree(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w700,
+                            color: _ink,
+                          ),
+                        ),
+                        const SizedBox(width: 4),
+                        const Icon(
+                          Icons.verified,
+                          size: 10,
+                          color: Color(0xFF1D9BF0),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 1),
+                    Text(
+                      meta,
+                      style: GoogleFonts.figtree(
+                        fontSize: 9,
+                        fontWeight: FontWeight.w500,
+                        color: _gray,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Text(
+            message,
+            style: GoogleFonts.figtree(
+              fontSize: 14,
+              height: 1.4,
+              color: _ink,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              _buildCommentAction(
+                icon: Icons.favorite_border,
+                label: 'React',
+              ),
+              const SizedBox(width: 12),
+              _buildCommentAction(
+                icon: Icons.chat_bubble_outline,
+                label: 'Reply',
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildCommentAction({
+    required IconData icon,
+    required String label,
+  }) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(icon, size: 12, color: _gray),
+        const SizedBox(width: 4),
+        Text(
+          label,
+          style: GoogleFonts.manrope(
+            fontSize: 12,
+            fontWeight: FontWeight.w500,
+            color: _gray,
+          ),
+        ),
+      ],
+    );
+  }
+
+  // ─────────────────────────────────────────────────────────────
+  // FORMAT HELPERS
+  // ─────────────────────────────────────────────────────────────
   String _formatIcon(_ResourceFormat format) {
     switch (format) {
       case _ResourceFormat.pdf:
@@ -952,7 +1257,6 @@ class _IctBootcampPageState extends State<IctBootcampPage> {
         return Icons.folder_zip_outlined;
     }
   }
-
 
   _FormatColors _formatColors(_ResourceFormat format) {
     switch (format) {
@@ -996,6 +1300,9 @@ class _IctBootcampPageState extends State<IctBootcampPage> {
   }
 }
 
+// ─────────────────────────────────────────────────────────────
+// MODELS
+// ─────────────────────────────────────────────────────────────
 class _Lesson {
   const _Lesson({
     required this.number,

@@ -691,14 +691,17 @@ Widget _buildIconButton(
                           fontWeight: FontWeight.w600,
                           color: const Color(0xFF141414),
                         ),
-                        items: [4, 7]
-                            .map(
-                              (days) => DropdownMenuItem<int>(
-                                value: days,
-                                child: Text('$days Days'),
-                              ),
-                            )
-                            .toList(),
+                        items: [
+                          _selectedBootcampDays,
+                          ...[4, 7].where(
+                            (days) => days != _selectedBootcampDays,
+                          ),
+                        ].map(
+                          (days) => DropdownMenuItem<int>(
+                            value: days,
+                            child: Text('$days Days'),
+                          ),
+                        ).toList(),
                         onChanged: (days) {
                           if (days != null) {
                             setState(() => _selectedBootcampDays = days);

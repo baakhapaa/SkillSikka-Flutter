@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:skillsikka/core/widgets/pressable_chip.dart';
 import 'package:skillsikka/features/search/presentation/search_page.dart';
 
 const _bg = Color(0xFFFAF9F6);
@@ -15,7 +16,6 @@ class AllCoursesPage extends StatefulWidget {
 
 class _AllCoursesPageState extends State<AllCoursesPage> {
   int _selectedChip = 0;
-  int _hoveredChip = -1;
 
   static const _chips = [
     'All',
@@ -159,9 +159,9 @@ class _AllCoursesPageState extends State<AllCoursesPage> {
             ),
             child: IconButton(
               tooltip: 'Search courses',
-              onPressed: () => Navigator.of(context).push(
-                MaterialPageRoute(builder: (_) => const SearchPage()),
-              ),
+              onPressed: () => Navigator.of(
+                context,
+              ).push(MaterialPageRoute(builder: (_) => const SearchPage())),
               icon: const Icon(Icons.search, size: 20, color: _ink),
             ),
           ),
@@ -177,145 +177,22 @@ class _AllCoursesPageState extends State<AllCoursesPage> {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
       child: SizedBox(
-      height: 44,
-      child: ListView.separated(
-        scrollDirection: Axis.horizontal,
-        padding: const EdgeInsets.symmetric(horizontal: 4),
-        itemCount: _chips.length,
-        separatorBuilder: (_, _) => const SizedBox(width: 8),
-        itemBuilder: (context, index) {
-          final selected = index == _selectedChip;
-          final hovered = index == _hoveredChip;
-          return MouseRegion(
-            cursor: SystemMouseCursors.click,
-            onEnter: (_) => setState(() => _hoveredChip = index),
-            onExit: (_) => setState(() => _hoveredChip = -1),
-            child: GestureDetector(
+        height: 44,
+        child: ListView.separated(
+          scrollDirection: Axis.horizontal,
+          padding: const EdgeInsets.symmetric(horizontal: 4),
+          itemCount: _chips.length,
+          separatorBuilder: (_, _) => const SizedBox(width: 8),
+          itemBuilder: (context, index) => Center(
+            child: PressableChip(
+              label: _chips[index],
+              selected: index == _selectedChip,
               onTap: () => setState(() => _selectedChip = index),
-              child: Center(
-                child: AnimatedScale(
-                  scale: hovered ? 1.06 : 1.0,
-                  duration: const Duration(milliseconds: 160),
-                  curve: Curves.easeOut,
-                  child: AnimatedSlide(
-                    offset: hovered ? const Offset(0, -0.06) : Offset.zero,
-                    duration: const Duration(milliseconds: 180),
-                    curve: Curves.easeOut,
-                    child: _chip(
-                      label: _chips[index],
-                      pressed: selected,
-                      hovered: hovered,
-                    ),
-                  ),
-                ),
-              ),
+              fontSize: 12,
+              fontWeight: FontWeight.w600,
+              textColor: _ink,
             ),
-          );
-        },
-        ),
-      ),
-    );
-  }
-
-  Widget _chip({
-    required String label,
-    required bool pressed,
-    required bool hovered,
-  }) {
-    return AnimatedContainer(
-      duration: const Duration(milliseconds: 160),
-      curve: Curves.easeOut,
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(14),
-        boxShadow: [
-          BoxShadow(
-            color: hovered ? const Color(0x2E000000) : const Color(0x22000000),
-            blurRadius: hovered ? 10 : 7,
-            offset: Offset(0, pressed ? 1 : 3),
           ),
-          const BoxShadow(
-            color: Color(0xCCFFFFFF),
-            blurRadius: 2,
-            offset: Offset(0, -1),
-          ),
-        ],
-      ),
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(14),
-        child: Stack(
-          children: [
-            Positioned.fill(
-              child: ColoredBox(color: Colors.white.withValues(alpha: 0.72)),
-            ),
-            Positioned.fill(
-              child: IgnorePointer(
-                child: DecoratedBox(
-                  decoration: BoxDecoration(
-                    gradient: LinearGradient(
-                      begin: Alignment.topCenter,
-                      end: Alignment.bottomCenter,
-                      colors: [
-                        Colors.white.withValues(alpha: hovered ? 0.96 : 0.82),
-                        const Color(0xFFF3F4F6).withValues(alpha: 0.55),
-                      ],
-                    ),
-                  ),
-                ),
-              ),
-            ),
-            Positioned.fill(
-              child: IgnorePointer(
-                child: DecoratedBox(
-                  decoration: BoxDecoration(
-                    gradient: LinearGradient(
-                      begin: pressed
-                          ? Alignment.topCenter
-                          : Alignment.bottomCenter,
-                      end: pressed
-                          ? Alignment.bottomCenter
-                          : Alignment.topCenter,
-                      colors: [
-                        pressed
-                            ? const Color(0x22000000)
-                            : const Color(0x26000000),
-                        Color(0x00000000),
-                      ],
-                      stops: pressed ? [0, 0.55] : [0, 0.4],
-                    ),
-                  ),
-                ),
-              ),
-            ),
-            if (!pressed || hovered)
-              Positioned.fill(
-                child: IgnorePointer(
-                  child: DecoratedBox(
-                    decoration: BoxDecoration(
-                      gradient: LinearGradient(
-                        begin: Alignment.topCenter,
-                        end: Alignment.bottomCenter,
-                        colors: [
-                          Colors.white.withValues(alpha: hovered ? 0.9 : 0.58),
-                          Colors.white.withValues(alpha: 0),
-                        ],
-                        stops: const [0, 0.45],
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-              child: Text(
-                label,
-                style: GoogleFonts.figtree(
-                  fontSize: 12,
-                  fontWeight: FontWeight.w600,
-                  color: _ink,
-                ),
-              ),
-            ),
-          ],
         ),
       ),
     );

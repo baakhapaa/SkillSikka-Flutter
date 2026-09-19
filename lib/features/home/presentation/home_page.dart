@@ -33,6 +33,7 @@ class _HomePageState extends State<HomePage>
     with SingleTickerProviderStateMixin {
   late final PageController _promoController;
   late final AnimationController _heroController;
+  late final ScrollController _bootcampController;
   Timer? _promoTimer;
   int _activePromoIndex = 0;
   double _heroPos = 2;
@@ -186,18 +187,20 @@ class _HomePageState extends State<HomePage>
   void initState() {
     super.initState();
     _promoController = PageController();
-    _heroController = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 420),
-    )..addStatusListener((status) {
-      if (status == AnimationStatus.completed && _heroAnimating) {
-        setState(() {
-          _heroPos = _heroSnapTarget;
-          _heroAnimating = false;
+    _bootcampController = ScrollController();
+    _heroController =
+        AnimationController(
+          vsync: this,
+          duration: const Duration(milliseconds: 420),
+        )..addStatusListener((status) {
+          if (status == AnimationStatus.completed && _heroAnimating) {
+            setState(() {
+              _heroPos = _heroSnapTarget;
+              _heroAnimating = false;
+            });
+            _heroController.reset();
+          }
         });
-        _heroController.reset();
-      }
-    });
     _promoTimer = Timer.periodic(const Duration(seconds: 4), (_) {
       if (!_promoController.hasClients) return;
       final nextPage = (_activePromoIndex + 1) % _promoSlides.length;
@@ -213,6 +216,7 @@ class _HomePageState extends State<HomePage>
   void dispose() {
     _promoTimer?.cancel();
     _promoController.dispose();
+    _bootcampController.dispose();
     _heroController.dispose();
     super.dispose();
   }
@@ -303,69 +307,67 @@ class _HomePageState extends State<HomePage>
             semanticLabel: 'Notifications',
             onTap: () {
               Navigator.of(context).push(
-                MaterialPageRoute(
-                  builder: (_) => const NotificationsPage(),
-                ),
+                MaterialPageRoute(builder: (_) => const NotificationsPage()),
               );
             },
           ),
           const SizedBox(width: 6),
           _buildIconButton(
-          Icons.search,
-          semanticLabel: 'Search',
-          onTap: () {
-            Navigator.of(context).push(
-              MaterialPageRoute(builder: (_) => const SearchPage()),
-            );
-          },
-        ),
+            Icons.search,
+            semanticLabel: 'Search',
+            onTap: () {
+              Navigator.of(
+                context,
+              ).push(MaterialPageRoute(builder: (_) => const SearchPage()));
+            },
+          ),
         ],
       ),
     );
   }
 
-Widget _buildIconButton(
-  IconData icon, {
-  bool hasBadge = false,
-  String? semanticLabel,
-  VoidCallback? onTap,
-}) {
-  return Semantics(
-    label: semanticLabel ?? _describeIcon(icon),
-    button: true,
-    child: GestureDetector(
-      behavior: HitTestBehavior.opaque,
-      onTap: onTap,
-      child: Stack(
-        clipBehavior: Clip.none,
-        children: [
-          Container(
-            width: 40,
-            height: 40,
-            decoration: BoxDecoration(
-              color: Colors.black.withValues(alpha: 0.05),
-              shape: BoxShape.circle,
+  Widget _buildIconButton(
+    IconData icon, {
+    bool hasBadge = false,
+    String? semanticLabel,
+    VoidCallback? onTap,
+  }) {
+    return Semantics(
+      label: semanticLabel ?? _describeIcon(icon),
+      button: true,
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: onTap,
+        child: Stack(
+          clipBehavior: Clip.none,
+          children: [
+            Container(
+              width: 40,
+              height: 40,
+              decoration: BoxDecoration(
+                color: Colors.black.withValues(alpha: 0.05),
+                shape: BoxShape.circle,
+              ),
+              child: Icon(icon, color: _gray, size: 22),
             ),
-            child: Icon(icon, color: _gray, size: 22),
-          ),
-          if (hasBadge)
-            Positioned(
-              right: 10,
-              top: 10,
-              child: Container(
-                width: 6,
-                height: 6,
-                decoration: const BoxDecoration(
-                  color: Color(0xFFFF5F1F),
-                  shape: BoxShape.circle,
+            if (hasBadge)
+              Positioned(
+                right: 10,
+                top: 10,
+                child: Container(
+                  width: 6,
+                  height: 6,
+                  decoration: const BoxDecoration(
+                    color: Color(0xFFFF5F1F),
+                    shape: BoxShape.circle,
+                  ),
                 ),
               ),
-            ),
-        ],
+          ],
+        ),
       ),
-    ),
-  );
-}
+    );
+  }
 
   static String _describeIcon(IconData icon) {
     if (icon == Icons.notifications_none || icon == Icons.notifications) {
@@ -456,10 +458,9 @@ Widget _buildIconButton(
         for (var k = baseK; k <= baseK + 1; k++) {
           final s = i - pos + heroItems.length * k;
           if (s <= -1 || s >= 5) continue;
-          final layout = _layoutAt(s).copyWith(
-            image: heroItems[i].image,
-            avatar: heroItems[i].avatar,
-          );
+          final layout = _layoutAt(
+            s,
+          ).copyWith(image: heroItems[i].image, avatar: heroItems[i].avatar);
           cards.add((
             -((s - 2).abs()),
             s,
@@ -631,10 +632,23 @@ Widget _buildIconButton(
     );
   }
 
+  /// Bootcamp cards, each tagged with the duration it belongs to.
+  /// ict1.png = the 4-day artwork, ict2.png = the 7-day artwork.
+  static const _bootcampCamps = <(int, String, String)>[
+    (4, 'assets/figma/homescreen/ict1.png', 'Sundarbazar'),
+    (7, 'assets/figma/homescreen/ict2.png', 'PALUNGTAR'),
+  ];
+
+  /// Fixed display order for the selector. Deliberately NOT reordered to put
+  /// the current selection first — that made the menu items jump around.
+  static const _bootcampDurations = <int>[4, 7];
+
   Widget _buildIctBootcamp() {
-    const camps = [
-      ('assets/figma/homescreen/ict1.png', 'Sundarbazar'),
-      ('assets/figma/homescreen/ict2.png', 'PALUNGTAR'),
+    // Only the carousel reorders: the card matching the selected duration is
+    // pulled to the front, the rest keep their original relative order.
+    final camps = [
+      ..._bootcampCamps.where((c) => c.$1 == _selectedBootcampDays),
+      ..._bootcampCamps.where((c) => c.$1 != _selectedBootcampDays),
     ];
 
     return Column(
@@ -691,21 +705,28 @@ Widget _buildIconButton(
                           fontWeight: FontWeight.w600,
                           color: const Color(0xFF141414),
                         ),
-                        items: [
-                          _selectedBootcampDays,
-                          ...[4, 7].where(
-                            (days) => days != _selectedBootcampDays,
-                          ),
-                        ].map(
-                          (days) => DropdownMenuItem<int>(
-                            value: days,
-                            child: Text('$days Days'),
-                          ),
-                        ).toList(),
+                        items: _bootcampDurations
+                            .map(
+                              (days) => DropdownMenuItem<int>(
+                                value: days,
+                                child: Text('$days Days'),
+                              ),
+                            )
+                            .toList(),
                         onChanged: (days) {
-                          if (days != null) {
-                            setState(() => _selectedBootcampDays = days);
-                          }
+                          if (days == null) return;
+                          setState(() => _selectedBootcampDays = days);
+                          // The matching card is now first in the list — snap
+                          // the carousel back to it so the swap is visible
+                          // even if the user had scrolled to the other card.
+                          WidgetsBinding.instance.addPostFrameCallback((_) {
+                            if (!_bootcampController.hasClients) return;
+                            _bootcampController.animateTo(
+                              0,
+                              duration: const Duration(milliseconds: 260),
+                              curve: Curves.easeOut,
+                            );
+                          });
                         },
                       ),
                     ),
@@ -718,6 +739,7 @@ Widget _buildIconButton(
         SizedBox(
           height: 223,
           child: ListView.separated(
+            controller: _bootcampController,
             padding: const EdgeInsets.symmetric(horizontal: 16),
             scrollDirection: Axis.horizontal,
             itemCount: camps.length,
@@ -725,12 +747,11 @@ Widget _buildIconButton(
             itemBuilder: (context, index) {
               final camp = camps[index];
               return GestureDetector(
+                key: ValueKey(camp.$2),
                 behavior: HitTestBehavior.opaque,
                 onTap: () {
                   Navigator.of(context).push(
-                    MaterialPageRoute(
-                      builder: (_) => const IctBootcampPage(),
-                    ),
+                    MaterialPageRoute(builder: (_) => const IctBootcampPage()),
                   );
                 },
                 child: ClipRRect(
@@ -742,53 +763,56 @@ Widget _buildIconButton(
                     child: Stack(
                       fit: StackFit.expand,
                       children: [
-                      Positioned.fill(
-                        child: Image.asset(
-                          camp.$1,
-                          fit: BoxFit.cover,
-                          errorBuilder: (c, e, s) => Container(
-                            decoration: const BoxDecoration(
-                              gradient: LinearGradient(
-                                begin: Alignment.topCenter,
-                                end: Alignment.bottomCenter,
-                                colors: [Color(0xFF4B5563), Color(0xFF111827)],
+                        Positioned.fill(
+                          child: Image.asset(
+                            camp.$2,
+                            fit: BoxFit.cover,
+                            errorBuilder: (c, e, s) => Container(
+                              decoration: const BoxDecoration(
+                                gradient: LinearGradient(
+                                  begin: Alignment.topCenter,
+                                  end: Alignment.bottomCenter,
+                                  colors: [
+                                    Color(0xFF4B5563),
+                                    Color(0xFF111827),
+                                  ],
+                                ),
                               ),
                             ),
                           ),
                         ),
-                      ),
-                      const DecoratedBox(
-                        decoration: BoxDecoration(
-                          gradient: LinearGradient(
-                            begin: Alignment.topCenter,
-                            end: Alignment.bottomCenter,
-                            colors: [
-                              Colors.transparent,
-                              Color(0x0D494949),
-                              Color(0x36181C1E),
-                            ],
-                            stops: [0, 0.41, 0.95],
+                        const DecoratedBox(
+                          decoration: BoxDecoration(
+                            gradient: LinearGradient(
+                              begin: Alignment.topCenter,
+                              end: Alignment.bottomCenter,
+                              colors: [
+                                Colors.transparent,
+                                Color(0x0D494949),
+                                Color(0x36181C1E),
+                              ],
+                              stops: [0, 0.41, 0.95],
+                            ),
                           ),
                         ),
-                      ),
-                      Positioned(
-                        left: 12,
-                        right: 12,
-                        bottom: 8,
-                        child: Column(
-                          children: [
-                            Wrap(
-                              spacing: 6,
-                              runSpacing: 4,
-                              children: [
-                                _buildPill('SKILL SIKKA'),
-                                _buildPill(camp.$2.toUpperCase()),
-                                _buildPill('2.5K VIEWS'),
-                              ],
-                            ),
-                          ],
+                        Positioned(
+                          left: 12,
+                          right: 12,
+                          bottom: 8,
+                          child: Column(
+                            children: [
+                              Wrap(
+                                spacing: 6,
+                                runSpacing: 4,
+                                children: [
+                                  _buildPill('SKILL SIKKA'),
+                                  _buildPill(camp.$3.toUpperCase()),
+                                  _buildPill('2.5K VIEWS'),
+                                ],
+                              ),
+                            ],
+                          ),
                         ),
-                      ),
                       ],
                     ),
                   ),
@@ -2198,193 +2222,193 @@ class _HeroBookCard extends StatelessWidget {
         width: layout.width,
         height: layout.height,
         child: Stack(
-        clipBehavior: Clip.none,
-        children: [
-          // ── Card body ─────────────────────────────────────────────
-          Container(
-            width: layout.width,
-            height: layout.height,
-            decoration: BoxDecoration(
-              // Pure white base with a very subtle gray fade at bottom
-              gradient: const LinearGradient(
-                begin: Alignment.topCenter,
-                end: Alignment.bottomCenter,
-                colors: [Colors.white, Colors.white, Color(0xFFF7F7F7)],
-                stops: [0.0, 0.75, 1.0],
-              ),
-              borderRadius: BorderRadius.circular(14),
-              // Outer drop shadow only (no inset here)
-              boxShadow: const [
-                BoxShadow(
-                  color: Color(0x33000000),
-                  blurRadius: 2,
-                  offset: Offset(0, 2),
+          clipBehavior: Clip.none,
+          children: [
+            // ── Card body ─────────────────────────────────────────────
+            Container(
+              width: layout.width,
+              height: layout.height,
+              decoration: BoxDecoration(
+                // Pure white base with a very subtle gray fade at bottom
+                gradient: const LinearGradient(
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                  colors: [Colors.white, Colors.white, Color(0xFFF7F7F7)],
+                  stops: [0.0, 0.75, 1.0],
                 ),
-              ],
-            ),
-            child: Column(
-              children: [
-                ClipRRect(
-                  borderRadius: const BorderRadius.vertical(
-                    top: Radius.circular(14),
+                borderRadius: BorderRadius.circular(14),
+                // Outer drop shadow only (no inset here)
+                boxShadow: const [
+                  BoxShadow(
+                    color: Color(0x33000000),
+                    blurRadius: 2,
+                    offset: Offset(0, 2),
                   ),
-                  child: SizedBox(
-                    width: layout.width,
-                    height: layout.imageHeight,
-                    child: Image.asset(
-                      layout.image,
-                      fit: BoxFit.cover,
-                      errorBuilder: (c, e, s) => ColoredBox(
-                        color: Colors.grey.shade300,
-                        child: const Icon(
-                          Icons.menu_book,
-                          color: Colors.white,
-                          size: 40,
+                ],
+              ),
+              child: Column(
+                children: [
+                  ClipRRect(
+                    borderRadius: const BorderRadius.vertical(
+                      top: Radius.circular(14),
+                    ),
+                    child: SizedBox(
+                      width: layout.width,
+                      height: layout.imageHeight,
+                      child: Image.asset(
+                        layout.image,
+                        fit: BoxFit.cover,
+                        errorBuilder: (c, e, s) => ColoredBox(
+                          color: Colors.grey.shade300,
+                          child: const Icon(
+                            Icons.menu_book,
+                            color: Colors.white,
+                            size: 40,
+                          ),
                         ),
                       ),
                     ),
                   ),
-                ),
-                Expanded(
-                  child: Padding(
-                    padding: const EdgeInsets.fromLTRB(8, 8, 8, 8),
-                    child: Column(
-                      children: [
-                        Text(
-                          'The art of problem solving',
-                          textAlign: TextAlign.center,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: GoogleFonts.inter(
-                            fontSize: layout.titleSize,
-                            fontWeight: FontWeight.w700,
-                            height: 1.3,
-                            letterSpacing: -0.2,
-                            color: const Color(0xFF1C1917),
+                  Expanded(
+                    child: Padding(
+                      padding: const EdgeInsets.fromLTRB(8, 8, 8, 8),
+                      child: Column(
+                        children: [
+                          Text(
+                            'The art of problem solving',
+                            textAlign: TextAlign.center,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: GoogleFonts.inter(
+                              fontSize: layout.titleSize,
+                              fontWeight: FontWeight.w700,
+                              height: 1.3,
+                              letterSpacing: -0.2,
+                              color: const Color(0xFF1C1917),
+                            ),
                           ),
-                        ),
-                        const SizedBox(height: 2),
-                        Text(
-                          'Lorem ipsum dolor sit amet consectetur. Mauris ornare sapien eu leca.',
-                          textAlign: TextAlign.center,
-                          maxLines: 2,
-                          overflow: TextOverflow.ellipsis,
-                          style: GoogleFonts.inter(
-                            fontSize: layout.descSize,
-                            height: 1.5,
-                            color: const Color(0xFF44403C),
+                          const SizedBox(height: 2),
+                          Text(
+                            'Lorem ipsum dolor sit amet consectetur. Mauris ornare sapien eu leca.',
+                            textAlign: TextAlign.center,
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                            style: GoogleFonts.inter(
+                              fontSize: layout.descSize,
+                              height: 1.5,
+                              color: const Color(0xFF44403C),
+                            ),
                           ),
-                        ),
-                        const Spacer(),
-                        Row(
-                          children: [
-                            Container(
-                              width: layout.avatarSize,
-                              height: layout.avatarSize,
-                              decoration: BoxDecoration(
-                                color: const Color(0xFFE5E7EB),
-                                shape: BoxShape.circle,
-                                border: Border.all(
+                          const Spacer(),
+                          Row(
+                            children: [
+                              Container(
+                                width: layout.avatarSize,
+                                height: layout.avatarSize,
+                                decoration: BoxDecoration(
                                   color: const Color(0xFFE5E7EB),
+                                  shape: BoxShape.circle,
+                                  border: Border.all(
+                                    color: const Color(0xFFE5E7EB),
+                                  ),
+                                ),
+                                child: ClipOval(
+                                  child: Image.asset(
+                                    layout.avatar,
+                                    fit: BoxFit.cover,
+                                    errorBuilder:
+                                        (context, error, stackTrace) =>
+                                            const Icon(
+                                              Icons.person,
+                                              color: Colors.black54,
+                                            ),
+                                  ),
                                 ),
                               ),
-                              child: ClipOval(
-                                child: Image.asset(
-                                  layout.avatar,
-                                  fit: BoxFit.cover,
-                                  errorBuilder: (context, error, stackTrace) =>
-                                      const Icon(
-                                        Icons.person,
-                                        color: Colors.black54,
-                                      ),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: Text(
+                                  'Sarah Jenkins',
+                                  overflow: TextOverflow.ellipsis,
+                                  style: GoogleFonts.inter(
+                                    fontSize: layout.nameSize,
+                                    fontWeight: FontWeight.w600,
+                                    color: const Color(0xFF1C1917),
+                                  ),
                                 ),
                               ),
-                            ),
-                            const SizedBox(width: 8),
-                            Expanded(
-                              child: Text(
-                                'Sarah Jenkins',
-                                overflow: TextOverflow.ellipsis,
-                                style: GoogleFonts.inter(
-                                  fontSize: layout.nameSize,
-                                  fontWeight: FontWeight.w600,
-                                  color: const Color(0xFF1C1917),
+                              const Icon(
+                                Icons.star,
+                                color: Color(0xFFFBBF24),
+                                size: 10,
+                              ),
+                              const SizedBox(width: 2),
+                              Text(
+                                '4.9',
+                                style: GoogleFonts.figtree(
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.w700,
+                                  color: _titleInk,
                                 ),
                               ),
-                            ),
-                            const Icon(
-                              Icons.star,
-                              color: Color(0xFFFBBF24),
-                              size: 10,
-                            ),
-                            const SizedBox(width: 2),
-                            Text(
-                              '4.9',
-                              style: GoogleFonts.figtree(
-                                fontSize: 10,
-                                fontWeight: FontWeight.w700,
-                                color: _titleInk,
-                              ),
-                            ),
-                          ],
-                        ),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+
+            Positioned.fill(
+              child: IgnorePointer(
+                child: Container(
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(14),
+                    gradient: const LinearGradient(
+                      begin: Alignment.topCenter,
+                      end: Alignment.bottomCenter,
+                      colors: [
+                        Color(0x1F000000), // subtle dark at top edge
+                        Color(0x00000000),
+                        Color(0x0A000000), // very subtle at bottom
                       ],
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-
-          Positioned.fill(
-            child: IgnorePointer(
-              child: Container(
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(14),
-                  gradient: const LinearGradient(
-                    begin: Alignment.topCenter,
-                    end: Alignment.bottomCenter,
-                    colors: [
-                      Color(0x1F000000), // subtle dark at top edge
-                      Color(0x00000000),
-                      Color(0x0A000000), // very subtle at bottom
-                    ],
-                    stops: [0.0, 0.15, 1.0],
-                  ),
-                ),
-              ),
-            ),
-          ),
-
-          // ── Play button ───────────────────────────────────────────
-          if (layout.playSize > 0)
-            Positioned(
-              top: 0,
-              right: 2,
-              child: Opacity(
-                opacity: layout.playOpacity,
-                child: ClipRRect(
-                  borderRadius: BorderRadius.circular(22),
-                  child: Container(
-                    width: layout.playSize,
-                    height: layout.playSize,
-                    decoration: BoxDecoration(
-                      color: Colors.white.withValues(alpha: 0.13),
-                      borderRadius: BorderRadius.circular(22),
-                    ),
-                    child: Icon(
-                      Icons.play_arrow_rounded,
-                      color: Colors.white.withValues(alpha: 0.9),
-                      size: layout.playSize * 0.55,
+                      stops: [0.0, 0.15, 1.0],
                     ),
                   ),
                 ),
               ),
             ),
-        ],
+
+            // ── Play button ───────────────────────────────────────────
+            if (layout.playSize > 0)
+              Positioned(
+                top: 0,
+                right: 2,
+                child: Opacity(
+                  opacity: layout.playOpacity,
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(22),
+                    child: Container(
+                      width: layout.playSize,
+                      height: layout.playSize,
+                      decoration: BoxDecoration(
+                        color: Colors.white.withValues(alpha: 0.13),
+                        borderRadius: BorderRadius.circular(22),
+                      ),
+                      child: Icon(
+                        Icons.play_arrow_rounded,
+                        color: Colors.white.withValues(alpha: 0.9),
+                        size: layout.playSize * 0.55,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+          ],
         ),
       ),
     );
   }
 }
-

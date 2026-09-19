@@ -38,7 +38,6 @@ class _InstructorProfilePageState extends State<InstructorProfilePage> {
       duration: '4:12',
       savedAgo: 'Saved • 2h ago',
     ),
-   
     _SavedShort(
       image: 'assets/figma/instructorprofile/problem.png',
       title: 'Figma Auto Layout Tricks',

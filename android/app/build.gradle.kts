@@ -10,7 +10,8 @@ plugins {
 
 android {
     namespace = "com.baakhapaa.skillsikka"
-    compileSdk = flutter.compileSdkVersion
+    // file_picker and flutter_plugin_android_lifecycle require Android API 36.
+    compileSdk = 36
     ndkVersion = flutter.ndkVersion
 
     compileOptions {

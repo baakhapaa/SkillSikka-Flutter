@@ -1,7 +1,11 @@
+import 'dart:io';
+
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:go_router/go_router.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:image_picker/image_picker.dart';
 
 Future<String?> _pickInstructorOption(
   BuildContext context,
@@ -52,6 +56,13 @@ class _SignupInstructorFormPageState extends State<SignupInstructorFormPage> {
   final _controllers = <String, TextEditingController>{};
   bool _obscurePassword = true;
 
+  File? _profilePhoto;
+
+  PlatformFile? _cvFile;
+  PlatformFile? _certificatesFile;
+
+  final _imagePicker = ImagePicker();
+
   TextEditingController _controller(String key) {
     return _controllers.putIfAbsent(key, TextEditingController.new);
   }
@@ -81,8 +92,12 @@ class _SignupInstructorFormPageState extends State<SignupInstructorFormPage> {
                       padding: const EdgeInsets.fromLTRB(24, 12, 24, 40),
                       child: Column(
                         children: [
-                          const _ProfileUpload(),
+                          _ProfileUpload(
+                            photo: _profilePhoto,
+                            onTap: _pickProfilePhoto,
+                          ),
                           const SizedBox(height: 24),
+
                           _FormField(
                             label: 'Full Name',
                             requiredField: true,
@@ -182,19 +197,34 @@ class _SignupInstructorFormPageState extends State<SignupInstructorFormPage> {
                             controller: _controller('experience'),
                           ),
                           const SizedBox(height: 20),
-                          const _UploadCard(
+
+                          _UploadCard(
                             title: 'CV / Resume',
-                            formats: 'Supported formats: PDF, DOCX (Max 5MB)',
+                            formats:
+                                'Supported formats: PDF, DOCX (Max 5MB)',
                             asset: 'assets/figma/signup_file_text.svg',
+                            pickedFile: _cvFile,
+                            onTap: () => _pickDocument(
+                              isCv: true,
+                            ),
+                            onClear: () => setState(() => _cvFile = null),
                           ),
                           const SizedBox(height: 20),
-                          const _UploadCard(
+
+                          _UploadCard(
                             title: 'Certificates & Recommendation Letters',
                             formats:
                                 'Supported formats: PDF, JPG, PNG (Max 10MB)',
                             asset: 'assets/figma/signup_file.svg',
+                            pickedFile: _certificatesFile,
+                            onTap: () => _pickDocument(
+                              isCv: false,
+                            ),
+                            onClear: () =>
+                                setState(() => _certificatesFile = null),
                           ),
                           const SizedBox(height: 20),
+
                           Container(
                             padding: const EdgeInsets.all(14),
                             decoration: BoxDecoration(
@@ -228,7 +258,7 @@ class _SignupInstructorFormPageState extends State<SignupInstructorFormPage> {
                             width: double.infinity,
                             height: 52,
                             child: FilledButton(
-                              onPressed: () => context.push('/signup/verify'),
+                              onPressed: _submit,
                               style: FilledButton.styleFrom(
                                 backgroundColor: const Color(0xFFE6B800),
                                 foregroundColor: const Color(0xFF111827),
@@ -256,6 +286,81 @@ class _SignupInstructorFormPageState extends State<SignupInstructorFormPage> {
         ),
       ),
     );
+  }
+
+  Future<void> _pickProfilePhoto() async {
+    final picked = await _imagePicker.pickImage(
+      source: ImageSource.gallery,
+      maxWidth: 800,
+      maxHeight: 800,
+      imageQuality: 85,
+    );
+    if (picked == null) return;
+    if (!mounted) return;
+    setState(() => _profilePhoto = File(picked.path));
+  }
+
+  Future<void> _pickDocument({required bool isCv}) async {
+    // CV: PDF + DOC/DOCX, max 5MB
+    // Certificates: PDF + JPG + PNG, max 10MB
+    final allowedExtensions = isCv
+        ? <String>['pdf', 'doc', 'docx']
+        : <String>['pdf', 'jpg', 'jpeg', 'png'];
+
+    final result = await FilePicker.platform.pickFiles(
+      type: FileType.custom,
+      allowedExtensions: allowedExtensions,
+      withData: false,
+    );
+
+    if (result == null || result.files.isEmpty) return;
+    final file = result.files.single;
+
+    // Size guard
+    final maxBytes = isCv ? 5 * 1024 * 1024 : 10 * 1024 * 1024;
+    if (file.size > maxBytes) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'File too large. Maximum allowed is '
+            '${isCv ? '5MB' : '10MB'}.',
+          ),
+        ),
+      );
+      return;
+    }
+
+    if (!mounted) return;
+    setState(() {
+      if (isCv) {
+        _cvFile = file;
+      } else {
+        _certificatesFile = file;
+      }
+    });
+  }
+
+  void _submit() {
+    final missing = <String>[];
+    if (_profilePhoto == null) missing.add('Profile Photo');
+    if (_controller('name').text.trim().isEmpty) missing.add('Full Name');
+    if (_controller('email').text.trim().isEmpty) missing.add('Email');
+    if (_cvFile == null) missing.add('CV / Resume');
+    if (_certificatesFile == null) missing.add('Certificates');
+
+    if (missing.isNotEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Please provide: ${missing.join(", ")}'),
+        ),
+      );
+      return;
+    }
+
+    // TODO: send _profilePhoto, _cvFile, _certificatesFile and the
+    //       form values to your backend.
+    context.push('/signup/verify');
   }
 
   Future<void> _selectGender() async {
@@ -331,51 +436,69 @@ class _Header extends StatelessWidget {
 }
 
 class _ProfileUpload extends StatelessWidget {
-  const _ProfileUpload();
+  const _ProfileUpload({required this.photo, required this.onTap});
+
+  final File? photo;
+  final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
-    return Column(
-      children: [
-        Container(
-          padding: const EdgeInsets.all(4),
-          decoration: BoxDecoration(
-            border: Border.all(color: const Color(0xFFFFFBF0), width: 2),
-            shape: BoxShape.circle,
-          ),
-          child: Container(
-            width: 60,
-            height: 60,
-            decoration: const BoxDecoration(
-              color: Color.fromARGB(255, 244, 240, 230),
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: onTap,
+      child: Column(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(4),
+            decoration: BoxDecoration(
+              border: Border.all(color: const Color(0xFFFFFBF0), width: 2),
               shape: BoxShape.circle,
             ),
-            padding: const EdgeInsets.all(10),
-            child: SvgPicture.asset('assets/figma/signup_camera.svg'),
+            child: Container(
+              width: 60,
+              height: 60,
+              decoration: const BoxDecoration(
+                color: Color.fromARGB(255, 244, 240, 230),
+                shape: BoxShape.circle,
+              ),
+              clipBehavior: Clip.antiAlias,
+              child: photo == null
+                  ? Padding(
+                      padding: const EdgeInsets.all(10),
+                      child: SvgPicture.asset(
+                        'assets/figma/signup_camera.svg',
+                      ),
+                    )
+                  : Image.file(
+                      photo!,
+                      fit: BoxFit.cover,
+                      width: 60,
+                      height: 60,
+                    ),
+            ),
           ),
-        ),
-        const SizedBox(height: 5),
-        Text(
-          'Upload Profile Photo',
-          style: GoogleFonts.manrope(
-            color: const Color(0xFF111827),
-            fontSize: 15,
-            fontWeight: FontWeight.w700,
+          const SizedBox(height: 5),
+          Text(
+            photo == null ? 'Upload Profile Photo' : 'Change Profile Photo',
+            style: GoogleFonts.manrope(
+              color: const Color(0xFF111827),
+              fontSize: 15,
+              fontWeight: FontWeight.w700,
+            ),
           ),
-        ),
-        Text(
-          'Clear face photo (JPG, PNG • Max 5MB)',
-          style: GoogleFonts.manrope(
-            color: const Color.fromARGB(255, 111, 113, 117),
-            fontSize: 13,
-            fontWeight: FontWeight.w500,
+          Text(
+            'Clear face photo (JPG, PNG • Max 5MB)',
+            style: GoogleFonts.manrope(
+              color: const Color.fromARGB(255, 111, 113, 117),
+              fontSize: 13,
+              fontWeight: FontWeight.w500,
+            ),
           ),
-        ),
-      ],
+        ],
+      ),
     );
   }
 }
-
 class _FormField extends StatelessWidget {
   const _FormField({
     required this.label,
@@ -434,8 +557,7 @@ class _FormField extends StatelessWidget {
                       height: 16,
                     ),
                   ),
-            suffixIcon:
-                trailingWidget ??
+            suffixIcon: trailingWidget ??
                 (trailingAsset == null
                     ? null
                     : IconButton(
@@ -556,54 +678,118 @@ class _UploadCard extends StatelessWidget {
     required this.title,
     required this.formats,
     required this.asset,
+    required this.pickedFile,
+    required this.onTap,
+    required this.onClear,
   });
 
   final String title;
   final String formats;
   final String asset;
+  final PlatformFile? pickedFile;
+  final VoidCallback onTap;
+  final VoidCallback onClear;
 
   @override
   Widget build(BuildContext context) {
+    final hasFile = pickedFile != null;
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         _Label(label: title, requiredField: false),
         const SizedBox(height: 8),
-        Container(
-          width: double.infinity,
-          padding: const EdgeInsets.all(20),
-          decoration: BoxDecoration(
-            color: const Color(0xFFFFFBF0),
-            border: Border.all(
-              color: const Color(0xFFE6B800),
-              style: BorderStyle.solid,
-            ),
-            borderRadius: BorderRadius.circular(12),
-          ),
-          child: Column(
-            children: [
-              Container(
-                width: 40,
-                height: 40,
-                padding: const EdgeInsets.all(10),
-                decoration: const BoxDecoration(
-                  color: Color(0xFFE6B800),
-                  shape: BoxShape.circle,
-                ),
-                child: SvgPicture.asset(asset),
+        GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onTap: onTap,
+          child: Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(20),
+            decoration: BoxDecoration(
+              color: const Color(0xFFFFFBF0),
+              border: Border.all(
+                color: const Color(0xFFE6B800),
+                style: BorderStyle.solid,
               ),
-              const SizedBox(height: 12),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: hasFile
+                ? _buildPickedState(context)
+                : _buildEmptyState(),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildEmptyState() {
+    return Column(
+      children: [
+        Container(
+          width: 40,
+          height: 40,
+          padding: const EdgeInsets.all(10),
+          decoration: const BoxDecoration(
+            color: Color(0xFFE6B800),
+            shape: BoxShape.circle,
+          ),
+          child: SvgPicture.asset(asset),
+        ),
+        const SizedBox(height: 12),
+        Text(
+          'Upload Document',
+          style: GoogleFonts.manrope(
+            color: const Color(0xFF2F2600),
+            fontSize: 14,
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+        Text(
+          formats,
+          textAlign: TextAlign.center,
+          style: GoogleFonts.manrope(
+            color: const Color(0xFF4B5563),
+            fontSize: 11,
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildPickedState(BuildContext context) {
+    final name = pickedFile!.name;
+    final sizeLabel = _formatBytes(pickedFile!.size);
+
+    return Row(
+      children: [
+        Container(
+          width: 40,
+          height: 40,
+          padding: const EdgeInsets.all(10),
+          decoration: const BoxDecoration(
+            color: Color(0xFFE6B800),
+            shape: BoxShape.circle,
+          ),
+          child: SvgPicture.asset(asset),
+        ),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
               Text(
-                'Upload Document',
+                name,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
                 style: GoogleFonts.manrope(
                   color: const Color(0xFF2F2600),
-                  fontSize: 14,
+                  fontSize: 13,
                   fontWeight: FontWeight.w700,
                 ),
               ),
+              const SizedBox(height: 2),
               Text(
-                formats,
-                textAlign: TextAlign.center,
+                sizeLabel,
                 style: GoogleFonts.manrope(
                   color: const Color(0xFF4B5563),
                   fontSize: 11,
@@ -612,7 +798,25 @@ class _UploadCard extends StatelessWidget {
             ],
           ),
         ),
+        GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onTap: onClear,
+          child: const Padding(
+            padding: EdgeInsets.all(6),
+            child: Icon(
+              Icons.close,
+              size: 18,
+              color: Color(0xFF4B5563),
+            ),
+          ),
+        ),
       ],
     );
+  }
+
+  String _formatBytes(int bytes) {
+    if (bytes < 1024) return '$bytes B';
+    if (bytes < 1024 * 1024) return '${(bytes / 1024).toStringAsFixed(1)} KB';
+    return '${(bytes / (1024 * 1024)).toStringAsFixed(1)} MB';
   }
 }

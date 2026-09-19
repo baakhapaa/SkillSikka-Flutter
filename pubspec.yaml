@@ -37,6 +37,8 @@ dependencies:
   go_router: ^15.1.2
   google_fonts: ^6.2.1
   video_player: ^2.8.6
+  file_picker: ^10.3.10
+  image_picker: ^1.1.2
 
   # The following adds the Cupertino Icons font to your application.
   # Use with the CupertinoIcons class for iOS style icons.

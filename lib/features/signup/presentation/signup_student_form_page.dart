@@ -1,3 +1,4 @@
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:go_router/go_router.dart';
@@ -50,6 +51,7 @@ class SignupStudentFormPage extends StatefulWidget {
 class _SignupStudentFormPageState extends State<SignupStudentFormPage> {
   final _controllers = <String, TextEditingController>{};
   bool _obscurePassword = true;
+  PlatformFile? _studentIdCard;
 
   TextEditingController _controller(String key) =>
       _controllers.putIfAbsent(key, TextEditingController.new);
@@ -206,7 +208,11 @@ class _SignupStudentFormPageState extends State<SignupStudentFormPage> {
                             onTap: () => _selectSchool(),
                           ),
                           const SizedBox(height: 16),
-                          const _UploadCard(),
+                          _UploadCard(
+                            pickedFile: _studentIdCard,
+                            onTap: _pickStudentIdCard,
+                            onClear: () => setState(() => _studentIdCard = null),
+                          ),
                           const SizedBox(height: 20),
                           Container(
                             padding: const EdgeInsets.all(12),
@@ -241,7 +247,7 @@ class _SignupStudentFormPageState extends State<SignupStudentFormPage> {
                             width: double.infinity,
                             height: 52,
                             child: FilledButton(
-                              onPressed: () => context.push('/signup/verify'),
+                              onPressed: _submit,
                               style: FilledButton.styleFrom(
                                 backgroundColor: const Color(0xFFE6B800),
                                 foregroundColor: const Color(0xFF111827),
@@ -273,6 +279,45 @@ class _SignupStudentFormPageState extends State<SignupStudentFormPage> {
 
   void _togglePassword() =>
       setState(() => _obscurePassword = !_obscurePassword);
+
+  Future<void> _pickStudentIdCard() async {
+    final result = await FilePicker.platform.pickFiles(
+      type: FileType.custom,
+      allowedExtensions: const ['jpg', 'jpeg', 'png', 'pdf'],
+      withData: false,
+    );
+
+    if (result == null || result.files.isEmpty) return;
+    final file = result.files.single;
+    final extension = file.extension?.toLowerCase();
+    const allowedExtensions = {'jpg', 'jpeg', 'png', 'pdf'};
+
+    if (extension == null || !allowedExtensions.contains(extension)) {
+      _showUploadError('Please select a JPG, PNG, or PDF file.');
+      return;
+    }
+
+    if (file.size > 5 * 1024 * 1024) {
+      _showUploadError('Student ID card must be 5 MB or smaller.');
+      return;
+    }
+
+    if (!mounted) return;
+    setState(() => _studentIdCard = file);
+  }
+
+  void _showUploadError(String message) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
+  }
+
+  void _submit() {
+    if (_studentIdCard == null) {
+      _showUploadError('Please upload your student ID card first.');
+      return;
+    }
+    context.push('/signup/verify');
+  }
 
   Future<void> _selectGender() async {
     final value = await _pickOption(context, 'Select gender', const [
@@ -596,7 +641,15 @@ class _PasswordField extends StatelessWidget {
 }
 
 class _UploadCard extends StatelessWidget {
-  const _UploadCard();
+  const _UploadCard({
+    required this.pickedFile,
+    required this.onTap,
+    required this.onClear,
+  });
+
+  final PlatformFile? pickedFile;
+  final VoidCallback onTap;
+  final VoidCallback onClear;
 
   @override
   Widget build(BuildContext context) => Column(
@@ -611,48 +664,95 @@ class _UploadCard extends StatelessWidget {
         ),
       ),
       const SizedBox(height: 6),
-      Container(
-        width: double.infinity,
-        padding: const EdgeInsets.all(20),
-        decoration: BoxDecoration(
-          color: const Color(0xFFFFFBF0),
-          border: Border.all(
-            color: const Color(0xFFE6B800),
-            style: BorderStyle.solid,
+      GestureDetector(
+        onTap: onTap,
+        behavior: HitTestBehavior.opaque,
+        child: Container(
+          width: double.infinity,
+          padding: const EdgeInsets.all(20),
+          decoration: BoxDecoration(
+            color: const Color(0xFFFFFBF0),
+            border: Border.all(color: const Color(0xFFE6B800)),
+            borderRadius: BorderRadius.circular(12),
           ),
-          borderRadius: BorderRadius.circular(12),
-        ),
-        child: Column(
-          children: [
-            Container(
-              width: 40,
-              height: 40,
-              padding: const EdgeInsets.all(10),
-              decoration: const BoxDecoration(
-                color: Color(0xFFE6B800),
-                shape: BoxShape.circle,
-              ),
-              child: SvgPicture.asset('assets/figma/signup_student_file.svg'),
-            ),
-            const SizedBox(height: 12),
-            Text(
-              'Upload Document',
-              style: GoogleFonts.manrope(
-                color: const Color(0xFF2F2600),
-                fontSize: 14,
-                fontWeight: FontWeight.w700,
-              ),
-            ),
-            Text(
-              'Supported formats: PDF, JPG, PNG (Max 5MB)',
-              style: GoogleFonts.manrope(
-                color: const Color(0xFF4B5563),
-                fontSize: 11,
-              ),
-            ),
-          ],
+          child: pickedFile == null
+              ? Column(
+                  children: [
+                    _uploadIcon(),
+                    const SizedBox(height: 12),
+                    Text(
+                      'Upload Document',
+                      style: GoogleFonts.manrope(
+                        color: const Color(0xFF2F2600),
+                        fontSize: 14,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    Text(
+                      'Supported formats: PDF, JPG, PNG (Max 5MB)',
+                      style: GoogleFonts.manrope(
+                        color: const Color(0xFF4B5563),
+                        fontSize: 11,
+                      ),
+                    ),
+                  ],
+                )
+              : Row(
+                  children: [
+                    _uploadIcon(),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            pickedFile!.name,
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                            style: GoogleFonts.manrope(
+                              color: const Color(0xFF2F2600),
+                              fontSize: 13,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                          const SizedBox(height: 3),
+                          Text(
+                            '${_formatSize(pickedFile!.size)} • Tap to replace',
+                            style: GoogleFonts.manrope(
+                              color: const Color(0xFF4B5563),
+                              fontSize: 11,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    IconButton(
+                      onPressed: onClear,
+                      tooltip: 'Remove student ID card',
+                      icon: const Icon(Icons.close, size: 20),
+                    ),
+                  ],
+                ),
         ),
       ),
     ],
   );
+
+  Widget _uploadIcon() => Container(
+    width: 40,
+    height: 40,
+    padding: const EdgeInsets.all(10),
+    decoration: const BoxDecoration(
+      color: Color(0xFFE6B800),
+      shape: BoxShape.circle,
+    ),
+    child: SvgPicture.asset('assets/figma/signup_student_file.svg'),
+  );
+
+  String _formatSize(int bytes) {
+    if (bytes < 1024 * 1024) {
+      return '${(bytes / 1024).toStringAsFixed(0)} KB';
+    }
+    return '${(bytes / (1024 * 1024)).toStringAsFixed(2)} MB';
+  }
 }

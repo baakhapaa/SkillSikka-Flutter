@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:skillsikka/core/widgets/pressable_chip.dart';
+import 'package:skillsikka/core/widgets/section_bar.dart';
 import 'package:skillsikka/features/premium_courses/presentation/premium_course_details_page.dart';
 
 const _pageBackground = Color(0xFFF9FAFB);
@@ -212,14 +213,8 @@ class _PremiumCoursesPageState extends State<PremiumCoursesPage> {
       padding: EdgeInsets.fromLTRB(16, top, 16, 14),
       child: Row(
         children: [
-          Text(
-            '| ',
-            style: GoogleFonts.manrope(
-              fontSize: 21,
-              fontWeight: FontWeight.w300,
-              color: const Color(0x1F282828),
-            ),
-          ),
+          const SectionBar(),
+          const SizedBox(width: 7),
           Text(
             title,
             style: GoogleFonts.manrope(

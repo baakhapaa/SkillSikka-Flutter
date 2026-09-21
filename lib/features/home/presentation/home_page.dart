@@ -4,6 +4,7 @@ import 'instructor_carousel.dart';
 
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:skillsikka/core/widgets/section_bar.dart';
 import 'package:skillsikka/features/events/presentation/event_details.dart';
 import 'package:skillsikka/features/instructors/presentation/instructor_page.dart';
 import 'package:skillsikka/features/books/presentation/book_details.dart';
@@ -386,14 +387,8 @@ class _HomePageState extends State<HomePage>
       padding: padding,
       child: Row(
         children: [
-          Text(
-            '| ',
-            style: GoogleFonts.manrope(
-              fontSize: 21,
-              fontWeight: FontWeight.w300,
-              color: const Color(0x1F282828),
-            ),
-          ),
+          const SectionBar(),
+          const SizedBox(width: 7),
           Expanded(
             child: Text(
               title,
@@ -657,14 +652,8 @@ class _HomePageState extends State<HomePage>
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
           child: Row(
             children: [
-              Text(
-                '| ',
-                style: GoogleFonts.manrope(
-                  fontSize: 21,
-                  fontWeight: FontWeight.w300,
-                  color: const Color(0x1F282828),
-                ),
-              ),
+              const SectionBar(),
+              const SizedBox(width: 7),
               Expanded(
                 child: Text(
                   'ICT & AI Bootcamp',
@@ -1329,17 +1318,9 @@ class _HomePageState extends State<HomePage>
             child: Padding(
               padding: const EdgeInsets.symmetric(horizontal: 16),
               child: Row(
-                crossAxisAlignment: CrossAxisAlignment.end,
                 children: [
-                  Text(
-                    '|',
-                    style: GoogleFonts.manrope(
-                      fontSize: 21,
-                      fontWeight: FontWeight.w300,
-                      color: const Color(0x1F282828),
-                    ),
-                  ),
-                  const SizedBox(width: 4),
+                  const SectionBar(),
+                  const SizedBox(width: 7),
                   Expanded(
                     child: Text(
                       'Explore our Top instructors',
@@ -1598,39 +1579,52 @@ class _HomePageState extends State<HomePage>
                 borderRadius: BorderRadius.circular(100),
               ),
               child: Row(
-                mainAxisAlignment: MainAxisAlignment.center,
                 children: [
                   Expanded(
-                    child: SizedBox(
-                      child: Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 10),
-                        child: Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              'ENROLLMENT',
-                              style: GoogleFonts.inter(
-                                fontSize: 10,
-                                height: 1.0,
-                                color: const Color(0xFF8D887F),
-                              ),
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 10),
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'ENROLLMENT',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: GoogleFonts.inter(
+                              fontSize: 10,
+                              height: 1.0,
+                              color: const Color(0xFF8D887F),
                             ),
-                            Text(
-                              'Rs.24.99',
-                              style: GoogleFonts.manrope(
-                                fontSize: 17,
-                                height: 1.0,
-                                fontWeight: FontWeight.w500,
-                                color: const Color(0xFF524C00),
-                              ),
+                          ),
+                          // Explicit gap between the label and the price. The
+                          // two 1.0-height line boxes on their own leave only
+                          // ~3pt of air, which reads as a collision.
+                          const SizedBox(height: 7),
+                          Text(
+                            'Rs.24.99',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: GoogleFonts.manrope(
+                              fontSize: 17,
+                              height: 1.0,
+                              fontWeight: FontWeight.w500,
+                              color: const Color(0xFF524C00),
                             ),
-                          ],
-                        ),
+                          ),
+                        ],
                       ),
                     ),
                   ),
-                  const SizedBox(width: 69),
+                  // Minimum breathing room only. This used to be a fixed
+                  // `SizedBox(width: 69)`, which is fine on a 393pt-wide canvas
+                  // (where the design was drawn) but starves the label on a
+                  // 360pt phone: 298 - 20 - 69 - 137 - 20 = 52pt for a string
+                  // that needs ~72, so 'ENROLLMENT' broke after "ENROLLM" and
+                  // 'Rs.24.99' after "Rs.24.". Letting `Expanded` absorb the
+                  // slack keeps the button hard right on wide screens and gives
+                  // the label the room it needs on narrow ones.
+                  const SizedBox(width: 12),
                   Container(
                     height: 38,
                     width: 137,

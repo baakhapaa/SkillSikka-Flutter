@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:skillsikka/core/widgets/section_bar.dart';
 import 'package:skillsikka/features/books/presentation/book_details.dart';
 
 const _bg = Color(0xFFFAF9F6);
@@ -412,14 +413,8 @@ class _BrowseCategoriesPageState extends State<BrowseCategoriesPage> {
       children: [
         Row(
           children: [
-            Text(
-              '| ',
-              style: GoogleFonts.manrope(
-                fontSize: 21,
-                fontWeight: FontWeight.w300,
-                color: const Color(0x1F111827),
-              ),
-            ),
+            const SectionBar(color: Color(0x1F111827)),
+            const SizedBox(width: 7),
             Text(
               'All Books',
               style: GoogleFonts.manrope(

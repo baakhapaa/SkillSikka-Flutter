@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:skillsikka/core/widgets/section_bar.dart';
 import 'package:skillsikka/features/search/presentation/search_page.dart';
 
 const _cream = Color(0xFFFAF9F6);
@@ -117,14 +118,8 @@ class _SkillCoursesPageState extends State<SkillCoursesPage> {
       padding: const EdgeInsets.symmetric(horizontal: 16),
       child: Row(
         children: [
-          Text(
-            '| ',
-            style: GoogleFonts.manrope(
-              fontSize: 21,
-              fontWeight: FontWeight.w300,
-              color: const Color(0x1F282828),
-            ),
-          ),
+          const SectionBar(),
+          const SizedBox(width: 7),
           Text(
             title,
             style: GoogleFonts.manrope(

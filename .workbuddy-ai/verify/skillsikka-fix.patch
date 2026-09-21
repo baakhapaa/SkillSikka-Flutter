@@ -1,0 +1,403 @@
+diff --git a/.workbuddy-ai/memory/2026-09-21.md b/.workbuddy-ai/memory/2026-09-21.md
+index da4e5a9..daa447f 100644
+--- a/.workbuddy-ai/memory/2026-09-21.md
++++ b/.workbuddy-ai/memory/2026-09-21.md
+@@ -122,3 +122,74 @@ they chose **"stay typeable"**. Result:
+ 
+ `flutter analyze` clean; 7/7 pass. Grep confirms no residual references to the
+ removed option outside the tests that assert its absence.
++
++## Fixed: section accent bar and enrollment price misalignment
++
++**Asked for:** "the bar in front of 'explore our top instructors' is not properly
++aligned and in 'get premium courses' the enrolment Rs 24.99 is also misaligned",
++with a cropped screenshot as the reference.
++
++**Root cause, both cases — geometry left to font metrics.** The bar was a
++`Text('|')` in a 21pt Manrope font: its line box is ~28.7px tall while the 16pt
++heading's cap band is only ~12.2px, so wherever the row aligned the *boxes*, the
++bar's ink landed elsewhere. `_buildTopInstructors` used
++`CrossAxisAlignment.end`, which put the bar's ink **3.5px above** the heading's
++optical centre (measured from a rendered PNG: bar rows 760–774 centre 767 vs
++heading cap-top 765 / baseline 776 → core centre 770.5). Same defect, milder, in
++the `CrossAxisAlignment.center` variants.
++
++The price had the mirror problem: two `height: 1.0` line boxes stacked with no
++gap leave only ~3px of air between `ENROLLMENT` and `Rs.24.99`, which reads as a
++collision (the reference has ~10px).
++
++**Shipped:**
++
++- `lib/core/widgets/section_bar.dart` — new `SectionBar`. An explicit
++  `Container(width: 3, height: 16)` instead of a glyph, so height and position
++  are declared rather than inherited. Centred against the heading's line box,
++  which for Manrope coincides with the cap-height centre to within 0.0005em.
++- All six `Text('| ')` headings swapped to `const SectionBar(), SizedBox(width: 7)`
++  — `home_page.dart` ×3 (incl. dropping `CrossAxisAlignment.end`),
++  `premium_courses_page.dart`, `recommended_course.dart` (keeps its own
++  `0x1F111827` tint), `skill_courses.dart`. The 7px gap reproduces the old
++  advance+space so heading text doesn't shift horizontally.
++- `home_page.dart` enrollment block: `SizedBox(height: 7)` between the label and
++  the price.
++- `test/section_bar_alignment_test.dart` — new. `getRect` geometry assertions
++  (bar centre ≈ heading centre within 0.5px; enrollment stack centred in the pill;
++  label→price gap ≥ 5px). Verified it fails on the old layout: reintroducing
++  `.end` produced `Actual 1676.06` vs `Expected within 0.5 of 1672.56` — the
++  exact 3.5px.
++
++**After:** bar offset −0.5px (was −3.5px); enrollment ink gaps 14px above /
++14px below in the 60px pill (was 18/17 with a 3px label→price gap, now 10px).
++
++**The reference image is not a screenshot of this app.** Its scale-independent
++ratios disagree with the code: `labelToPriceGap / pillHeight` is 0.162 in the
++image vs 0.067 in the render, `dividerToPillGap / pillHeight` 0.275 vs 0.20, and
++the pill fill is `#F9FAFB` where the code uses `#F2F1F7`. Exact flat-area colours
++prove nothing about scale — resampling preserves them — but a ratio mismatch at
++any scale is conclusive. It is almost certainly the Figma export, i.e. the design
++is airier than the implementation. I matched the *rhythm* (the 7px gap) and
++centred properly; I did **not** change the pill fill, and flagged that to the user
++as a separate call.
++
++## CORRECTION: `home_heading_alignment_test` hangs for a different reason
++
++The earlier note today says it "is a plain `pumpAndSettle` that never settles".
++That file contains no `pumpAndSettle` at all. What actually happens: the **first**
++test in the file passes in ~1s (360px) and the **second** (400px) hangs. It is not
++width-dependent — a new file with two `testWidgets` that each pump `HomePage`
++reproduced it exactly (test 1 pass, test 2 hang). `HomePage.dispose()` is correct
++(timer cancelled, all three controllers disposed), so the leak is in the
++google_fonts test harness across tests, not in the widget. Workaround: one
++`testWidgets` per file that pumps `HomePage`.
++
++## Test-suite state on HEAD 486dc5d (re-measured)
++
++`courses_search`, `instructor_carousel`, `skill_courses`, `pressable_chip`,
++`signup_location_prompt`, `section_bar_alignment` → all pass.
++`navigation_test` → the same 2 pre-existing failures (footer destinations,
++profile course tabs). `widget_test` → fails. `home_heading_alignment` → hangs on
++its second test, as above. All pre-existing; `git status` was clean before this
++change.
+diff --git a/.workbuddy-ai/memory/MEMORY.md b/.workbuddy-ai/memory/MEMORY.md
+index 62bf598..a6668fb 100644
+--- a/.workbuddy-ai/memory/MEMORY.md
++++ b/.workbuddy-ai/memory/MEMORY.md
+@@ -16,13 +16,18 @@ Both env fixes are required. Without `no_proxy` every test dies with
+ 
+ `flutter analyze` needs only the `PROGRAMFILES(X86)` fix.
+ 
+-### Known-bad test files on HEAD 6072692 (measured, all pre-existing)
+-
+-- `test/home_heading_alignment_test.dart` — **hangs forever**. This is why a full
+-  `flutter test` looks like it died. Run files individually with `timeout`.
++### Known-bad test files on HEAD 486dc5d (measured, all pre-existing)
++
++- `test/home_heading_alignment_test.dart` — **the second test in the file hangs
++  forever** (the 360px case passes in ~1s, the 400px case never finishes). It is
++  not width-dependent: any file with two `testWidgets` that each pump `HomePage`
++  reproduces it. `HomePage.dispose()` is fine, so the leak is in the
++  google_fonts test harness. **Keep to one HomePage-pumping test per file.**
++  This is why a full `flutter test` looks like it died — run files individually
++  with `timeout`.
+ - `test/widget_test.dart` — fails.
+-- `test/navigation_test.dart` — 2 failures (`Saved By Shorts` semantics label,
+-  `destination-*` keys).
++- `test/navigation_test.dart` — 2 failures (footer destinations, profile course
++  tabs).
+ 
+ Use a throwaway `git worktree add /tmp/base HEAD` to prove a failure predates a
+ change instead of arguing about it.
+@@ -53,6 +58,19 @@ it rather than re-deriving colours in new screens.
+   That idiom is reused by the location field to lock/unlock it.
+ - Screens that must be testable take injectable services via the constructor with
+   a `const` default (see `SignupStudentFormPage.locationService`).
++- **Section headings** use `const SectionBar()` + `SizedBox(width: 7)` +
++  the title, never `Text('|')`. The glyph version put its ink wherever the 21pt
++  line box landed (~3.5px above the heading's optical centre under
++  `CrossAxisAlignment.end`). `SectionBar` lives in
++  `lib/core/widgets/section_bar.dart`; pass `color:` if a screen needs its own
++  tint (`recommended_course.dart` uses `0x1F111827`).
++- Don't give a bar/glyph an alignment job that belongs to geometry: a `Text`'s
++  line box is 1.37em for Manrope, so box-alignment and optical alignment are not
++  the same thing. Compare *ink* centres when measuring, and prefer an explicit
++  `Container` when a design says "aligned".
++- Text stacks with `height: 1.0` carry descent space below the ink and only
++  ~3px of air between two adjacent lines. If a label/value pair looks like it is
++  colliding, add an explicit `SizedBox` rather than trusting the line boxes.
+ 
+ ## Feature: location prompt on the signup forms
+ 
+diff --git a/lib/features/home/presentation/home_page.dart b/lib/features/home/presentation/home_page.dart
+index b22368b..b2cddda 100644
+--- a/lib/features/home/presentation/home_page.dart
++++ b/lib/features/home/presentation/home_page.dart
+@@ -4,6 +4,7 @@ import 'instructor_carousel.dart';
+ 
+ import 'package:flutter/material.dart';
+ import 'package:google_fonts/google_fonts.dart';
++import 'package:skillsikka/core/widgets/section_bar.dart';
+ import 'package:skillsikka/features/events/presentation/event_details.dart';
+ import 'package:skillsikka/features/instructors/presentation/instructor_page.dart';
+ import 'package:skillsikka/features/books/presentation/book_details.dart';
+@@ -386,14 +387,8 @@ class _HomePageState extends State<HomePage>
+       padding: padding,
+       child: Row(
+         children: [
+-          Text(
+-            '| ',
+-            style: GoogleFonts.manrope(
+-              fontSize: 21,
+-              fontWeight: FontWeight.w300,
+-              color: const Color(0x1F282828),
+-            ),
+-          ),
++          const SectionBar(),
++          const SizedBox(width: 7),
+           Expanded(
+             child: Text(
+               title,
+@@ -657,14 +652,8 @@ class _HomePageState extends State<HomePage>
+           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+           child: Row(
+             children: [
+-              Text(
+-                '| ',
+-                style: GoogleFonts.manrope(
+-                  fontSize: 21,
+-                  fontWeight: FontWeight.w300,
+-                  color: const Color(0x1F282828),
+-                ),
+-              ),
++              const SectionBar(),
++              const SizedBox(width: 7),
+               Expanded(
+                 child: Text(
+                   'ICT & AI Bootcamp',
+@@ -1329,17 +1318,9 @@ class _HomePageState extends State<HomePage>
+             child: Padding(
+               padding: const EdgeInsets.symmetric(horizontal: 16),
+               child: Row(
+-                crossAxisAlignment: CrossAxisAlignment.end,
+                 children: [
+-                  Text(
+-                    '|',
+-                    style: GoogleFonts.manrope(
+-                      fontSize: 21,
+-                      fontWeight: FontWeight.w300,
+-                      color: const Color(0x1F282828),
+-                    ),
+-                  ),
+-                  const SizedBox(width: 4),
++                  const SectionBar(),
++                  const SizedBox(width: 7),
+                   Expanded(
+                     child: Text(
+                       'Explore our Top instructors',
+@@ -1598,39 +1579,52 @@ class _HomePageState extends State<HomePage>
+                 borderRadius: BorderRadius.circular(100),
+               ),
+               child: Row(
+-                mainAxisAlignment: MainAxisAlignment.center,
+                 children: [
+                   Expanded(
+-                    child: SizedBox(
+-                      child: Padding(
+-                        padding: const EdgeInsets.symmetric(horizontal: 10),
+-                        child: Column(
+-                          mainAxisAlignment: MainAxisAlignment.center,
+-                          crossAxisAlignment: CrossAxisAlignment.start,
+-                          children: [
+-                            Text(
+-                              'ENROLLMENT',
+-                              style: GoogleFonts.inter(
+-                                fontSize: 10,
+-                                height: 1.0,
+-                                color: const Color(0xFF8D887F),
+-                              ),
++                    child: Padding(
++                      padding: const EdgeInsets.symmetric(horizontal: 10),
++                      child: Column(
++                        mainAxisAlignment: MainAxisAlignment.center,
++                        crossAxisAlignment: CrossAxisAlignment.start,
++                        children: [
++                          Text(
++                            'ENROLLMENT',
++                            maxLines: 1,
++                            overflow: TextOverflow.ellipsis,
++                            style: GoogleFonts.inter(
++                              fontSize: 10,
++                              height: 1.0,
++                              color: const Color(0xFF8D887F),
+                             ),
+-                            Text(
+-                              'Rs.24.99',
+-                              style: GoogleFonts.manrope(
+-                                fontSize: 17,
+-                                height: 1.0,
+-                                fontWeight: FontWeight.w500,
+-                                color: const Color(0xFF524C00),
+-                              ),
++                          ),
++                          // Explicit gap between the label and the price. The
++                          // two 1.0-height line boxes on their own leave only
++                          // ~3pt of air, which reads as a collision.
++                          const SizedBox(height: 7),
++                          Text(
++                            'Rs.24.99',
++                            maxLines: 1,
++                            overflow: TextOverflow.ellipsis,
++                            style: GoogleFonts.manrope(
++                              fontSize: 17,
++                              height: 1.0,
++                              fontWeight: FontWeight.w500,
++                              color: const Color(0xFF524C00),
+                             ),
+-                          ],
+-                        ),
++                          ),
++                        ],
+                       ),
+                     ),
+                   ),
+-                  const SizedBox(width: 69),
++                  // Minimum breathing room only. This used to be a fixed
++                  // `SizedBox(width: 69)`, which is fine on a 393pt-wide canvas
++                  // (where the design was drawn) but starves the label on a
++                  // 360pt phone: 298 - 20 - 69 - 137 - 20 = 52pt for a string
++                  // that needs ~72, so 'ENROLLMENT' broke after "ENROLLM" and
++                  // 'Rs.24.99' after "Rs.24.". Letting `Expanded` absorb the
++                  // slack keeps the button hard right on wide screens and gives
++                  // the label the room it needs on narrow ones.
++                  const SizedBox(width: 12),
+                   Container(
+                     height: 38,
+                     width: 137,
+diff --git a/lib/features/premium_courses/presentation/premium_courses_page.dart b/lib/features/premium_courses/presentation/premium_courses_page.dart
+index 32e7a62..47dcf91 100644
+--- a/lib/features/premium_courses/presentation/premium_courses_page.dart
++++ b/lib/features/premium_courses/presentation/premium_courses_page.dart
+@@ -1,6 +1,7 @@
+ import 'package:flutter/material.dart';
+ import 'package:google_fonts/google_fonts.dart';
+ import 'package:skillsikka/core/widgets/pressable_chip.dart';
++import 'package:skillsikka/core/widgets/section_bar.dart';
+ import 'package:skillsikka/features/premium_courses/presentation/premium_course_details_page.dart';
+ 
+ const _pageBackground = Color(0xFFF9FAFB);
+@@ -212,14 +213,8 @@ class _PremiumCoursesPageState extends State<PremiumCoursesPage> {
+       padding: EdgeInsets.fromLTRB(16, top, 16, 14),
+       child: Row(
+         children: [
+-          Text(
+-            '| ',
+-            style: GoogleFonts.manrope(
+-              fontSize: 21,
+-              fontWeight: FontWeight.w300,
+-              color: const Color(0x1F282828),
+-            ),
+-          ),
++          const SectionBar(),
++          const SizedBox(width: 7),
+           Text(
+             title,
+             style: GoogleFonts.manrope(
+diff --git a/lib/features/recommendedcourse/presentation/recommended_course.dart b/lib/features/recommendedcourse/presentation/recommended_course.dart
+index 8d1d9e0..f77c2db 100644
+--- a/lib/features/recommendedcourse/presentation/recommended_course.dart
++++ b/lib/features/recommendedcourse/presentation/recommended_course.dart
+@@ -1,5 +1,6 @@
+ import 'package:flutter/material.dart';
+ import 'package:google_fonts/google_fonts.dart';
++import 'package:skillsikka/core/widgets/section_bar.dart';
+ import 'package:skillsikka/features/books/presentation/book_details.dart';
+ 
+ const _bg = Color(0xFFFAF9F6);
+@@ -412,14 +413,8 @@ class _BrowseCategoriesPageState extends State<BrowseCategoriesPage> {
+       children: [
+         Row(
+           children: [
+-            Text(
+-              '| ',
+-              style: GoogleFonts.manrope(
+-                fontSize: 21,
+-                fontWeight: FontWeight.w300,
+-                color: const Color(0x1F111827),
+-              ),
+-            ),
++            const SectionBar(color: Color(0x1F111827)),
++            const SizedBox(width: 7),
+             Text(
+               'All Books',
+               style: GoogleFonts.manrope(
+diff --git a/lib/features/skill_courses/presentation/skill_courses.dart b/lib/features/skill_courses/presentation/skill_courses.dart
+index 01f2ea4..16dfcf8 100644
+--- a/lib/features/skill_courses/presentation/skill_courses.dart
++++ b/lib/features/skill_courses/presentation/skill_courses.dart
+@@ -1,5 +1,6 @@
+ import 'package:flutter/material.dart';
+ import 'package:google_fonts/google_fonts.dart';
++import 'package:skillsikka/core/widgets/section_bar.dart';
+ import 'package:skillsikka/features/search/presentation/search_page.dart';
+ 
+ const _cream = Color(0xFFFAF9F6);
+@@ -117,14 +118,8 @@ class _SkillCoursesPageState extends State<SkillCoursesPage> {
+       padding: const EdgeInsets.symmetric(horizontal: 16),
+       child: Row(
+         children: [
+-          Text(
+-            '| ',
+-            style: GoogleFonts.manrope(
+-              fontSize: 21,
+-              fontWeight: FontWeight.w300,
+-              color: const Color(0x1F282828),
+-            ),
+-          ),
++          const SectionBar(),
++          const SizedBox(width: 7),
+           Text(
+             title,
+             style: GoogleFonts.manrope(
+diff --git a/lib/core/widgets/section_bar.dart b/lib/core/widgets/section_bar.dart
+new file mode 100644
+index 0000000..9b8a7ef
+--- /dev/null
++++ b/lib/core/widgets/section_bar.dart
+@@ -0,0 +1,39 @@
++import 'package:flutter/material.dart';
++
++/// The thin vertical accent bar that sits to the left of a section heading.
++///
++/// This used to be a `Text('|')` in a 21pt font. That made the bar's height and
++/// vertical position a by-product of the font's line box: the line box is ~28px
++/// tall for 21pt Manrope while the heading's cap band is only ~12px, so the bar
++/// landed several pixels above the heading's optical centre — and it drifted
++/// again whenever the row used `CrossAxisAlignment.end` or the font changed.
++///
++/// Drawing it as a sized box makes the alignment explicit: centred against the
++/// heading's line box (which for Manrope coincides with the cap-height centre),
++/// so the bar reads as optically centred on the heading text.
++class SectionBar extends StatelessWidget {
++  const SectionBar({
++    super.key,
++    this.height = 16,
++    this.width = 3,
++    this.color = const Color(0x1F282828),
++  });
++
++  /// Bar height. 16pt pairs with a 16pt Manrope heading, whose cap height is
++  /// ~12pt, so the bar overhangs the cap band by ~2pt top and bottom.
++  final double height;
++  final double width;
++  final Color color;
++
++  @override
++  Widget build(BuildContext context) {
++    return Container(
++      width: width,
++      height: height,
++      decoration: BoxDecoration(
++        color: color,
++        borderRadius: BorderRadius.circular(width / 2),
++      ),
++    );
++  }
++}

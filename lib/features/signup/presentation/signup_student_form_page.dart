@@ -4,6 +4,9 @@ import 'package:flutter_svg/flutter_svg.dart';
 import 'package:go_router/go_router.dart';
 import 'package:google_fonts/google_fonts.dart';
 
+import '../../../core/location/location_service.dart';
+import '../../../core/widgets/location_prompt_dialog.dart';
+
 Future<String?> _pickOption(
   BuildContext context,
   String title,
@@ -42,7 +45,13 @@ Future<String?> _pickOption(
 }
 
 class SignupStudentFormPage extends StatefulWidget {
-  const SignupStudentFormPage({super.key});
+  const SignupStudentFormPage({
+    super.key,
+    this.locationService = const LocationService(),
+  });
+
+  /// Injectable so the popup flow can be driven from tests.
+  final LocationService locationService;
 
   @override
   State<SignupStudentFormPage> createState() => _SignupStudentFormPageState();
@@ -53,8 +62,19 @@ class _SignupStudentFormPageState extends State<SignupStudentFormPage> {
   bool _obscurePassword = true;
   PlatformFile? _studentIdCard;
 
+  LocationService get _locationService => widget.locationService;
+
   TextEditingController _controller(String key) =>
       _controllers.putIfAbsent(key, TextEditingController.new);
+
+  @override
+  void initState() {
+    super.initState();
+    // Ask for the current location as soon as the form is on screen.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _promptForLocation();
+    });
+  }
 
   @override
   void dispose() {
@@ -62,6 +82,30 @@ class _SignupStudentFormPageState extends State<SignupStudentFormPage> {
       controller.dispose();
     }
     super.dispose();
+  }
+
+  /// Opens the location popup and, if the user confirms a fix, writes it into
+  /// the Location field.
+  ///
+  /// [skipIntro] `true` jumps straight to detection (the user explicitly asked
+  /// for it), `false` always shows the explainer, and `null` decides based on
+  /// whether permission was already granted — so returning visitors aren't
+  /// nagged every time the form opens.
+  Future<void> _promptForLocation({bool? skipIntro}) async {
+    final alreadyGranted = skipIntro == null
+        ? await _locationService.hasPermission()
+        : false;
+    if (!mounted) return;
+
+    final location = await showLocationPromptDialog(
+      context,
+      service: _locationService,
+      skipIntro: skipIntro ?? alreadyGranted,
+    );
+    if (location == null || !mounted) return;
+
+    // The field stays editable, so this only pre-fills it.
+    setState(() => _controller('location').text = location.label);
   }
 
   @override
@@ -154,7 +198,12 @@ class _SignupStudentFormPageState extends State<SignupStudentFormPage> {
                             requiredField: true,
                             leading: 'assets/figma/signup_location.svg',
                             controller: _controller('location'),
+                            trailingWidget: CurrentLocationButton(
+                              onPressed: () =>
+                                  _promptForLocation(skipIntro: true),
+                            ),
                           ),
+                          const LocationFieldHint(),
                           const SizedBox(height: 16),
                           _Field(
                             label: 'Class / Grade',
@@ -211,7 +260,8 @@ class _SignupStudentFormPageState extends State<SignupStudentFormPage> {
                           _UploadCard(
                             pickedFile: _studentIdCard,
                             onTap: _pickStudentIdCard,
-                            onClear: () => setState(() => _studentIdCard = null),
+                            onClear: () =>
+                                setState(() => _studentIdCard = null),
                           ),
                           const SizedBox(height: 20),
                           Container(
@@ -308,7 +358,9 @@ class _SignupStudentFormPageState extends State<SignupStudentFormPage> {
 
   void _showUploadError(String message) {
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(message)));
   }
 
   void _submit() {

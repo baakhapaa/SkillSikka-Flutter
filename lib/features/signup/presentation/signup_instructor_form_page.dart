@@ -7,6 +7,9 @@ import 'package:go_router/go_router.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:image_picker/image_picker.dart';
 
+import '../../../core/location/location_service.dart';
+import '../../../core/widgets/location_prompt_dialog.dart';
+
 Future<String?> _pickInstructorOption(
   BuildContext context,
   String title,
@@ -45,7 +48,13 @@ Future<String?> _pickInstructorOption(
 }
 
 class SignupInstructorFormPage extends StatefulWidget {
-  const SignupInstructorFormPage({super.key});
+  const SignupInstructorFormPage({
+    super.key,
+    this.locationService = const LocationService(),
+  });
+
+  /// Injectable so the popup flow can be driven from tests.
+  final LocationService locationService;
 
   @override
   State<SignupInstructorFormPage> createState() =>
@@ -63,8 +72,19 @@ class _SignupInstructorFormPageState extends State<SignupInstructorFormPage> {
 
   final _imagePicker = ImagePicker();
 
+  LocationService get _locationService => widget.locationService;
+
   TextEditingController _controller(String key) {
     return _controllers.putIfAbsent(key, TextEditingController.new);
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    // Ask for the current location as soon as the form is on screen.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _promptForLocation();
+    });
   }
 
   @override
@@ -73,6 +93,30 @@ class _SignupInstructorFormPageState extends State<SignupInstructorFormPage> {
       controller.dispose();
     }
     super.dispose();
+  }
+
+  /// Opens the location popup and, if the user confirms a fix, writes it into
+  /// the Location field.
+  ///
+  /// [skipIntro] `true` jumps straight to detection (the user explicitly asked
+  /// for it), `false` always shows the explainer, and `null` decides based on
+  /// whether permission was already granted — so returning visitors aren't
+  /// nagged every time the form opens.
+  Future<void> _promptForLocation({bool? skipIntro}) async {
+    final alreadyGranted = skipIntro == null
+        ? await _locationService.hasPermission()
+        : false;
+    if (!mounted) return;
+
+    final location = await showLocationPromptDialog(
+      context,
+      service: _locationService,
+      skipIntro: skipIntro ?? alreadyGranted,
+    );
+    if (location == null || !mounted) return;
+
+    // The field stays editable, so this only pre-fills it.
+    setState(() => _controller('location').text = location.label);
   }
 
   @override
@@ -174,7 +218,12 @@ class _SignupInstructorFormPageState extends State<SignupInstructorFormPage> {
                             hint: 'Enter your current location',
                             leadingAsset: 'assets/figma/signup_location.svg',
                             controller: _controller('location'),
+                            trailingWidget: CurrentLocationButton(
+                              onPressed: () =>
+                                  _promptForLocation(skipIntro: true),
+                            ),
                           ),
+                          const LocationFieldHint(),
                           const SizedBox(height: 16),
                           _FormField(
                             label: 'Highest Qualification / Degree',
@@ -200,13 +249,10 @@ class _SignupInstructorFormPageState extends State<SignupInstructorFormPage> {
 
                           _UploadCard(
                             title: 'CV / Resume',
-                            formats:
-                                'Supported formats: PDF, DOCX (Max 5MB)',
+                            formats: 'Supported formats: PDF, DOCX (Max 5MB)',
                             asset: 'assets/figma/signup_file_text.svg',
                             pickedFile: _cvFile,
-                            onTap: () => _pickDocument(
-                              isCv: true,
-                            ),
+                            onTap: () => _pickDocument(isCv: true),
                             onClear: () => setState(() => _cvFile = null),
                           ),
                           const SizedBox(height: 20),
@@ -217,9 +263,7 @@ class _SignupInstructorFormPageState extends State<SignupInstructorFormPage> {
                                 'Supported formats: PDF, JPG, PNG (Max 10MB)',
                             asset: 'assets/figma/signup_file.svg',
                             pickedFile: _certificatesFile,
-                            onTap: () => _pickDocument(
-                              isCv: false,
-                            ),
+                            onTap: () => _pickDocument(isCv: false),
                             onClear: () =>
                                 setState(() => _certificatesFile = null),
                           ),
@@ -351,9 +395,7 @@ class _SignupInstructorFormPageState extends State<SignupInstructorFormPage> {
 
     if (missing.isNotEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Please provide: ${missing.join(", ")}'),
-        ),
+        SnackBar(content: Text('Please provide: ${missing.join(", ")}')),
       );
       return;
     }
@@ -465,9 +507,7 @@ class _ProfileUpload extends StatelessWidget {
               child: photo == null
                   ? Padding(
                       padding: const EdgeInsets.all(10),
-                      child: SvgPicture.asset(
-                        'assets/figma/signup_camera.svg',
-                      ),
+                      child: SvgPicture.asset('assets/figma/signup_camera.svg'),
                     )
                   : Image.file(
                       photo!,
@@ -499,6 +539,7 @@ class _ProfileUpload extends StatelessWidget {
     );
   }
 }
+
 class _FormField extends StatelessWidget {
   const _FormField({
     required this.label,
@@ -557,7 +598,8 @@ class _FormField extends StatelessWidget {
                       height: 16,
                     ),
                   ),
-            suffixIcon: trailingWidget ??
+            suffixIcon:
+                trailingWidget ??
                 (trailingAsset == null
                     ? null
                     : IconButton(
@@ -713,9 +755,7 @@ class _UploadCard extends StatelessWidget {
               ),
               borderRadius: BorderRadius.circular(12),
             ),
-            child: hasFile
-                ? _buildPickedState(context)
-                : _buildEmptyState(),
+            child: hasFile ? _buildPickedState(context) : _buildEmptyState(),
           ),
         ),
       ],
@@ -803,11 +843,7 @@ class _UploadCard extends StatelessWidget {
           onTap: onClear,
           child: const Padding(
             padding: EdgeInsets.all(6),
-            child: Icon(
-              Icons.close,
-              size: 18,
-              color: Color(0xFF4B5563),
-            ),
+            child: Icon(Icons.close, size: 18, color: Color(0xFF4B5563)),
           ),
         ),
       ],

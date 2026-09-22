@@ -34,8 +34,16 @@ class _SignupRolePageState extends State<SignupRolePage> {
                 minHeight: constraints.maxHeight - _pagePadding.vertical,
               ),
               child: Column(
-                // Same shape as the verification step: the header and body at
-                // the top, the primary action pinned above the safe area.
+                // Three children, so `spaceBetween` splits the slack across the
+                // two gaps instead of dumping it into one. Two children left the
+                // header stranded at the top with the form jammed against the
+                // bottom on a 440x956 browser viewport (the form block started at
+                // y=458 of 956; splitting the gaps puts it at 230).
+                //
+                // An IntrinsicHeight + Spacers version distributes the same way
+                // but is not safe here: a Row reports its flex children at
+                // infinite width, so each card's description counts as a single
+                // line and the column can come out shorter than what it lays out.
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
                   Padding(
@@ -155,35 +163,39 @@ class _SignupRolePageState extends State<SignupRolePage> {
                           iconAsset: 'assets/figma/signup_chart_column.svg',
                           onTap: () => setState(() => _isStudent = false),
                         ),
-                        const SizedBox(height: 61),
-                        SizedBox(
-                          width: double.infinity,
-                          height: 52,
-                          child: FilledButton(
-                            onPressed: () {
-                              context.push(
-                                _isStudent
-                                    ? '/signup/student'
-                                    : '/signup/instructor',
-                              );
-                            },
-                            style: FilledButton.styleFrom(
-                              backgroundColor: const Color(0xFFE6B800),
-                              foregroundColor: const Color(0xFF111827),
-                              elevation: 4,
-                              shadowColor: const Color(0x40E6B800),
-                              shape: const StadiumBorder(),
-                            ),
-                            child: Text(
-                              'Continue',
-                              style: GoogleFonts.manrope(
-                                fontSize: 16,
-                                fontWeight: FontWeight.w700,
-                              ),
-                            ),
+                      ],
+                    ),
+                  ),
+                  // 16pt is the floor once the spacers collapse, so the cards
+                  // never touch the button on a short screen.
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(24, 16, 24, 0),
+                    child: SizedBox(
+                      width: double.infinity,
+                      height: 52,
+                      child: FilledButton(
+                        onPressed: () {
+                          context.push(
+                            _isStudent
+                                ? '/signup/student'
+                                : '/signup/instructor',
+                          );
+                        },
+                        style: FilledButton.styleFrom(
+                          backgroundColor: const Color(0xFFE6B800),
+                          foregroundColor: const Color(0xFF111827),
+                          elevation: 4,
+                          shadowColor: const Color(0x40E6B800),
+                          shape: const StadiumBorder(),
+                        ),
+                        child: Text(
+                          'Continue',
+                          style: GoogleFonts.manrope(
+                            fontSize: 16,
+                            fontWeight: FontWeight.w700,
                           ),
                         ),
-                      ],
+                      ),
                     ),
                   ),
                 ],

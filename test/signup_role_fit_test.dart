@@ -19,9 +19,12 @@ class _FontAssets extends Fake implements AssetManifest {
 
 /// The phone the overflow was reported on: a 360x800 screen with a 38.5pt
 /// status bar and a 24pt gesture inset, which leaves 737.5pt for the page.
-const _screen = Size(360, 800);
-const _insets = EdgeInsets.only(top: 38.5, bottom: 24);
-const _safeBottom = 800 - 24;
+const _phone = Size(360, 800);
+const _phoneInsets = EdgeInsets.only(top: 38.5, bottom: 24);
+
+/// The other reported case: Chrome DevTools emulating an iPhone 16 Pro Max, so
+/// the app is a Flutter web canvas with no system insets at all.
+const _tall = Size(440, 956);
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -84,63 +87,119 @@ void main() {
     GoogleFonts.config.allowRuntimeFetching = originalFetching;
   });
 
-  testWidgets('the Continue button clears the safe area on a 360x800 screen', (
-    tester,
-  ) async {
-    await tester.binding.setSurfaceSize(_screen);
-    addTearDown(() => tester.binding.setSurfaceSize(null));
-    await tester.pumpWidget(
-      const MaterialApp(
-        home: MediaQuery(
-          data: MediaQueryData(size: _screen, padding: _insets),
-          child: SignupRolePage(),
+  // NOTE ON FONTS: `flutter test` cannot fetch Manrope, so this harness
+  // substitutes Roboto (1.17em line box against Manrope's 1.37em). Every text
+  // block is therefore ~15% short, which hands the assertions ~20pt of extra
+  // margin. The measured device numbers are quoted in the comments so a failure
+  // can be told apart from the font gap.
+  //
+  // Both viewports share one testWidgets on purpose: pumping the same page from
+  // two tests in one file hangs the second one (see home_heading_alignment_test).
+  testWidgets('the role step fits a phone and a tall viewport', (tester) async {
+    Future<void> pumpAt(Size size, EdgeInsets insets) async {
+      await tester.binding.setSurfaceSize(size);
+      await tester.pumpWidget(
+        MaterialApp(
+          home: MediaQuery(
+            data: MediaQueryData(size: size, padding: insets),
+            child: const SignupRolePage(),
+          ),
         ),
-      ),
-    );
-    await tester.pump();
-
-    final problems = <Object>[];
-    for (var e = tester.takeException(); e != null; e = tester.takeException()) {
-      problems.add(e);
+      );
+      await tester.pump();
+      final problems = <Object>[];
+      for (
+        var e = tester.takeException();
+        e != null;
+        e = tester.takeException()
+      ) {
+        problems.add(e);
+      }
+      expect(problems, isEmpty, reason: 'the role step raised during layout');
     }
-    expect(problems, isEmpty, reason: 'the role step raised during layout');
 
-    // NOTE ON FONTS: `flutter test` cannot fetch Manrope, so this harness
-    // substitutes Roboto (1.17em line box against Manrope's 1.37em). Every text
-    // block here is therefore ~15% short, which hands the assertions ~20pt of
-    // extra margin. On a device the column is 695pt and this page is tuned to
-    // leave ~26pt of slack, so the numbers below are still the right shape —
-    // but they do not replace a device check.
+    double scrollExtent() {
+      final scrollable = find
+          .descendant(
+            of: find.byType(SingleChildScrollView),
+            matching: find.byType(Scrollable),
+          )
+          .first;
+      return tester.state<ScrollableState>(scrollable).position.maxScrollExtent;
+    }
+
     final cta = find.widgetWithText(FilledButton, 'Continue');
+    // The form block's first painted element. (The wordmark is an asset and does
+    // not paint in a golden, but its box still reports a rect.)
+    final formTop = find.byType(Image).first;
+    final header = find.text('Step: 1 of 4');
+
+    // --- the phone: everything must fit with the CTA above the safe area ---
+    await pumpAt(_phone, _phoneInsets);
+    const phoneSafeBottom = 800 - 24;
     expect(cta, findsOneWidget);
 
-    // The reported bug: the primary action sat 20.5pt below the safe area.
+    // The originally reported bug: the button sat at 744.5..796.5 on a device,
+    // i.e. 20.5pt below the safe area.
     expect(
       tester.getRect(cta).bottom,
-      lessThanOrEqualTo(_safeBottom),
+      lessThanOrEqualTo(phoneSafeBottom),
       reason: 'the Continue button runs past the safe area',
     );
 
     // "Fits" means no scrolling at all — the column used to be 16pt taller than
     // the space its own padding left, so the page scrolled even when it fitted.
-    final scrollable = find
-        .descendant(
-          of: find.byType(SingleChildScrollView),
-          matching: find.byType(Scrollable),
-        )
-        .first;
-    final position = tester.state<ScrollableState>(scrollable).position;
     expect(
-      position.maxScrollExtent,
+      scrollExtent(),
       0,
       reason: 'the role step does not fit one screen — it still scrolls',
     );
 
     // And it is anchored to the bottom rather than stranded in the middle.
+    // On a device the clearance is exactly the 16pt page padding.
     expect(
-      _safeBottom - tester.getRect(cta).bottom,
+      phoneSafeBottom - tester.getRect(cta).bottom,
       lessThanOrEqualTo(40),
       reason: 'the Continue button is stranded above the bottom of the page',
+    );
+
+    // --- the smallest phone still sold: iPhone SE 3 / 8 at 375x667 ---
+    // A home-button iPhone has no bottom inset, so the viewport is 647pt.
+    // This is the boundary case for "works on any phone": everything larger
+    // (Galaxy A 360x780, iPhone mini 375x812, Pixel 412x915, 430x932) has more
+    // room. Devices below it (320x568, a 360x640 Android) scroll instead.
+    await pumpAt(const Size(375, 667), const EdgeInsets.only(top: 20));
+    expect(
+      scrollExtent(),
+      0,
+      reason: 'the role step should fit the smallest phone still on sale',
+    );
+    // A home-button iPhone has no bottom inset, so the safe bottom is 667.
+    expect(
+      667 - tester.getRect(cta).bottom,
+      greaterThanOrEqualTo(0),
+      reason: 'the Continue button falls below the fold on an iPhone SE',
+    );
+
+    // --- the tall viewport: the form must not be pushed into the bottom half ---
+    await pumpAt(_tall, EdgeInsets.zero);
+    const tallSafeBottom = 956.0;
+    expect(
+      tallSafeBottom - tester.getRect(cta).bottom,
+      lessThanOrEqualTo(40),
+      reason: 'on a tall viewport the CTA is not pinned to the bottom',
+    );
+    // A two-child column put every spare point into one gap and started the form
+    // at y=458 of 956. Splitting the slack across two gaps puts it at y=230.
+    expect(
+      tester.getRect(formTop).top,
+      lessThan(0.35 * _tall.height),
+      reason: 'on a tall viewport the form drifts into the bottom half',
+    );
+    expect(
+      tester.getRect(formTop).top - tester.getRect(header).bottom,
+      lessThan(0.30 * _tall.height),
+      reason: 'the header is stranded at the top with a void beneath it',
     );
   });
 }

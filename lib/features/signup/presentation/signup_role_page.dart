@@ -3,6 +3,10 @@ import 'package:flutter_svg/flutter_svg.dart';
 import 'package:go_router/go_router.dart';
 import 'package:google_fonts/google_fonts.dart';
 
+/// The scroll view's padding. Its vertical part is what turns the viewport
+/// height into the column's minimum height, so keep the two in step.
+const _pagePadding = EdgeInsets.only(bottom: 16);
+
 class SignupRolePage extends StatefulWidget {
   const SignupRolePage({super.key});
 
@@ -20,10 +24,19 @@ class _SignupRolePageState extends State<SignupRolePage> {
       body: SafeArea(
         child: LayoutBuilder(
           builder: (context, constraints) => SingleChildScrollView(
-            padding: const EdgeInsets.only(bottom: 16),
+            padding: _pagePadding,
             child: ConstrainedBox(
-              constraints: BoxConstraints(minHeight: constraints.maxHeight),
+              // Fill the viewport exactly so spaceBetween can anchor the
+              // Continue button to the bottom. `constraints.maxHeight` on its
+              // own added the padding back on top of a full-height column, so
+              // the page always scrolled by 16pt even when it fitted.
+              constraints: BoxConstraints(
+                minHeight: constraints.maxHeight - _pagePadding.vertical,
+              ),
               child: Column(
+                // Same shape as the verification step: the header and body at
+                // the top, the primary action pinned above the safe area.
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
                   Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 12),
@@ -105,7 +118,7 @@ class _SignupRolePageState extends State<SignupRolePage> {
                             ),
                           ],
                         ),
-                        const SizedBox(height: 57),
+                        const SizedBox(height: 44),
                         Text(
                           'Choose Your Role',
                           textAlign: TextAlign.center,
@@ -124,7 +137,7 @@ class _SignupRolePageState extends State<SignupRolePage> {
                             fontSize: 14,
                           ),
                         ),
-                        const SizedBox(height: 86),
+                        const SizedBox(height: 61),
                         _RoleCard(
                           selected: _isStudent,
                           title: 'I am a Student',
@@ -142,7 +155,7 @@ class _SignupRolePageState extends State<SignupRolePage> {
                           iconAsset: 'assets/figma/signup_chart_column.svg',
                           onTap: () => setState(() => _isStudent = false),
                         ),
-                        const SizedBox(height: 86),
+                        const SizedBox(height: 61),
                         SizedBox(
                           width: double.infinity,
                           height: 52,

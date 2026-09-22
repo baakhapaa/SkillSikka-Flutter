@@ -3,6 +3,10 @@ import 'package:flutter_svg/flutter_svg.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:go_router/go_router.dart';
 
+/// Padding around the form. Its vertical part is also what turns the viewport
+/// height into the column's minimum height, so keep the two in step.
+const _pagePadding = EdgeInsets.fromLTRB(24, 14, 24, 12);
+
 class LoginScreenPage extends StatefulWidget {
   const LoginScreenPage({super.key});
 
@@ -30,15 +34,23 @@ class _LoginScreenPageState extends State<LoginScreenPage> {
         child: LayoutBuilder(
           builder: (context, constraints) {
             return SingleChildScrollView(
-              padding: const EdgeInsets.fromLTRB(24, 20, 24, 16),
+              padding: _pagePadding,
               child: ConstrainedBox(
+                // Fill the viewport exactly: spaceBetween then anchors the
+                // sign-up line to the bottom on tall screens. The old `- 58`
+                // under-filled by 22pt, so the column never reached the bottom.
                 constraints: BoxConstraints(
-                  minHeight: constraints.maxHeight - 58,
+                  minHeight: constraints.maxHeight - _pagePadding.vertical,
                 ),
                 child: Column(
+                  // The whole form is 687pt tall, so on a 360x800 phone it fits
+                  // between the status bar and the gesture inset with room to
+                  // spare; that slack is spread evenly instead of pooling at
+                  // the bottom. Shorter screens still scroll.
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
                     const _SkillSikkaMark(),
-                    const SizedBox(height: 25),
+                    const SizedBox(height: 12),
                     Text(
                       'Welcome Back!',
                       style: GoogleFonts.manrope(
@@ -47,7 +59,7 @@ class _LoginScreenPageState extends State<LoginScreenPage> {
                         fontWeight: FontWeight.w800,
                       ),
                     ),
-                    const SizedBox(height: 10),
+                    const SizedBox(height: 6),
                     const Text(
                       'Log in to continue your learning journey',
                       textAlign: TextAlign.center,
@@ -57,7 +69,7 @@ class _LoginScreenPageState extends State<LoginScreenPage> {
                         height: 1.4,
                       ),
                     ),
-                    const SizedBox(height: 35),
+                    const SizedBox(height: 20),
                     _InputField(
                       controller: _emailController,
                       label: 'username',
@@ -65,7 +77,7 @@ class _LoginScreenPageState extends State<LoginScreenPage> {
                       iconAsset: 'assets/figma/mail.svg',
                       keyboardType: TextInputType.emailAddress,
                     ),
-                    const SizedBox(height: 16),
+                    const SizedBox(height: 14),
                     _InputField(
                       controller: _passwordController,
                       label: 'password',
@@ -120,7 +132,7 @@ class _LoginScreenPageState extends State<LoginScreenPage> {
                         ),
                       ),
                     ),
-                    const SizedBox(height: 8),
+                    const SizedBox(height: 4),
                     SizedBox(
                       width: double.infinity,
                       height: 54,
@@ -143,9 +155,9 @@ class _LoginScreenPageState extends State<LoginScreenPage> {
                         ),
                       ),
                     ),
-                    const SizedBox(height: 28),
+                    const SizedBox(height: 16),
                     const _OrDivider(),
-                    const SizedBox(height: 22),
+                    const SizedBox(height: 12),
                     Row(
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
@@ -154,7 +166,7 @@ class _LoginScreenPageState extends State<LoginScreenPage> {
                         const _SocialButton(asset: 'assets/figma/apple.svg'),
                       ],
                     ),
-                    const SizedBox(height: 45),
+                    const SizedBox(height: 16),
                     GestureDetector(
                       onTap: () => context.go('/signup/role'),
                       child: const Text.rich(

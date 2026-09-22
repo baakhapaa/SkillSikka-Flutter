@@ -1,4 +1,4 @@
-import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
@@ -9,6 +9,7 @@ import 'package:image_picker/image_picker.dart';
 
 import '../../../core/location/location_service.dart';
 import '../../../core/widgets/location_prompt_dialog.dart';
+import '../../../core/widgets/profile_photo_picker.dart';
 
 Future<String?> _pickInstructorOption(
   BuildContext context,
@@ -65,7 +66,7 @@ class _SignupInstructorFormPageState extends State<SignupInstructorFormPage> {
   final _controllers = <String, TextEditingController>{};
   bool _obscurePassword = true;
 
-  File? _profilePhoto;
+  Uint8List? _profilePhotoBytes;
 
   PlatformFile? _cvFile;
   PlatformFile? _certificatesFile;
@@ -136,8 +137,8 @@ class _SignupInstructorFormPageState extends State<SignupInstructorFormPage> {
                       padding: const EdgeInsets.fromLTRB(24, 12, 24, 40),
                       child: Column(
                         children: [
-                          _ProfileUpload(
-                            photo: _profilePhoto,
+                          ProfilePhotoPicker(
+                            photoBytes: _profilePhotoBytes,
                             onTap: _pickProfilePhoto,
                           ),
                           const SizedBox(height: 24),
@@ -340,8 +341,10 @@ class _SignupInstructorFormPageState extends State<SignupInstructorFormPage> {
       imageQuality: 85,
     );
     if (picked == null) return;
+    // Bytes, not a path: `Image.file` is not supported on Flutter web.
+    final bytes = await picked.readAsBytes();
     if (!mounted) return;
-    setState(() => _profilePhoto = File(picked.path));
+    setState(() => _profilePhotoBytes = bytes);
   }
 
   Future<void> _pickDocument({required bool isCv}) async {
@@ -387,7 +390,7 @@ class _SignupInstructorFormPageState extends State<SignupInstructorFormPage> {
 
   void _submit() {
     final missing = <String>[];
-    if (_profilePhoto == null) missing.add('Profile Photo');
+    if (_profilePhotoBytes == null) missing.add('Profile Photo');
     if (_controller('name').text.trim().isEmpty) missing.add('Full Name');
     if (_controller('email').text.trim().isEmpty) missing.add('Email');
     if (_cvFile == null) missing.add('CV / Resume');
@@ -469,69 +472,6 @@ class _Header extends StatelessWidget {
                 fontSize: 15,
                 fontWeight: FontWeight.w600,
               ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _ProfileUpload extends StatelessWidget {
-  const _ProfileUpload({required this.photo, required this.onTap});
-
-  final File? photo;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    return GestureDetector(
-      behavior: HitTestBehavior.opaque,
-      onTap: onTap,
-      child: Column(
-        children: [
-          Container(
-            padding: const EdgeInsets.all(4),
-            decoration: BoxDecoration(
-              border: Border.all(color: const Color(0xFFFFFBF0), width: 2),
-              shape: BoxShape.circle,
-            ),
-            child: Container(
-              width: 60,
-              height: 60,
-              decoration: const BoxDecoration(
-                color: Color.fromARGB(255, 244, 240, 230),
-                shape: BoxShape.circle,
-              ),
-              clipBehavior: Clip.antiAlias,
-              child: photo == null
-                  ? Padding(
-                      padding: const EdgeInsets.all(10),
-                      child: SvgPicture.asset('assets/figma/signup_camera.svg'),
-                    )
-                  : Image.file(
-                      photo!,
-                      fit: BoxFit.cover,
-                      width: 60,
-                      height: 60,
-                    ),
-            ),
-          ),
-          const SizedBox(height: 5),
-          Text(
-            photo == null ? 'Upload Profile Photo' : 'Change Profile Photo',
-            style: GoogleFonts.manrope(
-              color: const Color(0xFF111827),
-              fontSize: 15,
-              fontWeight: FontWeight.w700,
-            ),
-          ),
-          Text(
-            'Clear face photo (JPG, PNG • Max 5MB)',
-            style: GoogleFonts.manrope(
-              color: const Color.fromARGB(255, 111, 113, 117),
-              fontSize: 13,
-              fontWeight: FontWeight.w500,
             ),
           ),
         ],

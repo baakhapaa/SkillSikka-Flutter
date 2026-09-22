@@ -200,6 +200,59 @@ void main() {
       reason: 'the Continue button falls below the fold on an iPhone SE',
     );
 
+    // --- switching roles must not move the page ---
+    // The A55 size. The selected card's 2pt border used to shave 2pt off the
+    // description's width, which on a 360pt phone pushed it onto a fourth line:
+    // the card grew 20pt and the logo/title/subtitle jumped 9pt. Padding and
+    // border now total 20pt in both states, so the content width — the root
+    // cause, and independent of the font — is identical either way.
+    await pumpAt(
+      const Size(360, 780),
+      const EdgeInsets.only(top: 28, bottom: 24),
+    );
+
+    double contentWidth(String cardTitle) => tester
+        .getRect(
+          find
+              .ancestor(
+                of: find.text(cardTitle),
+                matching: find.byType(Expanded),
+              )
+              .first,
+        )
+        .width;
+    Rect cardOf(String cardTitle) =>
+        tester.getRect(find.widgetWithText(GestureDetector, cardTitle).first);
+
+    final studentWidth = contentWidth('I am a Student');
+    final instructorWidth = contentWidth('I am an Instructor');
+    final studentHeight = cardOf('I am a Student').height;
+    final titleTop = tester.getRect(find.text('Choose Your Role')).top;
+
+    await tester.tap(find.text('I am an Instructor'));
+    await tester.pump();
+
+    expect(
+      contentWidth('I am a Student'),
+      closeTo(studentWidth, 0.01),
+      reason: 'the selected card narrows its own text column',
+    );
+    expect(
+      contentWidth('I am an Instructor'),
+      closeTo(instructorWidth, 0.01),
+      reason: 'the deselected card widens its own text column',
+    );
+    expect(
+      cardOf('I am a Student').height,
+      closeTo(studentHeight, 0.01),
+      reason: 'the card changes height when the selection moves',
+    );
+    expect(
+      tester.getRect(find.text('Choose Your Role')).top,
+      closeTo(titleTop, 0.5),
+      reason: 'the section above the cards shifts when switching roles',
+    );
+
     // --- the tall viewport: the form must not be pushed into the bottom half ---
     await pumpAt(_tall, EdgeInsets.zero);
     const tallSafeBottom = 956.0;

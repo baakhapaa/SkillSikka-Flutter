@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 import '../../../core/network/api_client.dart';
+import 'edit_profile_page.dart';
 
 const _bg = Color(0xFFFAF9F6);
 const _ink = Color(0xFF111827);
@@ -189,8 +190,7 @@ class _InstructorProfilePageState extends State<InstructorProfilePage> {
                   left: 81,
                   child: GestureDetector(
                     behavior: HitTestBehavior.opaque,
-                    onTap: () {
-                    },
+                    onTap: () {},
                     child: Container(
                       width: 26,
                       height: 27,
@@ -215,11 +215,7 @@ class _InstructorProfilePageState extends State<InstructorProfilePage> {
                   ),
                 ),
                 // Name + Class
-                const Positioned(
-                  top: 12,
-                  left: 136,
-                  child: SizedBox.shrink(),
-                ),
+                const Positioned(top: 12, left: 136, child: SizedBox.shrink()),
                 Positioned(
                   top: 12,
                   left: 136,
@@ -237,10 +233,7 @@ class _InstructorProfilePageState extends State<InstructorProfilePage> {
                       const SizedBox(height: 4),
                       Text(
                         'Class 9',
-                        style: GoogleFonts.figtree(
-                          fontSize: 10,
-                          color: _gray,
-                        ),
+                        style: GoogleFonts.figtree(fontSize: 10, color: _gray),
                       ),
                     ],
                   ),
@@ -277,17 +270,18 @@ class _InstructorProfilePageState extends State<InstructorProfilePage> {
           const SizedBox(height: 16),
           GestureDetector(
             behavior: HitTestBehavior.opaque,
-            onTap: () {
-            },
+            onTap: () => Navigator.of(context).push(
+              MaterialPageRoute(
+                builder: (_) =>
+                    const EditProfilePage(role: ProfileRole.student),
+              ),
+            ),
             child: Container(
               height: 44,
               decoration: BoxDecoration(
                 color: Colors.white,
                 borderRadius: BorderRadius.circular(8),
-                border: Border.all(
-                  color: const Color(0x1F363636),
-                  width: 1.5,
-                ),
+                border: Border.all(color: const Color(0x1F363636), width: 1.5),
               ),
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.center,
@@ -334,13 +328,7 @@ class _InstructorProfilePageState extends State<InstructorProfilePage> {
             ),
           ),
           const SizedBox(height: 2),
-          Text(
-            label,
-            style: GoogleFonts.figtree(
-              fontSize: 11,
-              color: _gray,
-            ),
-          ),
+          Text(label, style: GoogleFonts.figtree(fontSize: 11, color: _gray)),
         ],
       ),
     );
@@ -413,11 +401,8 @@ class _InstructorProfilePageState extends State<InstructorProfilePage> {
               iconPath,
               width: 16,
               height: 16,
-              errorBuilder: (_, _, _) => Icon(
-                fallbackIcon,
-                size: 16,
-                color: const Color(0xFF6366F1),
-              ),
+              errorBuilder: (_, _, _) =>
+                  Icon(fallbackIcon, size: 16, color: const Color(0xFF6366F1)),
             ),
           ),
           const SizedBox(width: 12),
@@ -488,8 +473,7 @@ class _InstructorProfilePageState extends State<InstructorProfilePage> {
               ),
               GestureDetector(
                 behavior: HitTestBehavior.opaque,
-                onTap: () {
-                },
+                onTap: () {},
                 child: Container(
                   padding: const EdgeInsets.all(6),
                   decoration: BoxDecoration(
@@ -500,11 +484,8 @@ class _InstructorProfilePageState extends State<InstructorProfilePage> {
                     'assets/figma/instructorprofile/pencil.png',
                     width: 14,
                     height: 14,
-                    errorBuilder: (_, _, _) => const Icon(
-                      Icons.edit_outlined,
-                      size: 14,
-                      color: _gray,
-                    ),
+                    errorBuilder: (_, _, _) =>
+                        const Icon(Icons.edit_outlined, size: 14, color: _gray),
                   ),
                 ),
               ),
@@ -556,8 +537,7 @@ class _InstructorProfilePageState extends State<InstructorProfilePage> {
                 ),
                 GestureDetector(
                   behavior: HitTestBehavior.opaque,
-                  onTap: () {
-                  },
+                  onTap: () {},
                   child: Text(
                     'See All',
                     style: GoogleFonts.figtree(
@@ -591,8 +571,7 @@ class _InstructorProfilePageState extends State<InstructorProfilePage> {
   Widget _buildShortCard(_SavedShort short) {
     return GestureDetector(
       behavior: HitTestBehavior.opaque,
-      onTap: () {
-      },
+      onTap: () {},
       child: Container(
         width: 164,
         decoration: BoxDecoration(
@@ -667,10 +646,7 @@ class _InstructorProfilePageState extends State<InstructorProfilePage> {
                   const SizedBox(height: 4),
                   Text(
                     short.savedAgo,
-                    style: GoogleFonts.figtree(
-                      fontSize: 11,
-                      color: _gray,
-                    ),
+                    style: GoogleFonts.figtree(fontSize: 11, color: _gray),
                   ),
                 ],
               ),
@@ -708,8 +684,7 @@ class _InstructorProfilePageState extends State<InstructorProfilePage> {
                 ),
                 GestureDetector(
                   behavior: HitTestBehavior.opaque,
-                  onTap: () {
-                  },
+                  onTap: () {},
                   child: Text(
                     'See All',
                     style: GoogleFonts.figtree(
@@ -743,8 +718,7 @@ class _InstructorProfilePageState extends State<InstructorProfilePage> {
   Widget _buildSavedCourseCard(_SavedCourse course) {
     return GestureDetector(
       behavior: HitTestBehavior.opaque,
-      onTap: () {
-      },
+      onTap: () {},
       child: Container(
         width: 164,
         decoration: BoxDecoration(
@@ -764,11 +738,7 @@ class _InstructorProfilePageState extends State<InstructorProfilePage> {
                 fit: BoxFit.cover,
                 errorBuilder: (_, _, _) => Container(
                   color: const Color(0xFFE5E7EB),
-                  child: const Icon(
-                    Icons.image,
-                    color: Colors.white,
-                    size: 32,
-                  ),
+                  child: const Icon(Icons.image, color: Colors.white, size: 32),
                 ),
               ),
             ),
@@ -857,8 +827,7 @@ class _InstructorProfilePageState extends State<InstructorProfilePage> {
   }
 
   Widget _buildSettingItem(_SettingItem item, {required bool isLast}) {
-    final labelColor =
-        item.isDestructive ? const Color(0xFFEF4444) : _ink;
+    final labelColor = item.isDestructive ? const Color(0xFFEF4444) : _ink;
 
     return GestureDetector(
       behavior: HitTestBehavior.opaque,
@@ -895,11 +864,7 @@ class _InstructorProfilePageState extends State<InstructorProfilePage> {
               ),
               const SizedBox(width: 8),
             ],
-            const Icon(
-              Icons.chevron_right,
-              size: 18,
-              color: Color(0xFF9CA3AF),
-            ),
+            const Icon(Icons.chevron_right, size: 18, color: Color(0xFF9CA3AF)),
           ],
         ),
       ),
@@ -928,9 +893,10 @@ class _InstructorProfilePageState extends State<InstructorProfilePage> {
     if (shouldLogout != true || !mounted) return;
 
     // Clear the in-memory session before replacing the navigation stack.
-    ProviderScope.containerOf(context, listen: false)
-        .read(authTokenProvider.notifier)
-        .state = null;
+    ProviderScope.containerOf(
+      context,
+      listen: false,
+    ).read(authTokenProvider.notifier).state = null;
     context.go('/login-screen');
   }
 }

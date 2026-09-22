@@ -253,7 +253,12 @@ class _RoleCard extends StatelessWidget {
     return GestureDetector(
       onTap: onTap,
       child: Container(
-        padding: const EdgeInsets.all(18),
+        // Padding + border must total 20pt in both states. The selected card's
+        // 2pt border otherwise shaves 2pt off the text width, and on a 360pt
+        // phone that was enough to push the student description onto a fourth
+        // line: the card grew 20pt and everything above it jumped 9pt when you
+        // switched roles.
+        padding: EdgeInsets.all(selected ? 18 : 19),
         decoration: BoxDecoration(
           color: selected ? const Color(0xFFFFFBF0) : Colors.white,
           border: Border.all(

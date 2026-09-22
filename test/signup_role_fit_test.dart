@@ -163,6 +163,25 @@ void main() {
       reason: 'the Continue button is stranded above the bottom of the page',
     );
 
+    // --- a short Android (360x640): the spacing must tighten to fit it ---
+    // 592pt of viewport against ~651pt of content at the design gaps, so this
+    // one only fits because the gaps shrink below 737.5pt. It needed 74pt of
+    // scrolling before that.
+    await pumpAt(
+      const Size(360, 640),
+      const EdgeInsets.only(top: 24, bottom: 24),
+    );
+    expect(
+      scrollExtent(),
+      0,
+      reason: 'the role step should fit a 360x640 phone without scrolling',
+    );
+    expect(
+      616 - tester.getRect(cta).bottom,
+      greaterThanOrEqualTo(0),
+      reason: 'the Continue button falls below the fold on a short phone',
+    );
+
     // --- the smallest phone still sold: iPhone SE 3 / 8 at 375x667 ---
     // A home-button iPhone has no bottom inset, so the viewport is 647pt.
     // This is the boundary case for "works on any phone": everything larger

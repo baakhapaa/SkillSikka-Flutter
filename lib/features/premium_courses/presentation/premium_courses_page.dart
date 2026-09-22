@@ -3,6 +3,7 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:skillsikka/core/widgets/pressable_chip.dart';
 import 'package:skillsikka/core/widgets/section_bar.dart';
 import 'package:skillsikka/features/premium_courses/presentation/premium_course_details_page.dart';
+import 'package:skillsikka/features/search/presentation/search_page.dart';
 
 const _pageBackground = Color(0xFFF9FAFB);
 const _ink = Color(0xFF201C15);
@@ -180,7 +181,12 @@ class _PremiumCoursesPageState extends State<PremiumCoursesPage> {
               ),
             ),
           ),
-          _CircleButton(Icons.search, () {}),
+          _CircleButton(
+            Icons.search,
+            () => Navigator.of(
+              context,
+            ).push(MaterialPageRoute(builder: (_) => const SearchPage())),
+          ),
         ],
       ),
     );

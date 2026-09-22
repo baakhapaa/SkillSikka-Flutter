@@ -7,6 +7,11 @@ import 'package:google_fonts/google_fonts.dart';
 /// height into the column's minimum height, so keep the two in step.
 const _pagePadding = EdgeInsets.only(bottom: 16);
 
+/// Below this viewport height the spacing stops tightening. 600pt is roughly a
+/// 360x640 Android minus its system bars — the smallest portrait phone that
+/// still ships a modern Flutter build.
+const _tightBudget = 600.0;
+
 class SignupRolePage extends StatefulWidget {
   const SignupRolePage({super.key});
 
@@ -23,185 +28,205 @@ class _SignupRolePageState extends State<SignupRolePage> {
       backgroundColor: const Color(0xFFFAF9F6),
       body: SafeArea(
         child: LayoutBuilder(
-          builder: (context, constraints) => SingleChildScrollView(
-            padding: _pagePadding,
-            child: ConstrainedBox(
-              // Fill the viewport exactly so spaceBetween can anchor the
-              // Continue button to the bottom. `constraints.maxHeight` on its
-              // own added the padding back on top of a full-height column, so
-              // the page always scrolled by 16pt even when it fitted.
-              constraints: BoxConstraints(
-                minHeight: constraints.maxHeight - _pagePadding.vertical,
-              ),
-              child: Column(
-                // Three children, so `spaceBetween` splits the slack across the
-                // two gaps instead of dumping it into one. Two children left the
-                // header stranded at the top with the form jammed against the
-                // bottom on a 440x956 browser viewport (the form block started at
-                // y=458 of 956; splitting the gaps puts it at 230).
-                //
-                // An IntrinsicHeight + Spacers version distributes the same way
-                // but is not safe here: a Row reports its flex children at
-                // infinite width, so each card's description counts as a single
-                // line and the column can come out shorter than what it lays out.
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 12),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        SizedBox(
-                          width: 44,
-                          height: 44,
-                          child: IconButton(
-                            onPressed: () {
-                              if (context.canPop()) {
-                                context.pop();
-                              } else {
-                                context.go('/login-screen');
-                              }
-                            },
-                            padding: EdgeInsets.zero,
-                            icon: SvgPicture.asset(
-                              'assets/figma/signup_arrow_left.svg',
-                              width: 50,
-                              height: 50,
-                            ),
-                            style: IconButton.styleFrom(
-                              shape: const CircleBorder(),
-                            ),
-                          ),
-                        ),
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 13,
-                            vertical: 6,
-                          ),
-                          decoration: BoxDecoration(
-                            color: Colors.white.withValues(alpha: 0.3),
-                            border: Border.all(
-                              color: Colors.white.withValues(alpha: 0.5),
-                            ),
-                            borderRadius: BorderRadius.circular(100),
-                          ),
-                          child: Text(
-                            'Step: 1 of 4',
-                            style: GoogleFonts.manrope(
-                              color: const Color.fromARGB(255, 44, 43, 45),
-                              fontSize: 15,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(24, 20, 24, 0),
-                    child: Column(
-                      children: [
-                        Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Container(
-                              width: 50,
-                              height: 50,
-                              padding: const EdgeInsets.all(5),
-                              decoration: BoxDecoration(
-                                color: const Color(0xFF2F2600),
-                                borderRadius: BorderRadius.circular(8),
+          builder: (context, constraints) {
+            // The page is drawn for a 737.5pt viewport (360x800 minus the system
+            // bars). Shorter phones get the same arrangement with the air
+            // squeezed out, so Continue stays above the fold instead of hiding
+            // below it. Nothing tightens at or above 737.5pt, so the design
+            // values are untouched on the target phone and anything larger.
+            final t =
+                ((constraints.maxHeight - _tightBudget) /
+                        (737.5 - _tightBudget))
+                    .clamp(0.0, 1.0);
+            double gap(double tight, double roomy) =>
+                tight + (roomy - tight) * t;
+
+            final topGap = gap(12, 20); // header -> logo
+            final logoTitleGap = gap(16, 44); // logo -> heading
+            final titleCardsGap = gap(24, 61); // subtitle -> first card
+            final cardGap = gap(12, 16); // between the two cards
+            final ctaGap = gap(10, 16); // cards -> Continue
+
+            return SingleChildScrollView(
+              padding: _pagePadding,
+              child: ConstrainedBox(
+                // Fill the viewport exactly so spaceBetween can anchor the
+                // Continue button to the bottom. `constraints.maxHeight` on its
+                // own added the padding back on top of a full-height column, so
+                // the page always scrolled by 16pt even when it fitted.
+                constraints: BoxConstraints(
+                  minHeight: constraints.maxHeight - _pagePadding.vertical,
+                ),
+                child: Column(
+                  // Three children, so `spaceBetween` splits the slack across
+                  // the two gaps instead of dumping it into one. Two children
+                  // left the header stranded at the top with the form jammed
+                  // against the bottom on a 440x956 browser viewport (the form
+                  // block started at y=458 of 956; splitting it puts it at 230).
+                  //
+                  // An IntrinsicHeight + Spacers version distributes the same
+                  // way but is not safe here: a Row reports its flex children at
+                  // infinite width, so each card's description counts as a single
+                  // line and the column can come out shorter than it lays out.
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 12),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          SizedBox(
+                            width: 44,
+                            height: 44,
+                            child: IconButton(
+                              onPressed: () {
+                                if (context.canPop()) {
+                                  context.pop();
+                                } else {
+                                  context.go('/login-screen');
+                                }
+                              },
+                              padding: EdgeInsets.zero,
+                              icon: SvgPicture.asset(
+                                'assets/figma/signup_arrow_left.svg',
+                                width: 50,
+                                height: 50,
                               ),
-                              child: Image.asset(
-                                'assets/figma/academic_cap.png',
+                              style: IconButton.styleFrom(
+                                shape: const CircleBorder(),
+                              ),
+                            ),
+                          ),
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 13,
+                              vertical: 6,
+                            ),
+                            decoration: BoxDecoration(
+                              color: Colors.white.withValues(alpha: 0.3),
+                              border: Border.all(
+                                color: Colors.white.withValues(alpha: 0.5),
+                              ),
+                              borderRadius: BorderRadius.circular(100),
+                            ),
+                            child: Text(
+                              'Step: 1 of 4',
+                              style: GoogleFonts.manrope(
+                                color: const Color.fromARGB(255, 44, 43, 45),
+                                fontSize: 15,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    Padding(
+                      padding: EdgeInsets.fromLTRB(24, topGap, 24, 0),
+                      child: Column(
+                        children: [
+                          Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Container(
+                                width: 50,
+                                height: 50,
+                                padding: const EdgeInsets.all(5),
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFF2F2600),
+                                  borderRadius: BorderRadius.circular(8),
+                                ),
+                                child: Image.asset(
+                                  'assets/figma/academic_cap.png',
+                                  fit: BoxFit.contain,
+                                ),
+                              ),
+                              const SizedBox(width: 2),
+                              Image.asset(
+                                'assets/figma/skillsikka_wordmark.png',
+                                width: 150,
+                                height: 50,
                                 fit: BoxFit.contain,
                               ),
-                            ),
-                            const SizedBox(width: 2),
-                            Image.asset(
-                              'assets/figma/skillsikka_wordmark.png',
-                              width: 150,
-                              height: 50,
-                              fit: BoxFit.contain,
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 44),
-                        Text(
-                          'Choose Your Role',
-                          textAlign: TextAlign.center,
-                          style: GoogleFonts.manrope(
-                            color: const Color(0xFF111827),
-                            fontSize: 30,
-                            fontWeight: FontWeight.w900,
+                            ],
                           ),
-                        ),
-                        const SizedBox(height: 8),
-                        Text(
-                          'Are you here to learn or guide others?',
-                          textAlign: TextAlign.center,
-                          style: GoogleFonts.manrope(
-                            color: const Color(0xFF4B5563),
-                            fontSize: 14,
+                          SizedBox(height: logoTitleGap),
+                          Text(
+                            'Choose Your Role',
+                            textAlign: TextAlign.center,
+                            style: GoogleFonts.manrope(
+                              color: const Color(0xFF111827),
+                              fontSize: 30,
+                              fontWeight: FontWeight.w900,
+                            ),
                           ),
-                        ),
-                        const SizedBox(height: 61),
-                        _RoleCard(
-                          selected: _isStudent,
-                          title: 'I am a Student',
-                          description:
-                              'Explore world-class courses, attend bootcamps, and build high-income tech skills.',
-                          iconAsset: 'assets/figma/signup_graduation_cap.svg',
-                          onTap: () => setState(() => _isStudent = true),
-                        ),
-                        const SizedBox(height: 16),
-                        _RoleCard(
-                          selected: !_isStudent,
-                          title: 'I am an Instructor',
-                          description:
-                              'Share your knowledge, upload high-quality tutorials, and manage your learner cohorts.',
-                          iconAsset: 'assets/figma/signup_chart_column.svg',
-                          onTap: () => setState(() => _isStudent = false),
-                        ),
-                      ],
+                          const SizedBox(height: 8),
+                          Text(
+                            'Are you here to learn or guide others?',
+                            textAlign: TextAlign.center,
+                            style: GoogleFonts.manrope(
+                              color: const Color(0xFF4B5563),
+                              fontSize: 14,
+                            ),
+                          ),
+                          SizedBox(height: titleCardsGap),
+                          _RoleCard(
+                            selected: _isStudent,
+                            title: 'I am a Student',
+                            description:
+                                'Explore world-class courses, attend bootcamps, and build high-income tech skills.',
+                            iconAsset: 'assets/figma/signup_graduation_cap.svg',
+                            onTap: () => setState(() => _isStudent = true),
+                          ),
+                          SizedBox(height: cardGap),
+                          _RoleCard(
+                            selected: !_isStudent,
+                            title: 'I am an Instructor',
+                            description:
+                                'Share your knowledge, upload high-quality tutorials, and manage your learner cohorts.',
+                            iconAsset: 'assets/figma/signup_chart_column.svg',
+                            onTap: () => setState(() => _isStudent = false),
+                          ),
+                        ],
+                      ),
                     ),
-                  ),
-                  // 16pt is the floor once the spacers collapse, so the cards
-                  // never touch the button on a short screen.
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(24, 16, 24, 0),
-                    child: SizedBox(
-                      width: double.infinity,
-                      height: 52,
-                      child: FilledButton(
-                        onPressed: () {
-                          context.push(
-                            _isStudent
-                                ? '/signup/student'
-                                : '/signup/instructor',
-                          );
-                        },
-                        style: FilledButton.styleFrom(
-                          backgroundColor: const Color(0xFFE6B800),
-                          foregroundColor: const Color(0xFF111827),
-                          elevation: 4,
-                          shadowColor: const Color(0x40E6B800),
-                          shape: const StadiumBorder(),
-                        ),
-                        child: Text(
-                          'Continue',
-                          style: GoogleFonts.manrope(
-                            fontSize: 16,
-                            fontWeight: FontWeight.w700,
+                    // 16pt is the floor once the spacers collapse, so the cards
+                    // never touch the button on a short screen.
+                    Padding(
+                      padding: EdgeInsets.fromLTRB(24, ctaGap, 24, 0),
+                      child: SizedBox(
+                        width: double.infinity,
+                        height: 52,
+                        child: FilledButton(
+                          onPressed: () {
+                            context.push(
+                              _isStudent
+                                  ? '/signup/student'
+                                  : '/signup/instructor',
+                            );
+                          },
+                          style: FilledButton.styleFrom(
+                            backgroundColor: const Color(0xFFE6B800),
+                            foregroundColor: const Color(0xFF111827),
+                            elevation: 4,
+                            shadowColor: const Color(0x40E6B800),
+                            shape: const StadiumBorder(),
+                          ),
+                          child: Text(
+                            'Continue',
+                            style: GoogleFonts.manrope(
+                              fontSize: 16,
+                              fontWeight: FontWeight.w700,
+                            ),
                           ),
                         ),
                       ),
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
-            ),
-          ),
+            );
+          },
         ),
       ),
     );

@@ -9,8 +9,12 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:image_picker/image_picker.dart';
 
 import '../../../core/location/location_service.dart';
+import '../../../core/network/api_error.dart';
+import '../../../core/widgets/api_error_snack.dart';
 import '../../../core/widgets/location_prompt_dialog.dart';
 import '../../../core/widgets/profile_photo_picker.dart';
+import '../../auth/data/auth_repository.dart';
+import '../../auth/data/registration_request.dart';
 import '../../profile/data/profile_role.dart';
 import '../../profile/data/user_profile.dart';
 
@@ -70,7 +74,15 @@ class _SignupInstructorFormPageState
   final _controllers = <String, TextEditingController>{};
   bool _obscurePassword = true;
 
+  /// True while the registration request is in flight. See the student form's
+  /// field of the same name — same reason: a slow request must not look frozen,
+  /// and the button must not be tappable twice.
+  bool _isSubmitting = false;
+
   Uint8List? _profilePhotoBytes;
+
+  /// The picked photo's own filename, needed for the multipart content type.
+  String? _profilePhotoFileName;
 
   PlatformFile? _cvFile;
   PlatformFile? _certificatesFile;
@@ -312,21 +324,39 @@ class _SignupInstructorFormPageState
                             width: double.infinity,
                             height: 52,
                             child: FilledButton(
-                              onPressed: _submit,
+                              onPressed: _isSubmitting ? null : _submit,
                               style: FilledButton.styleFrom(
                                 backgroundColor: const Color(0xFFE6B800),
                                 foregroundColor: const Color(0xFF111827),
                                 elevation: 4,
                                 shadowColor: const Color(0x40E6B800),
                                 shape: const StadiumBorder(),
-                              ),
-                              child: Text(
-                                'Submit Verification',
-                                style: GoogleFonts.manrope(
-                                  fontSize: 16,
-                                  fontWeight: FontWeight.w700,
+                                // Kept gold rather than greyed: the spinner is
+                                // the cue that it is working, and a grey button
+                                // on a slow connection reads as broken.
+                                disabledBackgroundColor: const Color(
+                                  0xFFE6B800,
+                                ),
+                                disabledForegroundColor: const Color(
+                                  0xFF111827,
                                 ),
                               ),
+                              child: _isSubmitting
+                                  ? const SizedBox(
+                                      width: 22,
+                                      height: 22,
+                                      child: CircularProgressIndicator(
+                                        strokeWidth: 2.5,
+                                        color: Color(0xFF111827),
+                                      ),
+                                    )
+                                  : Text(
+                                      'Submit Verification',
+                                      style: GoogleFonts.manrope(
+                                        fontSize: 16,
+                                        fontWeight: FontWeight.w700,
+                                      ),
+                                    ),
                             ),
                           ),
                         ],
@@ -353,7 +383,12 @@ class _SignupInstructorFormPageState
     // Bytes, not a path: `Image.file` is not supported on Flutter web.
     final bytes = await picked.readAsBytes();
     if (!mounted) return;
-    setState(() => _profilePhotoBytes = bytes);
+    setState(() {
+      _profilePhotoBytes = bytes;
+      // Kept so the multipart part carries the real extension — dio infers the
+      // content type from it.
+      _profilePhotoFileName = picked.name;
+    });
   }
 
   Future<void> _pickDocument({required bool isCv}) async {
@@ -430,9 +465,17 @@ class _SignupInstructorFormPageState
     ref.read(userProfileProvider.notifier).clearDocument(slot);
   }
 
-  void _submit() {
+  void _submit() async {
+    // A second tap while the first request is in flight would create two
+    // accounts. The button is disabled too; this is the belt to that braces.
+    if (_isSubmitting) return;
+
     final missing = <String>[];
-    if (_profilePhotoBytes == null) missing.add('Profile Photo');
+    // Both, because they are set together and the upload needs both: the bytes
+    // for the body and the name for the content type.
+    if (_profilePhotoBytes == null || _profilePhotoFileName == null) {
+      missing.add('Profile Photo');
+    }
     if (_controller('name').text.trim().isEmpty) missing.add('Full Name');
     if (_controller('email').text.trim().isEmpty) missing.add('Email');
     if (_cvFile == null) missing.add('CV / Resume');
@@ -450,7 +493,7 @@ class _SignupInstructorFormPageState
     // register call had nothing to send.
     final profile = ref.read(userProfileProvider.notifier);
     profile.setRole(ProfileRole.instructor);
-    profile.setPhoto(_profilePhotoBytes!);
+    profile.setPhoto(_profilePhotoBytes!, _profilePhotoFileName!);
 
     // `degree` and `subject` are this form's controller keys; the profile store
     // and Edit Profile call the same two fields `qualification` and `expertise`.
@@ -469,7 +512,64 @@ class _SignupInstructorFormPageState
       'experience': _controller('experience').text.trim(),
     });
 
-    context.push('/signup/verify');
+    final cv = _cvFile!;
+    final certificates = _certificatesFile!;
+    final cvBytes = cv.bytes;
+    final certificateBytes = certificates.bytes;
+    if (cvBytes == null || certificateBytes == null) {
+      // The pickers ask for bytes, so this should not happen — but sending a
+      // document with no content would create an account with a broken upload,
+      // which is worse than asking again.
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('A document could not be read. Please pick it again.'),
+        ),
+      );
+      return;
+    }
+
+    setState(() => _isSubmitting = true);
+    try {
+      await ref
+          .read(authRepositoryProvider)
+          .register(
+            RegistrationRequest.instructor(
+              name: _controller('name').text.trim(),
+              email: _controller('email').text.trim(),
+              // Read here rather than from the store: a password is only ever
+              // read by the method that sends it.
+              password: _controller('password').text,
+              gender: _controller('gender').text,
+              dob: _controller('dob').text,
+              phone: _controller('phone').text.trim(),
+              location: _controller('location').text.trim(),
+              qualification: _controller('degree').text.trim(),
+              expertise: _controller('subject').text.trim(),
+              experience: _controller('experience').text.trim(),
+              photo: PickedDocument(
+                bytes: _profilePhotoBytes!,
+                fileName: _profilePhotoFileName!,
+              ),
+              cv: PickedDocument(bytes: cvBytes, fileName: cv.name),
+              certificates: PickedDocument(
+                bytes: certificateBytes,
+                fileName: certificates.name,
+              ),
+            ),
+          );
+      if (!mounted) return;
+      // Cleared before navigating, not after: this screen stays on the stack
+      // behind the OTP step, so coming back would otherwise find the button
+      // still disabled.
+      setState(() => _isSubmitting = false);
+      context.push('/signup/verify');
+    } on ApiException catch (error) {
+      if (!mounted) return;
+      setState(() => _isSubmitting = false);
+      // No inline validation on this screen, so the server's per-field messages
+      // are listed in the snack bar rather than dropped.
+      showApiErrorSnack(context, error);
+    }
   }
 
   Future<void> _selectGender() async {

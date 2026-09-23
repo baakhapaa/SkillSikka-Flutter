@@ -4,6 +4,9 @@ import 'package:flutter_svg/flutter_svg.dart';
 import 'package:go_router/go_router.dart';
 import 'package:google_fonts/google_fonts.dart';
 
+import '../../../core/network/api_error.dart';
+import '../../../core/widgets/api_error_snack.dart';
+import '../../auth/data/auth_repository.dart';
 import '../../profile/data/user_profile.dart';
 
 /// Shown the address the code was sent to, falling back to the placeholder when
@@ -22,6 +25,61 @@ class _SignupVerificationPageState
     extends ConsumerState<SignupVerificationPage> {
   final _controllers = List.generate(4, (_) => TextEditingController());
   final _focusNodes = List.generate(4, (_) => FocusNode());
+
+  /// True while a request is in flight. See the student form's field of the same
+  /// name — same reason: a slow request must not look frozen, and the button
+  /// must not be tappable twice.
+  bool _isSubmitting = false;
+
+  /// Confirms the code with the server.
+  ///
+  /// This screen is reached whether or not registration returned a session
+  /// (handover doc §6.1). Always asking for the code is deliberate: it is
+  /// correct under both backend models, whereas skipping the step when a token
+  /// came back would leave the user stuck if the backend verifies by OTP.
+  Future<void> _verify() async {
+    if (_isSubmitting) return;
+
+    final code = _controllers
+        .map((controller) => controller.text.trim())
+        .join();
+    if (code.length != 4) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Enter the 4-digit code.')));
+      return;
+    }
+
+    final email = ref.read(userProfileProvider).email;
+    if (email.isEmpty) {
+      // Only reachable by deep-linking straight here, or by arriving with a
+      // cleared store. There is no address to verify against.
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Start again from signup so we know which email to verify.',
+          ),
+        ),
+      );
+      return;
+    }
+
+    setState(() => _isSubmitting = true);
+    try {
+      await ref
+          .read(authRepositoryProvider)
+          .verifyOtp(email: email, code: code);
+      if (!mounted) return;
+      setState(() => _isSubmitting = false);
+      context.push('/signup/interests');
+    } on ApiException catch (error) {
+      if (!mounted) return;
+      setState(() => _isSubmitting = false);
+      // No inline validation on the boxes, so the server's message — a wrong
+      // code, an expired one — is shown as it came.
+      showApiErrorSnack(context, error);
+    }
+  }
 
   @override
   void dispose() {
@@ -150,22 +208,35 @@ class _SignupVerificationPageState
                     width: double.infinity,
                     height: 48,
                     child: FilledButton(
-                      onPressed: () => context.push('/signup/interests'),
+                      // Null while in flight, and no longer unconditional: it
+                      // used to advance on any input at all, including none.
+                      onPressed: _isSubmitting ? null : _verify,
                       style: FilledButton.styleFrom(
                         backgroundColor: const Color(0xFFE6B800),
                         foregroundColor: const Color(0xFF111827),
                         elevation: 4,
                         shadowColor: const Color(0x33E6B800),
                         shape: const StadiumBorder(),
+                        disabledBackgroundColor: const Color(0xFFE6B800),
+                        disabledForegroundColor: const Color(0xFF111827),
                       ),
-                      child: Text(
-                        'Verify',
-                        style: GoogleFonts.manrope(
-                          color: const Color(0xFF111827),
-                          fontSize: 19,
-                          fontWeight: FontWeight.w700,
-                        ),
-                      ),
+                      child: _isSubmitting
+                          ? const SizedBox(
+                              width: 20,
+                              height: 20,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2.5,
+                                color: Color(0xFF111827),
+                              ),
+                            )
+                          : Text(
+                              'Verify',
+                              style: GoogleFonts.manrope(
+                                color: const Color(0xFF111827),
+                                fontSize: 19,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
                     ),
                   ),
                 ],

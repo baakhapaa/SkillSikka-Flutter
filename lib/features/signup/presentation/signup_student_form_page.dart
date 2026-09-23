@@ -6,9 +6,13 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:image_picker/image_picker.dart';
 
 import '../../../core/location/location_service.dart';
+import '../../../core/network/api_error.dart';
 import '../../../core/validation/validators.dart';
+import '../../../core/widgets/api_error_snack.dart';
 import '../../../core/widgets/location_prompt_dialog.dart';
 import '../../../core/widgets/profile_photo_picker.dart';
+import '../../auth/data/auth_repository.dart';
+import '../../auth/data/registration_request.dart';
 import '../../profile/data/user_profile.dart';
 
 Future<String?> _pickOption(
@@ -85,6 +89,19 @@ class _SignupStudentFormPageState extends ConsumerState<SignupStudentFormPage> {
 
   bool _obscurePassword = true;
 
+  /// True while the registration request is in flight.
+  ///
+  /// Guards the button as well as showing progress: without it a slow request
+  /// leaves the screen looking frozen and the button live, so an impatient
+  /// second tap registers twice.
+  bool _isSubmitting = false;
+
+  /// Field messages the server sent, keyed the way the wire names them.
+  ///
+  /// Kept so a validator can show them: the alternative is a snack bar that
+  /// says "that email is taken" without pointing at the email box.
+  final _serverErrors = <String, String>{};
+
   late final ImagePicker _imagePicker = widget.imagePicker ?? ImagePicker();
 
   LocationService get _locationService => widget.locationService;
@@ -99,6 +116,11 @@ class _SignupStudentFormPageState extends ConsumerState<SignupStudentFormPage> {
   /// showing their old error until something else triggered a rebuild.
   void _revalidate() {
     if (_autovalidateMode == AutovalidateMode.disabled) return;
+    // Any edit invalidates what the server said about a field: the value it
+    // rejected is no longer the value in the box. Cleared wholesale rather than
+    // per field because a resubmit is needed either way, and a stale server
+    // message outliving the edit that fixed it is worse than clearing it.
+    _serverErrors.clear();
     _formKey.currentState?.validate();
   }
 
@@ -157,7 +179,9 @@ class _SignupStudentFormPageState extends ConsumerState<SignupStudentFormPage> {
     // avatar blanks the screen on Flutter web.
     final bytes = await picked.readAsBytes();
     if (!mounted) return;
-    ref.read(userProfileProvider.notifier).setPhoto(bytes);
+    // The name travels with the bytes: the multipart part's content type is
+    // inferred from the extension.
+    ref.read(userProfileProvider.notifier).setPhoto(bytes, picked.name);
   }
 
   void _showSnack(String message) {
@@ -167,7 +191,11 @@ class _SignupStudentFormPageState extends ConsumerState<SignupStudentFormPage> {
     ).showSnackBar(SnackBar(content: Text(message)));
   }
 
-  void _submit() {
+  Future<void> _submit() async {
+    // A second tap while the first request is in flight would create two
+    // accounts. The button is disabled too; this is the belt to that braces.
+    if (_isSubmitting) return;
+
     final form = _formKey.currentState;
     if (form == null || !form.validate()) {
       // Every failing field is marked inline now. Switch on live re-validation
@@ -178,6 +206,16 @@ class _SignupStudentFormPageState extends ConsumerState<SignupStudentFormPage> {
       return;
     }
 
+    final profile = ref.read(userProfileProvider);
+    final photo = profile.photoBytes;
+    final photoName = profile.photoFileName;
+    if (photo == null || photoName == null) {
+      // Not a server failure, so it does not go through showApiErrorSnack —
+      // this is something the user has to do to this screen.
+      _showSnack('Add a profile photo to continue.');
+      return;
+    }
+
     ref.read(userProfileProvider.notifier).save({
       'name': _controller('name').text.trim(),
       'email': _controller('email').text.trim(),
@@ -185,7 +223,74 @@ class _SignupStudentFormPageState extends ConsumerState<SignupStudentFormPage> {
       'dob': _controller('dob').text,
     });
 
-    context.push('/signup/verify');
+    setState(() => _isSubmitting = true);
+    try {
+      await ref
+          .read(authRepositoryProvider)
+          .register(
+            RegistrationRequest.student(
+              name: _controller('name').text.trim(),
+              email: _controller('email').text.trim(),
+              // Read here rather than from the store: a password is only ever
+              // read by the method that sends it.
+              password: _controller('password').text,
+              gender: _controller('gender').text,
+              dob: _controller('dob').text,
+              photo: PickedDocument(bytes: photo, fileName: photoName),
+            ),
+          );
+      if (!mounted) return;
+      // Cleared before navigating, not after: this screen stays on the stack
+      // behind the OTP step, so coming back would otherwise find the button
+      // still disabled.
+      setState(() => _isSubmitting = false);
+      context.push('/signup/verify');
+    } on ApiException catch (error) {
+      if (!mounted) return;
+      setState(() => _isSubmitting = false);
+      _applyServerFieldErrors(error);
+      showApiErrorSnack(
+        context,
+        error,
+        // True only when something actually landed on an input. The server may
+        // name fields this screen does not have, and those must still be said.
+        fieldErrorsAreShown: _serverErrors.isNotEmpty,
+      );
+    }
+  }
+
+  /// Puts the server's per-field messages onto the matching inputs.
+  ///
+  /// Only fields this screen owns are mapped. The server may name something that
+  /// lives on Edit Profile (`phone`, `school`, `grade`), and there is no input
+  /// here to attach it to — those still reach the user through the summary
+  /// message the snack bar shows.
+  void _applyServerFieldErrors(ApiException error) {
+    if (!error.hasFieldErrors) return;
+
+    // The server's keys are the wire names, which for this form are also the
+    // controller keys — so no translation table is needed, only a filter for the
+    // keys that have no input here.
+    for (final entry in error.fieldErrors.entries) {
+      if (_controllers.containsKey(entry.key)) {
+        _serverErrors[entry.key] = entry.value;
+      }
+    }
+    if (_serverErrors.isEmpty) return;
+
+    // Switch on live validation so the messages appear now, and survive until
+    // the user edits something.
+    setState(() => _autovalidateMode = AutovalidateMode.onUserInteraction);
+    _formKey.currentState?.validate();
+  }
+
+  /// Wraps a client-side [validator] so a message from the server for the same
+  /// field is shown instead, until the field is edited.
+  FormFieldValidator<String> _serverAware(
+    String key,
+    FormFieldValidator<String> validator,
+  ) {
+    return (value) => _serverErrors[key] ?? validator(value);
   }
 
   @override
@@ -220,7 +325,10 @@ class _SignupStudentFormPageState extends ConsumerState<SignupStudentFormPage> {
                           controller: _controller('name'),
                           keyboardType: TextInputType.name,
                           textInputAction: TextInputAction.next,
-                          validator: validateFullName,
+                          // Re-checks on edit so a message the server sent about
+                          // this field does not outlive the correction.
+                          onChanged: (_) => _revalidate(),
+                          validator: _serverAware('name', validateFullName),
                         ),
                         const SizedBox(height: 16),
                         _Field(
@@ -231,7 +339,11 @@ class _SignupStudentFormPageState extends ConsumerState<SignupStudentFormPage> {
                           controller: _controller('email'),
                           keyboardType: TextInputType.emailAddress,
                           textInputAction: TextInputAction.next,
-                          validator: validateEmail,
+                          // The likeliest server error of all: "already
+                          // registered". It has to clear when the user changes
+                          // the address.
+                          onChanged: (_) => _revalidate(),
+                          validator: _serverAware('email', validateEmail),
                         ),
                         const SizedBox(height: 16),
                         _PasswordField(
@@ -240,7 +352,7 @@ class _SignupStudentFormPageState extends ConsumerState<SignupStudentFormPage> {
                           requiredField: true,
                           obscure: _obscurePassword,
                           onToggle: _togglePassword,
-                          validator: validatePassword,
+                          validator: _serverAware('password', validatePassword),
                           // The confirmation rule depends on this value, so
                           // editing it has to re-check the pair.
                           onChanged: (_) => _revalidate(),
@@ -270,8 +382,10 @@ class _SignupStudentFormPageState extends ConsumerState<SignupStudentFormPage> {
                                     'assets/figma/signup_chevron_down.svg',
                                 controller: _controller('gender'),
                                 onTap: () => _selectGender(),
-                                validator: (value) =>
-                                    validateChoice(value, 'gender'),
+                                validator: _serverAware(
+                                  'gender',
+                                  (value) => validateChoice(value, 'gender'),
+                                ),
                               ),
                             ),
                             const SizedBox(width: 8),
@@ -282,7 +396,10 @@ class _SignupStudentFormPageState extends ConsumerState<SignupStudentFormPage> {
                                 requiredField: true,
                                 controller: _controller('dob'),
                                 onTap: () => _selectDateOfBirth(),
-                                validator: validateDateOfBirth,
+                                validator: _serverAware(
+                                  'dob',
+                                  validateDateOfBirth,
+                                ),
                               ),
                             ),
                           ],
@@ -292,21 +409,37 @@ class _SignupStudentFormPageState extends ConsumerState<SignupStudentFormPage> {
                           width: double.infinity,
                           height: 52,
                           child: FilledButton(
-                            onPressed: _submit,
+                            // Null while in flight: a second tap would register
+                            // a second account.
+                            onPressed: _isSubmitting ? null : _submit,
                             style: FilledButton.styleFrom(
                               backgroundColor: const Color(0xFFE6B800),
                               foregroundColor: const Color(0xFF111827),
                               elevation: 4,
                               shadowColor: const Color(0x40E6B800),
                               shape: const StadiumBorder(),
+                              // Kept gold rather than greyed: the spinner is the
+                              // cue that it is working, and a grey button on a
+                              // slow connection reads as broken.
+                              disabledBackgroundColor: const Color(0xFFE6B800),
+                              disabledForegroundColor: const Color(0xFF111827),
                             ),
-                            child: Text(
-                              'Create Account',
-                              style: GoogleFonts.manrope(
-                                fontSize: 16,
-                                fontWeight: FontWeight.w700,
-                              ),
-                            ),
+                            child: _isSubmitting
+                                ? const SizedBox(
+                                    width: 22,
+                                    height: 22,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2.5,
+                                      color: Color(0xFF111827),
+                                    ),
+                                  )
+                                : Text(
+                                    'Create Account',
+                                    style: GoogleFonts.manrope(
+                                      fontSize: 16,
+                                      fontWeight: FontWeight.w700,
+                                    ),
+                                  ),
                           ),
                         ),
                       ],

@@ -117,6 +117,13 @@ class ApiException implements Exception {
   String get displayMessage {
     final own = message?.trim();
     if (own != null && own.isNotEmpty) return own;
+    // A body that listed field errors but carried no message of its own is a
+    // validation failure whatever status it arrived with. DRF answers a
+    // serializer error with **400**, which maps to [ApiErrorKind.badRequest] —
+    // whose default ("That request was not accepted.") tells the user nothing
+    // they can act on. The field errors are the actionable part, so point at
+    // them rather than at the status.
+    if (hasFieldErrors) return _defaultMessage(ApiErrorKind.validation);
     return _defaultMessage(kind);
   }
 
@@ -255,7 +262,27 @@ class _ParsedBody {
 ///
 /// Needed because a body with no explicit field map has its top level read as
 /// field errors, and a form has no input called `detail` or `title`.
-const _envelopeKeys = <String>{
+/// Keys whose value is a *container* of nested field errors.
+///
+/// Never a field itself: `{"errors": [...]}` means the field errors are nested
+/// under `errors`, not that there is an input called `errors`.
+const _fieldContainerKeys = <String>{
+  'fields',
+  'errors',
+  'field_errors',
+  'validation',
+};
+
+/// Keys whose value is normally a bare string — the server's machine-readable
+/// code, or a message about the request as a whole.
+///
+/// Read as an envelope key **only when the value actually is a string**. A list
+/// or a map under one of these names means the server used it as a *field* name,
+/// which really happens for `code`: it is both a plausible error-code key and
+/// the natural name for the OTP input. Skipping by name alone threw
+/// `{"code": ["That code is not correct."]}` away entirely — no field error and
+/// no message — so a wrong code would have shown the user nothing at all.
+const _scalarEnvelopeKeys = <String>{
   'code',
   'error_code',
   'errorCode',
@@ -265,10 +292,6 @@ const _envelopeKeys = <String>{
   'error_description',
   'title',
   'msg',
-  'fields',
-  'errors',
-  'field_errors',
-  'validation',
 };
 
 /// Django REST Framework's object-level errors: about the request as a whole,
@@ -306,11 +329,14 @@ _ParsedBody _parseBody(Object? body) {
   // envelope.
   final envelope = nested is Map ? nested.cast<Object?, Object?>() : map;
 
+  // Strings only. A list under `code` is a field error, not a machine-readable
+  // code, and unwrapping it here would put a user-facing sentence into `code` —
+  // which is the value the UI is supposed to branch on.
   final code = _firstString([
-    envelope['code'],
-    envelope['error_code'],
-    envelope['errorCode'],
-    envelope['type'],
+    _plainString(envelope['code']),
+    _plainString(envelope['error_code']),
+    _plainString(envelope['errorCode']),
+    _plainString(envelope['type']),
   ]);
 
   // `detail` is DRF's own wording; `title` covers RFC 7807 problem+json.
@@ -404,7 +430,16 @@ Map<String, String> _fieldErrorsFromTopLevel(Map<Object?, Object?> envelope) {
   for (final entry in envelope.entries) {
     final key = entry.key;
     if (key is! String) continue;
-    if (_envelopeKeys.contains(key) || _objectLevelKeys.contains(key)) continue;
+    if (_objectLevelKeys.contains(key)) continue;
+    // A container key holds nested field errors, never a field of its own.
+    if (_fieldContainerKeys.contains(key)) continue;
+    // A scalar envelope key is only an envelope while its value looks like one.
+    // See [_scalarEnvelopeKeys] for why `code` cannot be skipped by name alone.
+    if (_scalarEnvelopeKeys.contains(key) &&
+        entry.value is! List &&
+        entry.value is! Map) {
+      continue;
+    }
     final value = _firstString([entry.value]);
     if (value != null) result[key] = value;
   }
@@ -434,6 +469,15 @@ Map<String, String> _parseFieldErrors(Object? raw) {
 /// The first value that is, or contains, a non-empty string.
 ///
 /// Recurses one level so a list or a `{message: ...}` wrapper still yields text.
+/// The value only when it is a plain string — no list or map unwrapping.
+///
+/// For the machine-readable `code`, which must never be filled from a list of
+/// validation messages.
+String? _plainString(Object? value) {
+  if (value is! String) return null;
+  return _cleanMessage(value);
+}
+
 String? _firstString(List<Object?> candidates) {
   for (final candidate in candidates) {
     if (candidate == null) continue;

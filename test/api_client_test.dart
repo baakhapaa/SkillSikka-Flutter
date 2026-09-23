@@ -332,6 +332,30 @@ void main() {
         expect(error.displayMessage, contains('empty'));
       },
     );
+
+    test(
+      'postOptionalBody accepts a body or none, where post demands one',
+      () async {
+        // The counterpart to the test above. Some POSTs legitimately answer with
+        // nothing the caller needs — OTP verification may be a bare 204 — and the
+        // caller only wants to know it succeeded.
+        await _withResponse((_) => ResponseBody.fromString('', 204), (
+          client,
+          _,
+        ) async {
+          expect(await client.postOptionalBody('/auth/verify-otp'), isNull);
+        });
+
+        await _withResponse((_) => _json({'detail': 'verified'}), (
+          client,
+          _,
+        ) async {
+          expect(await client.postOptionalBody('/auth/verify-otp'), {
+            'detail': 'verified',
+          });
+        });
+      },
+    );
   });
 
   group('multipart uploads', () {

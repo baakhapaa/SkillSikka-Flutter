@@ -178,6 +178,36 @@ class ApiClient {
     );
   }
 
+  /// The response body, or null when the server sent none.
+  ///
+  /// For the rare endpoint whose body is genuinely optional. OTP verification is
+  /// the case this exists for: depending on how the backend is built it may
+  /// answer `204`, or `{"detail": "verified"}`, or a full session object, and
+  /// the client has to accept all three. Prefer [post] everywhere else — it
+  /// treats a missing or mis-shaped body as an error, which is what a caller
+  /// that asked for a payload wants.
+  Future<Object?> postOptionalBody(
+    String path, {
+    Object? data,
+    Map<String, dynamic>? query,
+    CancelToken? cancelToken,
+  }) async {
+    final response = await _raw(
+      () => _dio.post<dynamic>(
+        path,
+        data: data,
+        queryParameters: query,
+        cancelToken: cancelToken,
+      ),
+    );
+    final body = response.data;
+    // The tolerant transformer hands back raw text when a body is not JSON, so
+    // an empty body arrives as '' rather than null. Normalise it: a caller
+    // checking for null should not have to know that.
+    if (body is String && body.isEmpty) return null;
+    return body;
+  }
+
   /// Sends [fields] and [files] as `multipart/form-data`.
   ///
   /// Split from [post] because uploads fail in ways a JSON body cannot — a file

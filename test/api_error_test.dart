@@ -594,6 +594,45 @@ void main() {
     });
 
     test(
+      'a body that listed field errors points at the fields, not at the status',
+      () {
+        // DRF answers a serializer error with **400**, so the kind is
+        // `badRequest` — whose default message is "That request was not
+        // accepted." That gives the user nothing to act on, while the field
+        // errors are exactly what they need to see.
+        final error = ApiException.fromResponseBody(
+          statusCode: 400,
+          body: {
+            'email': ['This email is already registered.'],
+          },
+        );
+
+        expect(error.kind, ApiErrorKind.badRequest);
+        expect(error.displayMessage, contains('highlighted fields'));
+      },
+    );
+
+    test('a 400 with no field errors keeps its own wording', () {
+      // The fix above must not swallow the generic case: a malformed request
+      // with nothing field-specific to say still says so.
+      final error = ApiException.fromResponseBody(statusCode: 400);
+
+      expect(error.displayMessage, 'That request was not accepted.');
+    });
+
+    test("a server's own message still wins over the field-error default", () {
+      final error = ApiException.fromResponseBody(
+        statusCode: 400,
+        body: {
+          'detail': 'That email is already registered.',
+          'email': ['taken'],
+        },
+      );
+
+      expect(error.displayMessage, 'That email is already registered.');
+    });
+
+    test(
       'a validation failure is not retryable but a dropped connection is',
       () {
         expect(

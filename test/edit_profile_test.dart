@@ -2,10 +2,13 @@ import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:skillsikka/core/widgets/profile_photo_picker.dart';
+import 'package:skillsikka/features/profile/data/profile_role.dart';
 import 'package:skillsikka/features/profile/presentation/edit_profile_page.dart';
 import 'package:skillsikka/features/profile/presentation/profile_page.dart';
+import 'package:skillsikka/features/profile/data/user_profile.dart';
 
 void main() {
   /// The profile page is long and its cards are laid out for Manrope, which
@@ -38,7 +41,9 @@ void main() {
 
     // --- the entry point on the profile page ---
     await tester.pumpWidget(
-      const MaterialApp(home: Scaffold(body: ProfilePage())),
+      const ProviderScope(
+        child: MaterialApp(home: Scaffold(body: ProfilePage())),
+      ),
     );
     await tester.pump();
     drainUnrelatedOverflows(tester);
@@ -75,7 +80,9 @@ void main() {
     await tester.pumpWidget(const SizedBox.shrink());
     await tester.pump();
     await tester.pumpWidget(
-      const MaterialApp(home: EditProfilePage(role: ProfileRole.instructor)),
+      const ProviderScope(
+        child: MaterialApp(home: EditProfilePage(role: ProfileRole.instructor)),
+      ),
     );
     await tester.pump();
     drainUnrelatedOverflows(tester);
@@ -100,15 +107,17 @@ void main() {
     await tester.pumpWidget(const SizedBox.shrink());
     await tester.pump();
     await tester.pumpWidget(
-      MaterialApp(
-        home: Builder(
-          builder: (context) => Scaffold(
-            body: Center(
-              child: TextButton(
-                onPressed: () => Navigator.of(context).push(
-                  MaterialPageRoute(builder: (_) => const EditProfilePage()),
+      ProviderScope(
+        child: MaterialApp(
+          home: Builder(
+            builder: (context) => Scaffold(
+              body: Center(
+                child: TextButton(
+                  onPressed: () => Navigator.of(context).push(
+                    MaterialPageRoute(builder: (_) => const EditProfilePage()),
+                  ),
+                  child: const Text('open editor'),
                 ),
-                child: const Text('open editor'),
               ),
             ),
           ),
@@ -181,5 +190,78 @@ void main() {
     drainUnrelatedOverflows(tester);
     expect(find.text('Upload Profile Photo'), findsOneWidget);
     expect(find.byType(Image), findsNothing);
+  });
+
+  testWidgets('Location opens with the fix the signup popup detected', (
+    tester,
+  ) async {
+    await tester.binding.setSurfaceSize(const Size(360, 800));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    // What the signup form captured before the user ever reached this screen.
+    final container = ProviderContainer();
+    addTearDown(container.dispose);
+    container
+        .read(userProfileProvider.notifier)
+        .setLocation('Baneshwor, Kathmandu');
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: EditProfilePage()),
+      ),
+    );
+    await tester.pump();
+    drainUnrelatedOverflows(tester);
+
+    // This screen is the only place that value is ever shown, so if the handoff
+    // from signup breaks the user loses the detection entirely.
+    expect(inPage(find.text('Baneshwor, Kathmandu')), findsOneWidget);
+  });
+
+  testWidgets('an invalid value blocks the save with an inline error', (
+    tester,
+  ) async {
+    await tester.binding.setSurfaceSize(const Size(360, 800));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    final container = ProviderContainer();
+    addTearDown(container.dispose);
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: EditProfilePage()),
+      ),
+    );
+    await tester.pump();
+    drainUnrelatedOverflows(tester);
+
+    // Field order is name, email, phone, gender, dob, location, ...
+    await tester.enterText(find.byType(TextFormField).at(1), 'not-an-email');
+    // Flush the caret-reveal scroll this schedules. Without it the pending
+    // scroll lands after `ensureVisible` and drags the CTA back off-screen.
+    await tester.pumpAndSettle();
+
+    final save = inPage(find.text('Save Changes'));
+    await tester.ensureVisible(save);
+    await tester.pumpAndSettle();
+    await tester.tap(save);
+    await tester.pumpAndSettle();
+    drainUnrelatedOverflows(tester);
+
+    expect(
+      inPage(find.text('Enter a valid email address, e.g. name@example.com.')),
+      findsOneWidget,
+    );
+    expect(
+      find.byType(EditProfilePage),
+      findsOneWidget,
+      reason: 'an invalid form must stay open rather than pop',
+    );
+
+    // Let the summary snack bar expire so no timer outlives the test.
+    await tester.pump(const Duration(seconds: 5));
+    await tester.pumpAndSettle();
   });
 }

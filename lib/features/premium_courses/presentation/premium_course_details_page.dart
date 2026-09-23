@@ -1,7 +1,10 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:video_player/video_player.dart';
+
+import '../../profile/presentation/complete_profile_gate.dart';
 
 const _bg = Color(0xFFFAF9F6);
 const _ink = Color(0xFF111827);
@@ -10,14 +13,14 @@ const _softGray = Color(0xFF8D887F);
 const _border = Color(0xFFEAEAEA);
 const _gold = Color(0xFFE6B800);
 
-class CourseDetailsPage extends StatefulWidget {
+class CourseDetailsPage extends ConsumerStatefulWidget {
   const CourseDetailsPage({super.key});
 
   @override
-  State<CourseDetailsPage> createState() => _CourseDetailsPageState();
+  ConsumerState<CourseDetailsPage> createState() => _CourseDetailsPageState();
 }
 
-class _CourseDetailsPageState extends State<CourseDetailsPage> {
+class _CourseDetailsPageState extends ConsumerState<CourseDetailsPage> {
   late final VideoPlayerController _videoController;
   bool _videoReady = false;
   bool _showFullDescription = false;
@@ -36,6 +39,25 @@ class _CourseDetailsPageState extends State<CourseDetailsPage> {
   void dispose() {
     _videoController.dispose();
     super.dispose();
+  }
+
+  /// Enrolment needs a complete profile. The fields signup stopped asking for
+  /// are collected here, on the way in, rather than being demanded up front from
+  /// everyone who ever taps Sign Up.
+  ///
+  /// `ensureProfileComplete` re-reads the profile after the user comes back, so
+  /// finishing it lands them straight in the course without a second tap.
+  Future<void> _enrol() async {
+    final allowed = await ensureProfileComplete(context, ref);
+    if (!allowed || !mounted) return;
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('Enrolled successfully!'),
+        behavior: SnackBarBehavior.floating,
+        backgroundColor: _ink,
+      ),
+    );
   }
 
   @override
@@ -1054,15 +1076,7 @@ class _CourseDetailsPageState extends State<CourseDetailsPage> {
               ),
               const Spacer(),
               GestureDetector(
-                onTap: () {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(
-                      content: const Text('Enrolled successfully!'),
-                      behavior: SnackBarBehavior.floating,
-                      backgroundColor: _ink,
-                    ),
-                  );
-                },
+                onTap: _enrol,
                 child: Container(
                   padding: const EdgeInsets.symmetric(
                     horizontal: 24,

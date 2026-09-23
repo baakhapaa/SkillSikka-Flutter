@@ -2,36 +2,25 @@ import 'package:file_picker/file_picker.dart';
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:image_picker/image_picker.dart';
 
 import '../../../core/location/location_service.dart';
+import '../../../core/validation/validators.dart';
 import '../../../core/widgets/labeled_text_field.dart';
 import '../../../core/widgets/location_prompt_dialog.dart';
 import '../../../core/widgets/option_picker_sheet.dart';
 import '../../../core/widgets/profile_photo_picker.dart';
 import '../../../core/widgets/upload_card.dart';
+import '../data/profile_role.dart';
+import '../data/user_profile.dart';
 
 const _pageBackground = Color(0xFFFAF9F6);
 const _ink = Color(0xFF111827);
 const _accent = Color(0xFFE6B800);
 const _chevron = 'assets/figma/signup_chevron_down.svg';
-
-/// Which set of fields the edit screen shows.
-///
-/// The app has no persisted role yet, so the caller states it — the profile tab
-/// shows a student's profile, while the instructor profile screen would pass
-/// [instructor].
-enum ProfileRole {
-  student('Student'),
-  instructor('Instructor');
-
-  const ProfileRole(this.label);
-
-  /// Shown in the header chip.
-  final String label;
-}
 
 /// Values the form opens with, keyed by field id. Stands in for the API until
 /// there is one; the seeds mirror what each profile screen displays.
@@ -39,7 +28,7 @@ const _studentSeed = <String, String>{
   'name': 'Shuvanga Karki',
   'email': 'shuvanga.karki@email.com',
   'phone': '9801234567',
-  'class': 'Class 9',
+  'grade': 'Class 9',
 };
 
 const _instructorSeed = <String, String>{
@@ -56,11 +45,17 @@ const _instructorSeed = <String, String>{
 /// Laid out like the signup forms — same labelled fields, same gold CTA — but
 /// with the signup-only parts removed (passwords, document uploads and the
 /// verification notice) and the role's own fields shown instead.
-class EditProfilePage extends StatefulWidget {
+///
+/// This is also where the fields that signup no longer asks for get completed:
+/// phone, location, class, province, district, school and the student ID card
+/// all live here, and the form opens with whatever [UserProfile] captured —
+/// including the location the signup popup detected.
+class EditProfilePage extends ConsumerStatefulWidget {
   const EditProfilePage({
     super.key,
     this.role = ProfileRole.student,
     this.locationService = const LocationService(),
+    this.requireCompletion = false,
   });
 
   final ProfileRole role;
@@ -68,13 +63,25 @@ class EditProfilePage extends StatefulWidget {
   /// Injectable so the location popup can be driven from tests.
   final LocationService locationService;
 
+  /// When true this is the "complete your profile" step reached from the enrol
+  /// gate: every field is mandatory, so the user cannot come back still
+  /// incomplete. The profile tab leaves it false — a user fixing a typo should
+  /// not be marched through eight required fields.
+  final bool requireCompletion;
+
   @override
-  State<EditProfilePage> createState() => _EditProfilePageState();
+  ConsumerState<EditProfilePage> createState() => _EditProfilePageState();
 }
 
-class _EditProfilePageState extends State<EditProfilePage> {
+class _EditProfilePageState extends ConsumerState<EditProfilePage> {
   final _controllers = <String, TextEditingController>{};
   final _imagePicker = ImagePicker();
+  final _formKey = GlobalKey<FormState>();
+
+  /// Errors stay hidden until the first save attempt, then update live as the
+  /// user types.
+  AutovalidateMode _autovalidateMode = AutovalidateMode.disabled;
+
   Uint8List? _photoBytes;
   PlatformFile? _studentIdCard;
   PlatformFile? _cvFile;
@@ -82,12 +89,75 @@ class _EditProfilePageState extends State<EditProfilePage> {
 
   bool get _isInstructor => widget.role == ProfileRole.instructor;
 
+  /// Re-checks the form after a picker writes into a controller.
+  ///
+  /// A programmatic `controller.text` write does not fire `FormField.didChange`,
+  /// so picker-driven fields would otherwise keep showing a stale error.
+  void _revalidate() {
+    if (_autovalidateMode == AutovalidateMode.disabled) return;
+    _formKey.currentState?.validate();
+  }
+
   TextEditingController _controller(String key) => _controllers.putIfAbsent(
     key,
-    () => TextEditingController(
-      text: (_isInstructor ? _instructorSeed : _studentSeed)[key] ?? '',
-    ),
+    () => TextEditingController(text: _initialValue(key)),
   );
+
+  /// The controller keys this screen owns, in form order. Drives both the
+  /// initial values and what Save writes back, so a field cannot be added to
+  /// the form and silently dropped on save.
+  static const _commonKeys = <String>[
+    'name',
+    'email',
+    'phone',
+    'gender',
+    'dob',
+    'location',
+  ];
+  static const _studentKeys = <String>[
+    'grade',
+    'province',
+    'district',
+    'school',
+  ];
+  static const _instructorKeys = <String>[
+    'qualification',
+    'expertise',
+    'experience',
+  ];
+
+  List<String> get _editableKeys => [
+    ..._commonKeys,
+    ...(_isInstructor ? _instructorKeys : _studentKeys),
+  ];
+
+  /// Wraps a validator so an optional field is only checked when it has a
+  /// value. In [EditProfilePage.requireCompletion] mode the rule is mandatory.
+  FormFieldValidator<String>? _requiredOrOptional(
+    FormFieldValidator<String> validator,
+  ) => widget.requireCompletion ? validator : validateWhenPresent(validator);
+
+  /// A picker field has no format to check, but the completion flow still needs
+  /// it to be present.
+  FormFieldValidator<String>? _requiredChoice(String label) =>
+      widget.requireCompletion ? (value) => validateChoice(value, label) : null;
+
+  /// Whatever the profile already holds wins; the demo seed fills the gaps.
+  ///
+  /// This is also how the location the signup popup detected surfaces — signup
+  /// has no field to show it in.
+  String _initialValue(String key) {
+    final saved = ref.read(userProfileProvider).valueFor(key);
+    if (saved.isNotEmpty) return saved;
+    return (_isInstructor ? _instructorSeed : _studentSeed)[key] ?? '';
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    // Carried over from signup so the user doesn't have to pick it twice.
+    _photoBytes = ref.read(userProfileProvider).photoBytes;
+  }
 
   @override
   void dispose() {
@@ -126,6 +196,7 @@ class _EditProfilePageState extends State<EditProfilePage> {
     );
     if (location == null || !mounted) return;
     setState(() => _controller('location').text = location.label);
+    _revalidate();
   }
 
   Future<void> _pickOption({
@@ -146,6 +217,7 @@ class _EditProfilePageState extends State<EditProfilePage> {
         _controller(clearKey).clear();
       }
     });
+    _revalidate();
   }
 
   Future<void> _pickDateOfBirth() async {
@@ -159,6 +231,7 @@ class _EditProfilePageState extends State<EditProfilePage> {
     final day = date.day.toString().padLeft(2, '0');
     final month = date.month.toString().padLeft(2, '0');
     setState(() => _controller('dob').text = '$day / $month / ${date.year}');
+    _revalidate();
   }
 
   Future<void> _pickStudentIdCard() async {
@@ -218,17 +291,25 @@ class _EditProfilePageState extends State<EditProfilePage> {
   }
 
   void _save() {
-    final messenger = ScaffoldMessenger.of(context);
-    final missing = _controller('name').text.trim().isEmpty
-        ? 'name'
-        : (_controller('email').text.trim().isEmpty ? 'email address' : null);
-    if (missing != null) {
-      messenger.showSnackBar(
-        SnackBar(content: Text('Please enter your $missing.')),
+    final form = _formKey.currentState;
+    if (form == null || !form.validate()) {
+      // Name and email are the only mandatory fields here; everything else is
+      // checked for shape only when it has been filled in, so a partial profile
+      // can still be saved.
+      setState(() => _autovalidateMode = AutovalidateMode.onUserInteraction);
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please check the highlighted fields.')),
       );
       return;
     }
-    // No backend yet — closing the screen is the whole save.
+
+    final messenger = ScaffoldMessenger.of(context);
+    // No backend yet, so the profile store is the store — write back every key
+    // this screen owns, or re-opening it would silently discard the edit.
+    ref.read(userProfileProvider.notifier).save({
+      for (final key in _editableKeys) key: _controller(key).text.trim(),
+    });
+
     Navigator.of(context).pop();
     messenger.showSnackBar(const SnackBar(content: Text('Profile updated.')));
   }
@@ -250,37 +331,41 @@ class _EditProfilePageState extends State<EditProfilePage> {
                 padding: const EdgeInsets.only(bottom: 16),
                 child: Padding(
                   padding: const EdgeInsets.fromLTRB(24, 12, 24, 40),
-                  child: Column(
-                    children: [
-                      ProfilePhotoPicker(
-                        photoBytes: _photoBytes,
-                        onTap: _pickProfilePhoto,
-                      ),
-                      const SizedBox(height: 24),
-                      ..._buildFields(),
-                      const SizedBox(height: 20),
-                      SizedBox(
-                        width: double.infinity,
-                        height: 52,
-                        child: FilledButton(
-                          onPressed: _save,
-                          style: FilledButton.styleFrom(
-                            backgroundColor: _accent,
-                            foregroundColor: _ink,
-                            elevation: 4,
-                            shadowColor: const Color(0x40E6B800),
-                            shape: const StadiumBorder(),
-                          ),
-                          child: Text(
-                            'Save Changes',
-                            style: GoogleFonts.manrope(
-                              fontSize: 16,
-                              fontWeight: FontWeight.w700,
+                  child: Form(
+                    key: _formKey,
+                    autovalidateMode: _autovalidateMode,
+                    child: Column(
+                      children: [
+                        ProfilePhotoPicker(
+                          photoBytes: _photoBytes,
+                          onTap: _pickProfilePhoto,
+                        ),
+                        const SizedBox(height: 24),
+                        ..._buildFields(),
+                        const SizedBox(height: 20),
+                        SizedBox(
+                          width: double.infinity,
+                          height: 52,
+                          child: FilledButton(
+                            onPressed: _save,
+                            style: FilledButton.styleFrom(
+                              backgroundColor: _accent,
+                              foregroundColor: _ink,
+                              elevation: 4,
+                              shadowColor: const Color(0x40E6B800),
+                              shape: const StadiumBorder(),
+                            ),
+                            child: Text(
+                              'Save Changes',
+                              style: GoogleFonts.manrope(
+                                fontSize: 16,
+                                fontWeight: FontWeight.w700,
+                              ),
                             ),
                           ),
                         ),
-                      ),
-                    ],
+                      ],
+                    ),
                   ),
                 ),
               ),
@@ -294,15 +379,37 @@ class _EditProfilePageState extends State<EditProfilePage> {
   /// Fields shared by both roles, then the role's own block, then the bio.
   /// The order is the same for both roles so the form doesn't reshuffle itself
   /// — only the middle block changes.
+  ///
+  /// By default only name and email are mandatory. Everything else is optional
+  /// — a user editing their profile should not be forced to fill eight fields
+  /// to fix a typo — but any value that *is* present still has to be
+  /// well-formed. In [EditProfilePage.requireCompletion] mode every field
+  /// becomes mandatory instead.
   List<Widget> _buildFields() => [
-    _field(key: 'name', label: 'Full Name', hint: 'e.g. Skill Sikka'),
+    _field(
+      key: 'name',
+      label: 'Full Name',
+      hint: 'e.g. Skill Sikka',
+      keyboardType: TextInputType.name,
+      textInputAction: TextInputAction.next,
+      validator: validateFullName,
+    ),
     _field(
       key: 'email',
       label: 'Email Address',
       hint: 'e.g. skill@email.com',
       leading: 'assets/figma/signup_mail.svg',
+      keyboardType: TextInputType.emailAddress,
+      textInputAction: TextInputAction.next,
+      validator: validateEmail,
     ),
-    _field(key: 'phone', label: 'Phone Number', hint: '+977 98XXXXXXXX'),
+    _field(
+      key: 'phone',
+      label: 'Phone Number',
+      hint: '+977 98XXXXXXXX',
+      keyboardType: TextInputType.phone,
+      validator: _requiredOrOptional(validatePhoneNumber),
+    ),
     _twoUp(
       _field(
         key: 'gender',
@@ -310,6 +417,7 @@ class _EditProfilePageState extends State<EditProfilePage> {
         hint: 'Select gender',
         hintFontSize: 12,
         trailing: _chevron,
+        validator: _requiredChoice('gender'),
         onTap: () => _pickOption(
           key: 'gender',
           title: 'Select gender',
@@ -321,6 +429,7 @@ class _EditProfilePageState extends State<EditProfilePage> {
         label: 'Date of Birth',
         hint: 'DD / MM / YYYY',
         onTap: _pickDateOfBirth,
+        validator: _requiredOrOptional(validateDateOfBirth),
       ),
     ),
     _field(
@@ -331,6 +440,7 @@ class _EditProfilePageState extends State<EditProfilePage> {
       trailingWidget: CurrentLocationButton(
         onPressed: () => _promptForLocation(skipIntro: true),
       ),
+      validator: _requiredOrOptional(validateLocation),
     ),
     const LocationFieldHint(),
     ...(_isInstructor ? _instructorFields() : _studentFields()),
@@ -338,12 +448,13 @@ class _EditProfilePageState extends State<EditProfilePage> {
 
   List<Widget> _studentFields() => [
     _field(
-      key: 'class',
+      key: 'grade',
       label: 'Class / Grade',
       hint: 'Select your class',
       trailing: _chevron,
+      validator: _requiredChoice('class'),
       onTap: () => _pickOption(
-        key: 'class',
+        key: 'grade',
         title: 'Select class',
         options: const [
           'Class 8',
@@ -361,6 +472,7 @@ class _EditProfilePageState extends State<EditProfilePage> {
         hint: 'Select province',
         hintFontSize: 12,
         trailing: _chevron,
+        validator: _requiredChoice('province'),
         onTap: () => _pickOption(
           key: 'province',
           title: 'Select province',
@@ -375,6 +487,7 @@ class _EditProfilePageState extends State<EditProfilePage> {
         hintFontSize: 11,
         trailing: _chevron,
         enabled: _controller('province').text.isNotEmpty,
+        validator: _requiredChoice('district'),
         onTap: () => _pickOption(
           key: 'district',
           title: 'Select district',
@@ -389,6 +502,7 @@ class _EditProfilePageState extends State<EditProfilePage> {
       hint: 'Select school or college',
       trailing: _chevron,
       enabled: _controller('district').text.isNotEmpty,
+      validator: _requiredChoice('school or college'),
       onTap: () => _pickOption(
         key: 'school',
         title: 'Select school or college',
@@ -415,16 +529,26 @@ class _EditProfilePageState extends State<EditProfilePage> {
       key: 'qualification',
       label: 'Highest Qualification / Degree',
       hint: 'e.g. Master of Computer Applications',
+      textInputAction: TextInputAction.next,
+      validator: _requiredOrOptional(
+        (value) => validateShortText(value, 'qualification'),
+      ),
     ),
     _field(
       key: 'expertise',
       label: 'Subject Expertise',
       hint: 'e.g. Physics, Fullstack Web Dev',
+      textInputAction: TextInputAction.next,
+      validator: _requiredOrOptional(
+        (value) => validateShortText(value, 'subject expertise'),
+      ),
     ),
     _field(
       key: 'experience',
       label: 'Years of Experience',
       hint: 'e.g. 5 Years',
+      keyboardType: TextInputType.number,
+      validator: _requiredOrOptional(validateYearsOfExperience),
     ),
     UploadCard(
       title: 'CV / Resume',
@@ -454,6 +578,9 @@ class _EditProfilePageState extends State<EditProfilePage> {
     String? trailing,
     Widget? trailingWidget,
     VoidCallback? onTap,
+    FormFieldValidator<String>? validator,
+    TextInputType? keyboardType,
+    TextInputAction? textInputAction,
     bool enabled = true,
     double hintFontSize = 14,
     int maxLines = 1,
@@ -464,11 +591,17 @@ class _EditProfilePageState extends State<EditProfilePage> {
         label: label,
         hint: hint,
         controller: _controller(key),
-        requiredField: key != 'about',
+        // Matches the validators above, so the marker never lies: name and
+        // email always, everything else only in completion mode.
+        requiredField:
+            widget.requireCompletion || key == 'name' || key == 'email',
         leading: leading,
         trailing: trailing,
         trailingWidget: trailingWidget,
         onTap: onTap,
+        validator: validator,
+        keyboardType: keyboardType,
+        textInputAction: textInputAction,
         enabled: enabled,
         hintFontSize: hintFontSize,
         maxLines: maxLines,

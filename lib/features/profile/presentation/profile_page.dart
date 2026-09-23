@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 import '../../../core/network/api_client.dart';
+import '../data/user_profile.dart';
 import 'edit_profile_page.dart';
 
 const _bg = Color(0xFFFAF9F6);
@@ -270,12 +271,20 @@ class _InstructorProfilePageState extends State<InstructorProfilePage> {
           const SizedBox(height: 16),
           GestureDetector(
             behavior: HitTestBehavior.opaque,
-            onTap: () => Navigator.of(context).push(
-              MaterialPageRoute(
-                builder: (_) =>
-                    const EditProfilePage(role: ProfileRole.student),
-              ),
-            ),
+            onTap: () {
+              // Read at tap time rather than hardcoding student: an instructor
+              // has to land on the instructor field set, and the role is only
+              // known once signup has recorded it.
+              final role = ProviderScope.containerOf(
+                context,
+                listen: false,
+              ).read(userProfileProvider).effectiveRole;
+              Navigator.of(context).push(
+                MaterialPageRoute(
+                  builder: (_) => EditProfilePage(role: role),
+                ),
+              );
+            },
             child: Container(
               height: 44,
               decoration: BoxDecoration(

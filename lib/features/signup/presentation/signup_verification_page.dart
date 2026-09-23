@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_svg/flutter_svg.dart';
@@ -12,6 +14,13 @@ import '../../profile/data/user_profile.dart';
 /// Shown the address the code was sent to, falling back to the placeholder when
 /// signup never captured one (e.g. deep-linking straight here).
 const _placeholderEmail = 'sarah@email.com';
+
+/// How long the resend action stays locked after a code goes out.
+///
+/// Counted from arrival rather than from the last tap: this screen is only
+/// reached by completing the step that sent a code, so the wait has already
+/// started by the time it appears.
+const _resendCooldownSeconds = 45;
 
 class SignupVerificationPage extends ConsumerStatefulWidget {
   const SignupVerificationPage({super.key});
@@ -31,6 +40,92 @@ class _SignupVerificationPageState
   /// must not be tappable twice.
   bool _isSubmitting = false;
 
+  /// True while a resend is in flight. Separate from [_isSubmitting] so that
+  /// asking for a new code cannot disable Verify, or the other way round.
+  bool _isResending = false;
+
+  /// Seconds left before the code can be asked for again. Zero means the resend
+  /// action is live.
+  int _secondsLeft = _resendCooldownSeconds;
+
+  /// Drives [_secondsLeft]. Held so it can be cancelled — see [dispose].
+  Timer? _cooldown;
+
+  @override
+  void initState() {
+    super.initState();
+    // No setState: the first frame has not been built yet, so there is nothing
+    // to rebuild. The periodic tick below takes over from here.
+    _startCooldown();
+  }
+
+  /// Restarts the cooldown, cancelling any timer already running.
+  ///
+  /// Assigns rather than calling setState, so it is safe to call from
+  /// [initState] as well as from inside a setState callback.
+  void _startCooldown() {
+    _cooldown?.cancel();
+    _secondsLeft = _resendCooldownSeconds;
+    _cooldown = Timer.periodic(const Duration(seconds: 1), (timer) {
+      if (!mounted) {
+        // Cannot happen with the cancel in dispose, but a tick that outlives
+        // the State would throw on setState, so stop it rather than trust it.
+        timer.cancel();
+        return;
+      }
+      if (_secondsLeft <= 1) {
+        timer.cancel();
+        setState(() => _secondsLeft = 0);
+        return;
+      }
+      setState(() => _secondsLeft--);
+    });
+  }
+
+  /// `mm:ss`, so raising [_resendCooldownSeconds] past a minute still reads
+  /// correctly instead of showing `00:75`.
+  String get _countdownLabel {
+    final minutes = (_secondsLeft ~/ 60).toString().padLeft(2, '0');
+    final seconds = (_secondsLeft % 60).toString().padLeft(2, '0');
+    return '$minutes:$seconds';
+  }
+
+  void _showSnack(String message) {
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(message)));
+  }
+
+  /// Sends a fresh code.
+  ///
+  /// The cooldown is restarted only on success: a failed resend sent nothing,
+  /// so locking the action for another 45 seconds would leave the user with no
+  /// code and no way to ask again.
+  Future<void> _resend() async {
+    if (_isResending || _secondsLeft > 0) return;
+
+    final email = ref.read(userProfileProvider).email;
+    if (email.isEmpty) {
+      _showSnack('Start again from signup so we know which email to use.');
+      return;
+    }
+
+    setState(() => _isResending = true);
+    try {
+      await ref.read(authRepositoryProvider).resendOtp(email: email);
+      if (!mounted) return;
+      setState(() {
+        _isResending = false;
+        _startCooldown();
+      });
+      _showSnack('We sent a new code to $email.');
+    } on ApiException catch (error) {
+      if (!mounted) return;
+      setState(() => _isResending = false);
+      showApiErrorSnack(context, error);
+    }
+  }
+
   /// Confirms the code with the server.
   ///
   /// This screen is reached whether or not registration returned a session
@@ -44,9 +139,7 @@ class _SignupVerificationPageState
         .map((controller) => controller.text.trim())
         .join();
     if (code.length != 4) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('Enter the 4-digit code.')));
+      _showSnack('Enter the 4-digit code.');
       return;
     }
 
@@ -54,13 +147,7 @@ class _SignupVerificationPageState
     if (email.isEmpty) {
       // Only reachable by deep-linking straight here, or by arriving with a
       // cleared store. There is no address to verify against.
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text(
-            'Start again from signup so we know which email to verify.',
-          ),
-        ),
-      );
+      _showSnack('Start again from signup so we know which email to verify.');
       return;
     }
 
@@ -83,6 +170,9 @@ class _SignupVerificationPageState
 
   @override
   void dispose() {
+    // Not optional: a live periodic timer keeps calling setState on a State
+    // that is no longer mounted, which throws once the user leaves the screen.
+    _cooldown?.cancel();
     for (final controller in _controllers) {
       controller.dispose();
     }
@@ -177,24 +267,40 @@ class _SignupVerificationPageState
                         }),
                       ),
                       const SizedBox(height: 24),
-                      Text.rich(
-                        TextSpan(
-                          style: GoogleFonts.manrope(
-                            color: const Color(0xFF4B5563),
-                            fontSize: 14,
-                          ),
-                          children: const [
-                            TextSpan(text: 'Resend code in '),
-                            TextSpan(
-                              text: '00:45',
-                              style: TextStyle(
-                                color: Color(0xFFB59100),
-                                fontWeight: FontWeight.w700,
-                              ),
+                      if (_secondsLeft > 0)
+                        Text.rich(
+                          TextSpan(
+                            style: GoogleFonts.manrope(
+                              color: const Color(0xFF4B5563),
+                              fontSize: 14,
                             ),
-                          ],
+                            children: [
+                              const TextSpan(text: 'Resend code in '),
+                              TextSpan(
+                                text: _countdownLabel,
+                                style: const TextStyle(
+                                  color: Color(0xFFB59100),
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                            ],
+                          ),
+                        )
+                      else
+                        // A real button rather than a tappable span: it carries
+                        // its own disabled state and hit target, and there is no
+                        // gesture recogniser to dispose.
+                        TextButton(
+                          onPressed: _isResending ? null : _resend,
+                          child: Text(
+                            _isResending ? 'Sending a new code…' : 'Resend code',
+                            style: GoogleFonts.manrope(
+                              color: const Color(0xFFB59100),
+                              fontSize: 14,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
                         ),
-                      ),
                     ],
                   ),
                 ),

@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:skillsikka/features/profile/data/profile_completeness.dart';
+import 'package:skillsikka/features/profile/data/profile_role.dart';
 import 'package:skillsikka/features/profile/data/user_profile.dart';
 
 void main() {
@@ -94,11 +95,44 @@ void main() {
     test('keeps the photo across a text update', () {
       final withPhoto = const UserProfile().withPhoto(
         Uint8List.fromList([1, 2, 3]),
+        'avatar.jpg',
       );
       final updated = withPhoto.withValues({'name': 'Sita'});
 
       expect(updated.photoBytes, isNotNull);
+      // The name travels with the bytes; the upload needs it for the content
+      // type, so a text update must not drop it.
+      expect(updated.photoFileName, 'avatar.jpg');
       expect(updated.valueFor('name'), 'Sita');
+    });
+
+    test('keeps the photo across every other update', () {
+      // Each of these goes through the same copy helper as withValues. A text
+      // update was only the first one found dropping the name, so pin all of
+      // them rather than the one that happened to be noticed.
+      final withPhoto = const UserProfile().withPhoto(
+        Uint8List.fromList([1, 2, 3]),
+        'avatar.jpg',
+      );
+      final updates = <String, UserProfile>{
+        'role': withPhoto.withRole(ProfileRole.instructor),
+        'interests': withPhoto.withInterests(const ['Yoga']),
+        'document': withPhoto.withDocument(
+          ProfileDocumentSlot.cvResume,
+          PickedDocument(bytes: Uint8List.fromList([9]), fileName: 'cv.pdf'),
+        ),
+        'document removed': withPhoto
+            .withDocument(
+              ProfileDocumentSlot.cvResume,
+              PickedDocument(bytes: Uint8List.fromList([9]), fileName: 'cv.pdf'),
+            )
+            .withoutDocument(ProfileDocumentSlot.cvResume),
+      };
+
+      updates.forEach((label, updated) {
+        expect(updated.photoBytes, isNotNull, reason: label);
+        expect(updated.photoFileName, 'avatar.jpg', reason: label);
+      });
     });
 
     test('an unknown key reads as empty rather than throwing', () {

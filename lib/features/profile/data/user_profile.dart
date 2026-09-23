@@ -56,6 +56,7 @@ class PickedDocument {
 class UserProfile {
   const UserProfile({
     this.photoBytes,
+    this.photoFileName,
     this.role,
     this.values = const {},
     this.documents = const {},
@@ -63,6 +64,13 @@ class UserProfile {
   });
 
   final Uint8List? photoBytes;
+
+  /// The picked file's own name, kept alongside [photoBytes].
+  ///
+  /// Not cosmetic. The multipart part's content type is inferred from the
+  /// extension (`package:mime`), so a JPEG sent as `avatar.png` is uploaded
+  /// labelled `image/png`. Null only when there is no photo.
+  final String? photoFileName;
 
   /// Null until the user picks one at the first signup step. A fresh launch and
   /// a deep link both legitimately have no role yet, so this stays nullable and
@@ -100,6 +108,11 @@ class UserProfile {
   }) {
     return UserProfile(
       photoBytes: photoBytes ?? this.photoBytes,
+      // Carried with the bytes, always. The name describes the photo, so a text
+      // update has no business clearing it — and dropping it here would leave a
+      // photo that cannot be uploaded under the right content type. Only
+      // [withPhoto] sets it, which is why this is not a parameter.
+      photoFileName: photoFileName,
       role: role ?? this.role,
       values: values ?? this.values,
       documents: documents ?? this.documents,
@@ -110,7 +123,20 @@ class UserProfile {
   UserProfile withValues(Map<String, String> next) =>
       _copy(values: {...values, ...next});
 
-  UserProfile withPhoto(Uint8List bytes) => _copy(photoBytes: bytes);
+  /// Replaces the photo and its filename together.
+  ///
+  /// Built directly rather than through [_copy]: that helper keeps the previous
+  /// value when handed null, which is right for a field that is simply absent
+  /// but wrong here — a new photo with an unknown name would silently keep the
+  /// old name, and upload under the wrong content type.
+  UserProfile withPhoto(Uint8List bytes, String fileName) => UserProfile(
+    photoBytes: bytes,
+    photoFileName: fileName,
+    role: role,
+    values: values,
+    documents: documents,
+    interests: interests,
+  );
 
   UserProfile withRole(ProfileRole next) => _copy(role: next);
 
@@ -132,7 +158,10 @@ class UserProfile {
 class UserProfileNotifier extends StateNotifier<UserProfile> {
   UserProfileNotifier() : super(const UserProfile());
 
-  void setPhoto(Uint8List bytes) => state = state.withPhoto(bytes);
+  /// Records the avatar and the name of the file it came from. See
+  /// [UserProfile.photoFileName] for why the name travels with the bytes.
+  void setPhoto(Uint8List bytes, String fileName) =>
+      state = state.withPhoto(bytes, fileName);
 
   /// Records the role chosen at the first signup step, and the one the profile
   /// screens branch on afterwards.

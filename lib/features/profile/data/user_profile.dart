@@ -117,6 +117,12 @@ class UserProfile {
   UserProfile withDocument(String slot, PickedDocument document) =>
       _copy(documents: {...documents, slot: document});
 
+  /// Drops one upload slot. The screen's Remove action needs this: the bytes are
+  /// copied into the store at pick time, so forgetting the slot here would leave
+  /// the file the user just deleted still queued for upload.
+  UserProfile withoutDocument(String slot) =>
+      _copy(documents: {...documents}..remove(slot));
+
   UserProfile withInterests(List<String> next) =>
       _copy(interests: List<String>.unmodifiable(next));
 }
@@ -135,6 +141,11 @@ class UserProfileNotifier extends StateNotifier<UserProfile> {
   /// Stores a file for an upload slot. See [ProfileDocumentSlot] for the slots.
   void setDocument(String slot, PickedDocument document) =>
       state = state.withDocument(slot, document);
+
+  /// Forgets a file the user removed. Paired with [setDocument] at the same call
+  /// sites — a Remove that only cleared the widget would still upload the old
+  /// bytes, because the store has held them since the file was picked.
+  void clearDocument(String slot) => state = state.withoutDocument(slot);
 
   void setInterests(List<String> interests) =>
       state = state.withInterests(interests);

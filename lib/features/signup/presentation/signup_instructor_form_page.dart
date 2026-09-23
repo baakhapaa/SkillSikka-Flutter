@@ -258,7 +258,10 @@ class _SignupInstructorFormPageState
                             asset: 'assets/figma/signup_file_text.svg',
                             pickedFile: _cvFile,
                             onTap: () => _pickDocument(isCv: true),
-                            onClear: () => setState(() => _cvFile = null),
+                            onClear: () => _clearDocument(
+                              ProfileDocumentSlot.cvResume,
+                              () => setState(() => _cvFile = null),
+                            ),
                           ),
                           const SizedBox(height: 20),
 
@@ -269,8 +272,10 @@ class _SignupInstructorFormPageState
                             asset: 'assets/figma/signup_file.svg',
                             pickedFile: _certificatesFile,
                             onTap: () => _pickDocument(isCv: false),
-                            onClear: () =>
-                                setState(() => _certificatesFile = null),
+                            onClear: () => _clearDocument(
+                              ProfileDocumentSlot.certificates,
+                              () => setState(() => _certificatesFile = null),
+                            ),
                           ),
                           const SizedBox(height: 20),
 
@@ -415,6 +420,14 @@ class _SignupInstructorFormPageState
               : ProfileDocumentSlot.certificates,
           PickedDocument(bytes: bytes, fileName: file.name),
         );
+  }
+
+  /// Removes a file from the screen *and* the store. The store took a copy of
+  /// the bytes when the file was picked, so clearing only the local state would
+  /// leave the deleted file queued for the register call.
+  void _clearDocument(String slot, VoidCallback clearLocal) {
+    clearLocal();
+    ref.read(userProfileProvider.notifier).clearDocument(slot);
   }
 
   void _submit() {

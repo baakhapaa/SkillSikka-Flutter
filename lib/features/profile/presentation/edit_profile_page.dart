@@ -243,7 +243,16 @@ class _EditProfilePageState extends ConsumerState<EditProfilePage> {
       _showUploadError('Student ID card must be 5 MB or smaller.');
       return;
     }
+    final bytes = _bytesOf(file);
+    if (bytes == null) return;
+
     setState(() => _studentIdCard = file);
+    ref
+        .read(userProfileProvider.notifier)
+        .setDocument(
+          ProfileDocumentSlot.studentIdCard,
+          PickedDocument(bytes: bytes, fileName: file.name),
+        );
   }
 
   /// CV: PDF + DOC/DOCX, 5MB. Certificates: PDF + JPG/PNG, 10MB.
@@ -262,6 +271,9 @@ class _EditProfilePageState extends ConsumerState<EditProfilePage> {
       );
       return;
     }
+    final bytes = _bytesOf(file);
+    if (bytes == null) return;
+
     setState(() {
       if (isCv) {
         _cvFile = file;
@@ -269,18 +281,46 @@ class _EditProfilePageState extends ConsumerState<EditProfilePage> {
         _certificatesFile = file;
       }
     });
+    ref
+        .read(userProfileProvider.notifier)
+        .setDocument(
+          isCv
+              ? ProfileDocumentSlot.cvResume
+              : ProfileDocumentSlot.certificates,
+          PickedDocument(bytes: bytes, fileName: file.name),
+        );
   }
 
   Future<PlatformFile?> _pickFile({
     required List<String> allowedExtensions,
   }) async {
+    // withData: true so the bytes come back in memory. The app targets Flutter
+    // web, where a picked file's path is a blob URL nothing else can read, so
+    // without this the file is picked, displayed, and then uploaded as nothing.
     final result = await FilePicker.platform.pickFiles(
       type: FileType.custom,
       allowedExtensions: allowedExtensions,
-      withData: false,
+      withData: true,
     );
     if (result == null || result.files.isEmpty) return null;
     return result.files.single;
+  }
+
+  /// The picked file's bytes, or null after telling the user it could not be
+  /// read. A file with no bytes is unusable rather than merely inconvenient.
+  Uint8List? _bytesOf(PlatformFile file) {
+    final bytes = file.bytes;
+    if (bytes != null) return bytes;
+    _showUploadError('That file could not be read. Please pick another.');
+    return null;
+  }
+
+  /// Removes a file from the screen *and* the store. The store took a copy of
+  /// the bytes when the file was picked, so clearing only the local state would
+  /// leave the deleted file queued for upload.
+  void _clearDocument(String slot, VoidCallback clearLocal) {
+    clearLocal();
+    ref.read(userProfileProvider.notifier).clearDocument(slot);
   }
 
   void _showUploadError(String message) {
@@ -519,7 +559,10 @@ class _EditProfilePageState extends ConsumerState<EditProfilePage> {
       asset: 'assets/figma/signup_student_file.svg',
       pickedFile: _studentIdCard,
       onTap: _pickStudentIdCard,
-      onClear: () => setState(() => _studentIdCard = null),
+      onClear: () => _clearDocument(
+        ProfileDocumentSlot.studentIdCard,
+        () => setState(() => _studentIdCard = null),
+      ),
       removeTooltip: 'Remove student ID card',
     ),
   ];
@@ -556,7 +599,10 @@ class _EditProfilePageState extends ConsumerState<EditProfilePage> {
       asset: 'assets/figma/signup_file_text.svg',
       pickedFile: _cvFile,
       onTap: () => _pickDocument(isCv: true),
-      onClear: () => setState(() => _cvFile = null),
+      onClear: () => _clearDocument(
+        ProfileDocumentSlot.cvResume,
+        () => setState(() => _cvFile = null),
+      ),
       removeTooltip: 'Remove CV',
     ),
     UploadCard(
@@ -565,7 +611,10 @@ class _EditProfilePageState extends ConsumerState<EditProfilePage> {
       asset: 'assets/figma/signup_file.svg',
       pickedFile: _certificatesFile,
       onTap: () => _pickDocument(isCv: false),
-      onClear: () => setState(() => _certificatesFile = null),
+      onClear: () => _clearDocument(
+        ProfileDocumentSlot.certificates,
+        () => setState(() => _certificatesFile = null),
+      ),
       removeTooltip: 'Remove certificates',
     ),
   ];

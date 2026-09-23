@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:google_fonts/google_fonts.dart';
 // The font package exposes its test asset manifest through this internal API.
@@ -99,10 +100,15 @@ void main() {
     Future<void> pumpAt(Size size, EdgeInsets insets) async {
       await tester.binding.setSurfaceSize(size);
       await tester.pumpWidget(
-        MaterialApp(
-          home: MediaQuery(
-            data: MediaQueryData(size: size, padding: insets),
-            child: const SignupRolePage(),
+        // The role step records the chosen role in the profile store, so it is
+        // a ConsumerStatefulWidget and needs a scope even though this test only
+        // measures layout.
+        ProviderScope(
+          child: MaterialApp(
+            home: MediaQuery(
+              data: MediaQueryData(size: size, padding: insets),
+              child: const SignupRolePage(),
+            ),
           ),
         ),
       );

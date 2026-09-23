@@ -1,7 +1,11 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:go_router/go_router.dart';
 import 'package:google_fonts/google_fonts.dart';
+
+import '../../profile/data/profile_role.dart';
+import '../../profile/data/user_profile.dart';
 
 /// The scroll view's padding. Its vertical part is what turns the viewport
 /// height into the column's minimum height, so keep the two in step.
@@ -12,14 +16,14 @@ const _pagePadding = EdgeInsets.only(bottom: 16);
 /// still ships a modern Flutter build.
 const _tightBudget = 600.0;
 
-class SignupRolePage extends StatefulWidget {
+class SignupRolePage extends ConsumerStatefulWidget {
   const SignupRolePage({super.key});
 
   @override
-  State<SignupRolePage> createState() => _SignupRolePageState();
+  ConsumerState<SignupRolePage> createState() => _SignupRolePageState();
 }
 
-class _SignupRolePageState extends State<SignupRolePage> {
+class _SignupRolePageState extends ConsumerState<SignupRolePage> {
   bool _isStudent = true;
 
   @override
@@ -199,8 +203,17 @@ class _SignupRolePageState extends State<SignupRolePage> {
                         height: 52,
                         child: FilledButton(
                           onPressed: () {
+                            final role = _isStudent
+                                ? ProfileRole.student
+                                : ProfileRole.instructor;
+                            // Recorded before navigating: the role decides which
+                            // field set the profile screens show later, and it
+                            // has to be in the register payload.
+                            ref
+                                .read(userProfileProvider.notifier)
+                                .setRole(role);
                             context.push(
-                              _isStudent
+                              role == ProfileRole.student
                                   ? '/signup/student'
                                   : '/signup/instructor',
                             );

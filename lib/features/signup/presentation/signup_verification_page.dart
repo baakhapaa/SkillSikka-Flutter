@@ -1,16 +1,25 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:go_router/go_router.dart';
 import 'package:google_fonts/google_fonts.dart';
 
-class SignupVerificationPage extends StatefulWidget {
+import '../../profile/data/user_profile.dart';
+
+/// Shown the address the code was sent to, falling back to the placeholder when
+/// signup never captured one (e.g. deep-linking straight here).
+const _placeholderEmail = 'sarah@email.com';
+
+class SignupVerificationPage extends ConsumerStatefulWidget {
   const SignupVerificationPage({super.key});
 
   @override
-  State<SignupVerificationPage> createState() => _SignupVerificationPageState();
+  ConsumerState<SignupVerificationPage> createState() =>
+      _SignupVerificationPageState();
 }
 
-class _SignupVerificationPageState extends State<SignupVerificationPage> {
+class _SignupVerificationPageState
+    extends ConsumerState<SignupVerificationPage> {
   final _controllers = List.generate(4, (_) => TextEditingController());
   final _focusNodes = List.generate(4, (_) => FocusNode());
 
@@ -27,6 +36,8 @@ class _SignupVerificationPageState extends State<SignupVerificationPage> {
 
   @override
   Widget build(BuildContext context) {
+    final draftEmail = ref.watch(userProfileProvider).email;
+
     return Scaffold(
       backgroundColor: const Color(0xFFFAF9F6),
       body: SafeArea(
@@ -58,14 +69,16 @@ class _SignupVerificationPageState extends State<SignupVerificationPage> {
                             fontSize: 15,
                             height: 1.5,
                           ),
-                          children: const [
-                            TextSpan(
+                          children: [
+                            const TextSpan(
                               text:
                                   "We've sent a 4-digit verification code to your email ",
                             ),
                             TextSpan(
-                              text: 'sarah@email.com',
-                              style: TextStyle(
+                              text: draftEmail.isEmpty
+                                  ? _placeholderEmail
+                                  : draftEmail,
+                              style: const TextStyle(
                                 color: Color(0xFF111827),
                                 fontWeight: FontWeight.w900,
                               ),

@@ -2,6 +2,7 @@ import 'dart:typed_data';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:go_router/go_router.dart';
 import 'package:google_fonts/google_fonts.dart';
@@ -10,6 +11,8 @@ import 'package:image_picker/image_picker.dart';
 import '../../../core/location/location_service.dart';
 import '../../../core/widgets/location_prompt_dialog.dart';
 import '../../../core/widgets/profile_photo_picker.dart';
+import '../../profile/data/profile_role.dart';
+import '../../profile/data/user_profile.dart';
 
 Future<String?> _pickInstructorOption(
   BuildContext context,
@@ -48,7 +51,7 @@ Future<String?> _pickInstructorOption(
   );
 }
 
-class SignupInstructorFormPage extends StatefulWidget {
+class SignupInstructorFormPage extends ConsumerStatefulWidget {
   const SignupInstructorFormPage({
     super.key,
     this.locationService = const LocationService(),
@@ -58,11 +61,12 @@ class SignupInstructorFormPage extends StatefulWidget {
   final LocationService locationService;
 
   @override
-  State<SignupInstructorFormPage> createState() =>
+  ConsumerState<SignupInstructorFormPage> createState() =>
       _SignupInstructorFormPageState();
 }
 
-class _SignupInstructorFormPageState extends State<SignupInstructorFormPage> {
+class _SignupInstructorFormPageState
+    extends ConsumerState<SignupInstructorFormPage> {
   final _controllers = <String, TextEditingController>{};
   bool _obscurePassword = true;
 
@@ -354,10 +358,13 @@ class _SignupInstructorFormPageState extends State<SignupInstructorFormPage> {
         ? <String>['pdf', 'doc', 'docx']
         : <String>['pdf', 'jpg', 'jpeg', 'png'];
 
+    // withData: true so the bytes come back in memory. The app targets Flutter
+    // web, where a picked file has no readable path, and the multipart upload
+    // needs bytes rather than a location anyway.
     final result = await FilePicker.platform.pickFiles(
       type: FileType.custom,
       allowedExtensions: allowedExtensions,
-      withData: false,
+      withData: true,
     );
 
     if (result == null || result.files.isEmpty) return;
@@ -378,6 +385,17 @@ class _SignupInstructorFormPageState extends State<SignupInstructorFormPage> {
       return;
     }
 
+    final bytes = file.bytes;
+    if (bytes == null) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('That file could not be read. Please pick another.'),
+        ),
+      );
+      return;
+    }
+
     if (!mounted) return;
     setState(() {
       if (isCv) {
@@ -386,6 +404,17 @@ class _SignupInstructorFormPageState extends State<SignupInstructorFormPage> {
         _certificatesFile = file;
       }
     });
+
+    // Stored here rather than at submit: these bytes are the only copy, and the
+    // register call needs them after two more screen transitions.
+    ref
+        .read(userProfileProvider.notifier)
+        .setDocument(
+          isCv
+              ? ProfileDocumentSlot.cvResume
+              : ProfileDocumentSlot.certificates,
+          PickedDocument(bytes: bytes, fileName: file.name),
+        );
   }
 
   void _submit() {
@@ -403,8 +432,30 @@ class _SignupInstructorFormPageState extends State<SignupInstructorFormPage> {
       return;
     }
 
-    // TODO: send _profilePhoto, _cvFile, _certificatesFile and the
-    //       form values to your backend.
+    // Recorded before navigating: these values used to live only in the
+    // controllers and were lost the moment this screen was popped, so the
+    // register call had nothing to send.
+    final profile = ref.read(userProfileProvider.notifier);
+    profile.setRole(ProfileRole.instructor);
+    profile.setPhoto(_profilePhotoBytes!);
+
+    // `degree` and `subject` are this form's controller keys; the profile store
+    // and Edit Profile call the same two fields `qualification` and `expertise`.
+    // Renaming at the boundary keeps one set of keys in the store instead of
+    // two spellings of the same field. The passwords are deliberately absent —
+    // they are only ever read inside this method.
+    profile.save({
+      'name': _controller('name').text.trim(),
+      'email': _controller('email').text.trim(),
+      'gender': _controller('gender').text,
+      'dob': _controller('dob').text,
+      'phone': _controller('phone').text.trim(),
+      'location': _controller('location').text.trim(),
+      'qualification': _controller('degree').text.trim(),
+      'expertise': _controller('subject').text.trim(),
+      'experience': _controller('experience').text.trim(),
+    });
+
     context.push('/signup/verify');
   }
 

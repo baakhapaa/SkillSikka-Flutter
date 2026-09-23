@@ -1,16 +1,20 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:go_router/go_router.dart';
 import 'package:google_fonts/google_fonts.dart';
 
-class SignupInterestsPage extends StatefulWidget {
+import '../../profile/data/user_profile.dart';
+
+class SignupInterestsPage extends ConsumerStatefulWidget {
   const SignupInterestsPage({super.key});
 
   @override
-  State<SignupInterestsPage> createState() => _SignupInterestsPageState();
+  ConsumerState<SignupInterestsPage> createState() =>
+      _SignupInterestsPageState();
 }
 
-class _SignupInterestsPageState extends State<SignupInterestsPage> {
+class _SignupInterestsPageState extends ConsumerState<SignupInterestsPage> {
   final _topics = const [
     ('Coding', 'assets/figma/interests_code.svg'),
     ('Mathematics', 'assets/figma/interests_plus_square.svg'),
@@ -76,7 +80,15 @@ class _SignupInterestsPageState extends State<SignupInterestsPage> {
                       ],
                     ),
                     TextButton(
-                      onPressed: () => context.go('/'),
+                      onPressed: () {
+                        // Skipping is a real answer rather than an absent one:
+                        // record "none chosen" so a stale selection from an
+                        // earlier visit cannot survive into the register call.
+                        ref
+                            .read(userProfileProvider.notifier)
+                            .setInterests(const []);
+                        context.go('/');
+                      },
                       child: Text(
                         'Skip',
                         style: GoogleFonts.manrope(
@@ -172,7 +184,15 @@ class _SignupInterestsPageState extends State<SignupInterestsPage> {
                       height: 48,
                       child: FilledButton(
                         onPressed: _selected.length >= 3
-                            ? () => context.go('/')
+                            ? () {
+                                // Written to the store before leaving. These
+                                // used to be local Set state that was dropped,
+                                // so the register call had nothing to send.
+                                ref
+                                    .read(userProfileProvider.notifier)
+                                    .setInterests(_selected.toList());
+                                context.go('/');
+                              }
                             : null,
                         style: FilledButton.styleFrom(
                           backgroundColor: const Color(0xFFE6B800),

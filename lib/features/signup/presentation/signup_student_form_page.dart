@@ -1,11 +1,15 @@
-import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:go_router/go_router.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:image_picker/image_picker.dart';
 
 import '../../../core/location/location_service.dart';
+import '../../../core/validation/validators.dart';
 import '../../../core/widgets/location_prompt_dialog.dart';
+import '../../../core/widgets/profile_photo_picker.dart';
+import '../../profile/data/user_profile.dart';
 
 Future<String?> _pickOption(
   BuildContext context,
@@ -44,28 +48,59 @@ Future<String?> _pickOption(
   );
 }
 
-class SignupStudentFormPage extends StatefulWidget {
+/// Step 2 of signup: identity and credentials only.
+///
+/// The academic and geographic fields (phone, class, province, district,
+/// school, student ID card) were moved off this screen — they are collected on
+/// Edit Profile when the user first tries to enrol. The location popup still
+/// runs here, but it writes into the [UserProfile] instead of a visible field,
+/// because the Location field now lives on Edit Profile too.
+class SignupStudentFormPage extends ConsumerStatefulWidget {
   const SignupStudentFormPage({
     super.key,
     this.locationService = const LocationService(),
+    this.imagePicker,
   });
 
   /// Injectable so the popup flow can be driven from tests.
   final LocationService locationService;
 
+  /// Injectable so the photo step can be driven from tests. Defaults to a real
+  /// [ImagePicker].
+  final ImagePicker? imagePicker;
+
   @override
-  State<SignupStudentFormPage> createState() => _SignupStudentFormPageState();
+  ConsumerState<SignupStudentFormPage> createState() =>
+      _SignupStudentFormPageState();
 }
 
-class _SignupStudentFormPageState extends State<SignupStudentFormPage> {
+class _SignupStudentFormPageState extends ConsumerState<SignupStudentFormPage> {
   final _controllers = <String, TextEditingController>{};
+  final _formKey = GlobalKey<FormState>();
+
+  /// Errors stay hidden until the first submit attempt, then update live as the
+  /// user types. Validating on interaction from the start would flag a field as
+  /// invalid after its very first keystroke.
+  AutovalidateMode _autovalidateMode = AutovalidateMode.disabled;
+
   bool _obscurePassword = true;
-  PlatformFile? _studentIdCard;
+
+  late final ImagePicker _imagePicker = widget.imagePicker ?? ImagePicker();
 
   LocationService get _locationService => widget.locationService;
 
   TextEditingController _controller(String key) =>
       _controllers.putIfAbsent(key, TextEditingController.new);
+
+  /// Re-checks the form after a picker writes into a controller.
+  ///
+  /// A programmatic `controller.text` write does not fire `FormField.didChange`,
+  /// so the picker-driven fields (gender, date of birth) would otherwise keep
+  /// showing their old error until something else triggered a rebuild.
+  void _revalidate() {
+    if (_autovalidateMode == AutovalidateMode.disabled) return;
+    _formKey.currentState?.validate();
+  }
 
   @override
   void initState() {
@@ -84,8 +119,10 @@ class _SignupStudentFormPageState extends State<SignupStudentFormPage> {
     super.dispose();
   }
 
-  /// Opens the location popup and, if the user confirms a fix, writes it into
-  /// the Location field.
+  /// Opens the location popup and stores the confirmed fix on the draft.
+  ///
+  /// There is no Location field on this screen any more, so the value is kept
+  /// for the profile and the user gets a snack bar as the receipt.
   ///
   /// [skipIntro] `true` jumps straight to detection (the user explicitly asked
   /// for it), `false` always shows the explainer, and `null` decides based on
@@ -104,12 +141,57 @@ class _SignupStudentFormPageState extends State<SignupStudentFormPage> {
     );
     if (location == null || !mounted) return;
 
-    // The field stays editable, so this only pre-fills it.
-    setState(() => _controller('location').text = location.label);
+    ref.read(userProfileProvider.notifier).setLocation(location.label);
+    _showSnack('Location saved: ${location.label}');
+  }
+
+  Future<void> _pickProfilePhoto() async {
+    final picked = await _imagePicker.pickImage(
+      source: ImageSource.gallery,
+      maxWidth: 800,
+      maxHeight: 800,
+      imageQuality: 85,
+    );
+    if (picked == null) return;
+    // Bytes, not a path: `Image.file` asserts `!kIsWeb`, so a File-based
+    // avatar blanks the screen on Flutter web.
+    final bytes = await picked.readAsBytes();
+    if (!mounted) return;
+    ref.read(userProfileProvider.notifier).setPhoto(bytes);
+  }
+
+  void _showSnack(String message) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(message)));
+  }
+
+  void _submit() {
+    final form = _formKey.currentState;
+    if (form == null || !form.validate()) {
+      // Every failing field is marked inline now. Switch on live re-validation
+      // and say so once: the summary is what tells the user to look at the form
+      // rather than wonder whether the tap registered.
+      setState(() => _autovalidateMode = AutovalidateMode.onUserInteraction);
+      _showSnack('Please check the highlighted fields.');
+      return;
+    }
+
+    ref.read(userProfileProvider.notifier).save({
+      'name': _controller('name').text.trim(),
+      'email': _controller('email').text.trim(),
+      'gender': _controller('gender').text,
+      'dob': _controller('dob').text,
+    });
+
+    context.push('/signup/verify');
   }
 
   @override
   Widget build(BuildContext context) {
+    final profile = ref.watch(userProfileProvider);
+
     return Scaffold(
       backgroundColor: const Color(0xFFFAF9F6),
       body: SafeArea(
@@ -119,205 +201,117 @@ class _SignupStudentFormPageState extends State<SignupStudentFormPage> {
             Expanded(
               child: SingleChildScrollView(
                 padding: const EdgeInsets.only(bottom: 16),
-                child: Column(
-                  children: [
-                    Padding(
-                      padding: const EdgeInsets.fromLTRB(24, 12, 24, 40),
-                      child: Column(
-                        children: [
-                          const _ProfileUpload(),
-                          const SizedBox(height: 24),
-                          _Field(
-                            label: 'Full Name',
-                            hint: 'e.g. Skill Sikka',
-                            requiredField: true,
-                            controller: _controller('name'),
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(24, 12, 24, 40),
+                  child: Form(
+                    key: _formKey,
+                    autovalidateMode: _autovalidateMode,
+                    child: Column(
+                      children: [
+                        ProfilePhotoPicker(
+                          photoBytes: profile.photoBytes,
+                          onTap: _pickProfilePhoto,
+                        ),
+                        const SizedBox(height: 24),
+                        _Field(
+                          label: 'Full Name',
+                          hint: 'e.g. Skill Sikka',
+                          requiredField: true,
+                          controller: _controller('name'),
+                          keyboardType: TextInputType.name,
+                          textInputAction: TextInputAction.next,
+                          validator: validateFullName,
+                        ),
+                        const SizedBox(height: 16),
+                        _Field(
+                          label: 'Email Address',
+                          hint: 'e.g. skill@email.com',
+                          requiredField: true,
+                          leading: 'assets/figma/signup_mail.svg',
+                          controller: _controller('email'),
+                          keyboardType: TextInputType.emailAddress,
+                          textInputAction: TextInputAction.next,
+                          validator: validateEmail,
+                        ),
+                        const SizedBox(height: 16),
+                        _PasswordField(
+                          label: 'Password',
+                          controller: _controller('password'),
+                          requiredField: true,
+                          obscure: _obscurePassword,
+                          onToggle: _togglePassword,
+                          validator: validatePassword,
+                          // The confirmation rule depends on this value, so
+                          // editing it has to re-check the pair.
+                          onChanged: (_) => _revalidate(),
+                        ),
+                        const SizedBox(height: 16),
+                        _PasswordField(
+                          label: 'Confirm Password',
+                          controller: _controller('confirm'),
+                          requiredField: true,
+                          obscure: _obscurePassword,
+                          onToggle: _togglePassword,
+                          validator: (value) => validateConfirmPassword(
+                            value,
+                            _controller('password').text,
                           ),
-                          const SizedBox(height: 16),
-                          _Field(
-                            label: 'Email Address',
-                            hint: 'e.g. skill@email.com',
-                            requiredField: true,
-                            leading: 'assets/figma/signup_mail.svg',
-                            controller: _controller('email'),
-                          ),
-                          const SizedBox(height: 16),
-                          _PasswordField(
-                            label: 'Password',
-                            controller: _controller('password'),
-                            requiredField: true,
-                            obscure: _obscurePassword,
-                            onToggle: _togglePassword,
-                          ),
-                          const SizedBox(height: 16),
-                          _PasswordField(
-                            label: 'Confirm Password',
-                            controller: _controller('confirm'),
-                            requiredField: true,
-                            obscure: _obscurePassword,
-                            onToggle: _togglePassword,
-                          ),
-                          const SizedBox(height: 16),
-                          Row(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Expanded(
-                                child: _Field(
-                                  label: 'Gender',
-                                  hint: 'Select gender',
-                                  requiredField: true,
-                                  trailing:
-                                      'assets/figma/signup_chevron_down.svg',
-                                  controller: _controller('gender'),
-                                  onTap: () => _selectGender(),
-                                ),
+                        ),
+                        const SizedBox(height: 16),
+                        Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Expanded(
+                              child: _Field(
+                                label: 'Gender',
+                                hint: 'Select gender',
+                                requiredField: true,
+                                trailing:
+                                    'assets/figma/signup_chevron_down.svg',
+                                controller: _controller('gender'),
+                                onTap: () => _selectGender(),
+                                validator: (value) =>
+                                    validateChoice(value, 'gender'),
                               ),
-                              const SizedBox(width: 8),
-                              Expanded(
-                                child: _Field(
-                                  label: 'Date of Birth',
-                                  hint: 'DD / MM / YYYY',
-                                  requiredField: true,
-                                  controller: _controller('dob'),
-                                  onTap: () => _selectDateOfBirth(),
-                                ),
-                              ),
-                            ],
-                          ),
-                          const SizedBox(height: 16),
-                          _Field(
-                            label: 'Phone Number',
-                            hint: '+977 98XXXXXXXX',
-                            requiredField: true,
-                            controller: _controller('phone'),
-                          ),
-                          const SizedBox(height: 16),
-                          _Field(
-                            label: 'Location',
-                            hint: 'Enter your current location',
-                            requiredField: true,
-                            leading: 'assets/figma/signup_location.svg',
-                            controller: _controller('location'),
-                            trailingWidget: CurrentLocationButton(
-                              onPressed: () =>
-                                  _promptForLocation(skipIntro: true),
                             ),
-                          ),
-                          const LocationFieldHint(),
-                          const SizedBox(height: 16),
-                          _Field(
-                            label: 'Class / Grade',
-                            hint: 'Select your class',
-                            requiredField: true,
-                            trailing: 'assets/figma/signup_chevron_down.svg',
-                            controller: _controller('class'),
-                            onTap: () => _selectClass(),
-                          ),
-                          const SizedBox(height: 16),
-                          Row(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Expanded(
-                                child: _Field(
-                                  label: 'Province',
-                                  hint: 'Select province',
-                                  hintFontSize: 12,
-                                  requiredField: true,
-                                  trailing:
-                                      'assets/figma/signup_chevron_down.svg',
-                                  controller: _controller('province'),
-                                  onTap: () => _selectProvince(),
-                                ),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: _Field(
+                                label: 'Date of Birth',
+                                hint: 'DD / MM / YYYY',
+                                requiredField: true,
+                                controller: _controller('dob'),
+                                onTap: () => _selectDateOfBirth(),
+                                validator: validateDateOfBirth,
                               ),
-                              const SizedBox(width: 8),
-                              Expanded(
-                                child: _Field(
-                                  label: 'District',
-                                  hint: 'Select province first',
-                                  hintFontSize: 11,
-                                  requiredField: true,
-                                  trailing:
-                                      'assets/figma/signup_chevron_down.svg',
-                                  controller: _controller('district'),
-                                  enabled: _controller(
-                                    'province',
-                                  ).text.isNotEmpty,
-                                  onTap: () => _selectDistrict(),
-                                ),
-                              ),
-                            ],
-                          ),
-                          const SizedBox(height: 16),
-                          _Field(
-                            label: 'School / College (Select district first)',
-                            hint: 'Select school or college',
-                            trailing: 'assets/figma/signup_chevron_down.svg',
-                            controller: _controller('school'),
-                            enabled: _controller('district').text.isNotEmpty,
-                            onTap: () => _selectSchool(),
-                          ),
-                          const SizedBox(height: 16),
-                          _UploadCard(
-                            pickedFile: _studentIdCard,
-                            onTap: _pickStudentIdCard,
-                            onClear: () =>
-                                setState(() => _studentIdCard = null),
-                          ),
-                          const SizedBox(height: 20),
-                          Container(
-                            padding: const EdgeInsets.all(12),
-                            decoration: BoxDecoration(
-                              color: const Color(0xFFFFFBF0),
-                              borderRadius: BorderRadius.circular(12),
                             ),
-                            child: Row(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                SvgPicture.asset(
-                                  'assets/figma/signup_info.svg',
-                                  width: 18,
-                                  height: 18,
-                                ),
-                                const SizedBox(width: 8),
-                                Expanded(
-                                  child: Text(
-                                    "Our admin team reviews all verification requests within 24-48 business hours. You'll receive an email notification once approved.",
-                                    style: GoogleFonts.manrope(
-                                      color: const Color(0xFF2F2600),
-                                      fontSize: 11,
-                                      height: 1.4,
-                                    ),
-                                  ),
-                                ),
-                              ],
+                          ],
+                        ),
+                        const SizedBox(height: 20),
+                        SizedBox(
+                          width: double.infinity,
+                          height: 52,
+                          child: FilledButton(
+                            onPressed: _submit,
+                            style: FilledButton.styleFrom(
+                              backgroundColor: const Color(0xFFE6B800),
+                              foregroundColor: const Color(0xFF111827),
+                              elevation: 4,
+                              shadowColor: const Color(0x40E6B800),
+                              shape: const StadiumBorder(),
                             ),
-                          ),
-                          const SizedBox(height: 20),
-                          SizedBox(
-                            width: double.infinity,
-                            height: 52,
-                            child: FilledButton(
-                              onPressed: _submit,
-                              style: FilledButton.styleFrom(
-                                backgroundColor: const Color(0xFFE6B800),
-                                foregroundColor: const Color(0xFF111827),
-                                elevation: 4,
-                                shadowColor: const Color(0x40E6B800),
-                                shape: const StadiumBorder(),
-                              ),
-                              child: Text(
-                                'Submit Verification',
-                                style: GoogleFonts.manrope(
-                                  fontSize: 16,
-                                  fontWeight: FontWeight.w700,
-                                ),
+                            child: Text(
+                              'Create Account',
+                              style: GoogleFonts.manrope(
+                                fontSize: 16,
+                                fontWeight: FontWeight.w700,
                               ),
                             ),
                           ),
-                        ],
-                      ),
+                        ),
+                      ],
                     ),
-                  ],
+                  ),
                 ),
               ),
             ),
@@ -330,54 +324,15 @@ class _SignupStudentFormPageState extends State<SignupStudentFormPage> {
   void _togglePassword() =>
       setState(() => _obscurePassword = !_obscurePassword);
 
-  Future<void> _pickStudentIdCard() async {
-    final result = await FilePicker.platform.pickFiles(
-      type: FileType.custom,
-      allowedExtensions: const ['jpg', 'jpeg', 'png', 'pdf'],
-      withData: false,
-    );
-
-    if (result == null || result.files.isEmpty) return;
-    final file = result.files.single;
-    final extension = file.extension?.toLowerCase();
-    const allowedExtensions = {'jpg', 'jpeg', 'png', 'pdf'};
-
-    if (extension == null || !allowedExtensions.contains(extension)) {
-      _showUploadError('Please select a JPG, PNG, or PDF file.');
-      return;
-    }
-
-    if (file.size > 5 * 1024 * 1024) {
-      _showUploadError('Student ID card must be 5 MB or smaller.');
-      return;
-    }
-
-    if (!mounted) return;
-    setState(() => _studentIdCard = file);
-  }
-
-  void _showUploadError(String message) {
-    if (!mounted) return;
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(SnackBar(content: Text(message)));
-  }
-
-  void _submit() {
-    if (_studentIdCard == null) {
-      _showUploadError('Please upload your student ID card first.');
-      return;
-    }
-    context.push('/signup/verify');
-  }
-
   Future<void> _selectGender() async {
     final value = await _pickOption(context, 'Select gender', const [
       'Female',
       'Male',
       'Other',
     ]);
-    if (value != null) setState(() => _controller('gender').text = value);
+    if (value == null) return;
+    setState(() => _controller('gender').text = value);
+    _revalidate();
   }
 
   Future<void> _selectDateOfBirth() async {
@@ -387,64 +342,11 @@ class _SignupStudentFormPageState extends State<SignupStudentFormPage> {
       firstDate: DateTime(1950),
       lastDate: DateTime.now(),
     );
-    if (date != null) {
-      final day = date.day.toString().padLeft(2, '0');
-      final month = date.month.toString().padLeft(2, '0');
-      setState(() => _controller('dob').text = '$day / $month / ${date.year}');
-    }
-  }
-
-  Future<void> _selectClass() async {
-    final value = await _pickOption(context, 'Select class', const [
-      'Class 8',
-      'Class 9',
-      'Class 10',
-      'Class 11',
-      'Class 12',
-    ]);
-    if (value != null) setState(() => _controller('class').text = value);
-  }
-
-  Future<void> _selectProvince() async {
-    final value = await _pickOption(context, 'Select province', const [
-      'Bagmati',
-      'Gandaki',
-      'Koshi',
-      'Lumbini',
-    ]);
-    if (value != null) {
-      setState(() {
-        _controller('province').text = value;
-        _controller('district').clear();
-        _controller('school').clear();
-      });
-    }
-  }
-
-  Future<void> _selectDistrict() async {
-    if (_controller('province').text.isEmpty) return;
-    final value = await _pickOption(context, 'Select district', const [
-      'Kathmandu',
-      'Lalitpur',
-      'Bhaktapur',
-      'Chitwan',
-    ]);
-    if (value != null) {
-      setState(() {
-        _controller('district').text = value;
-        _controller('school').clear();
-      });
-    }
-  }
-
-  Future<void> _selectSchool() async {
-    if (_controller('district').text.isEmpty) return;
-    final value = await _pickOption(context, 'Select school or college', const [
-      'Skill Sikka Academy',
-      'Kathmandu Model College',
-      'National College',
-    ]);
-    if (value != null) setState(() => _controller('school').text = value);
+    if (date == null) return;
+    final day = date.day.toString().padLeft(2, '0');
+    final month = date.month.toString().padLeft(2, '0');
+    setState(() => _controller('dob').text = '$day / $month / ${date.year}');
+    _revalidate();
   }
 }
 
@@ -493,50 +395,6 @@ class _Header extends StatelessWidget {
   );
 }
 
-class _ProfileUpload extends StatelessWidget {
-  const _ProfileUpload();
-
-  @override
-  Widget build(BuildContext context) => Column(
-    children: [
-      Container(
-        padding: const EdgeInsets.all(4),
-        decoration: BoxDecoration(
-          border: Border.all(color: const Color(0xFFFFFBF0), width: 2),
-          shape: BoxShape.circle,
-        ),
-        child: Container(
-          width: 60,
-          height: 60,
-          decoration: const BoxDecoration(
-            color: Color.fromARGB(255, 244, 240, 230),
-            shape: BoxShape.circle,
-          ),
-          padding: const EdgeInsets.all(10),
-          child: SvgPicture.asset('assets/figma/signup_camera.svg'),
-        ),
-      ),
-      const SizedBox(height: 5),
-      Text(
-        'Upload Profile Photo',
-        style: GoogleFonts.manrope(
-          color: const Color(0xFF111827),
-          fontSize: 15,
-          fontWeight: FontWeight.w700,
-        ),
-      ),
-      Text(
-        'Clear face photo (JPG, PNG • Max 5MB)',
-        style: GoogleFonts.manrope(
-          color: const Color.fromARGB(255, 111, 113, 117),
-          fontSize: 13,
-          fontWeight: FontWeight.w500,
-        ),
-      ),
-    ],
-  );
-}
-
 class _Field extends StatelessWidget {
   const _Field({
     required this.label,
@@ -547,9 +405,11 @@ class _Field extends StatelessWidget {
     this.trailing,
     this.trailingWidget,
     this.onTap,
-    this.enabled = true,
+    this.onChanged,
+    this.validator,
+    this.keyboardType,
+    this.textInputAction,
     this.obscureText = false,
-    this.hintFontSize = 14,
   });
   final String label;
   final String hint;
@@ -559,9 +419,11 @@ class _Field extends StatelessWidget {
   final String? trailing;
   final Widget? trailingWidget;
   final VoidCallback? onTap;
-  final bool enabled;
+  final ValueChanged<String>? onChanged;
+  final FormFieldValidator<String>? validator;
+  final TextInputType? keyboardType;
+  final TextInputAction? textInputAction;
   final bool obscureText;
-  final double hintFontSize;
 
   @override
   Widget build(BuildContext context) => Column(
@@ -585,11 +447,14 @@ class _Field extends StatelessWidget {
         ),
       ),
       const SizedBox(height: 6),
-      TextField(
+      TextFormField(
         controller: controller,
-        enabled: enabled,
         readOnly: onTap != null,
         onTap: onTap,
+        onChanged: onChanged,
+        validator: validator,
+        keyboardType: keyboardType,
+        textInputAction: textInputAction,
         obscureText: obscureText,
         style: GoogleFonts.manrope(
           color: const Color(0xFF111827),
@@ -599,8 +464,15 @@ class _Field extends StatelessWidget {
           hintText: hint,
           hintStyle: GoogleFonts.manrope(
             color: const Color(0xFF9CA3AF),
-            fontSize: hintFontSize,
+            fontSize: 14,
           ),
+          errorStyle: GoogleFonts.manrope(
+            color: const Color(0xFFEF4444),
+            fontSize: 12,
+            fontWeight: FontWeight.w600,
+          ),
+          // Two lines keeps a long message readable in the two-up rows.
+          errorMaxLines: 2,
           prefixIcon: leading == null
               ? null
               : Padding(
@@ -616,7 +488,7 @@ class _Field extends StatelessWidget {
                       icon: SvgPicture.asset(trailing!, width: 16, height: 16),
                     )),
           filled: true,
-          fillColor: enabled ? Colors.white : const Color(0xFFF2F1F7),
+          fillColor: Colors.white,
           contentPadding: const EdgeInsets.symmetric(
             horizontal: 16,
             vertical: 12,
@@ -629,13 +501,17 @@ class _Field extends StatelessWidget {
             borderRadius: BorderRadius.circular(12),
             borderSide: const BorderSide(color: Color(0xFFE5E7EB)),
           ),
-          disabledBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(12),
-            borderSide: const BorderSide(color: Color(0xFFE5E7EB)),
-          ),
           focusedBorder: OutlineInputBorder(
             borderRadius: BorderRadius.circular(12),
             borderSide: const BorderSide(color: Color(0xFFE6B800)),
+          ),
+          errorBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(12),
+            borderSide: const BorderSide(color: Color(0xFFEF4444)),
+          ),
+          focusedErrorBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(12),
+            borderSide: const BorderSide(color: Color(0xFFEF4444), width: 1.5),
           ),
         ),
       ),
@@ -650,12 +526,16 @@ class _PasswordField extends StatelessWidget {
     required this.requiredField,
     required this.obscure,
     required this.onToggle,
+    this.validator,
+    this.onChanged,
   });
   final String label;
   final TextEditingController controller;
   final bool requiredField;
   final bool obscure;
   final VoidCallback onToggle;
+  final FormFieldValidator<String>? validator;
+  final ValueChanged<String>? onChanged;
 
   @override
   Widget build(BuildContext context) => _Field(
@@ -663,6 +543,8 @@ class _PasswordField extends StatelessWidget {
     requiredField: requiredField,
     hint: '••••••••••••',
     controller: controller,
+    validator: validator,
+    onChanged: onChanged,
     leading: 'assets/figma/signup_lock.svg',
     trailingWidget: IconButton(
       onPressed: onToggle,
@@ -690,121 +572,4 @@ class _PasswordField extends StatelessWidget {
     ),
     obscureText: obscure,
   );
-}
-
-class _UploadCard extends StatelessWidget {
-  const _UploadCard({
-    required this.pickedFile,
-    required this.onTap,
-    required this.onClear,
-  });
-
-  final PlatformFile? pickedFile;
-  final VoidCallback onTap;
-  final VoidCallback onClear;
-
-  @override
-  Widget build(BuildContext context) => Column(
-    crossAxisAlignment: CrossAxisAlignment.start,
-    children: [
-      Text(
-        'Student ID Card',
-        style: GoogleFonts.manrope(
-          color: const Color(0xFF111827),
-          fontSize: 11,
-          fontWeight: FontWeight.w600,
-        ),
-      ),
-      const SizedBox(height: 6),
-      GestureDetector(
-        onTap: onTap,
-        behavior: HitTestBehavior.opaque,
-        child: Container(
-          width: double.infinity,
-          padding: const EdgeInsets.all(20),
-          decoration: BoxDecoration(
-            color: const Color(0xFFFFFBF0),
-            border: Border.all(color: const Color(0xFFE6B800)),
-            borderRadius: BorderRadius.circular(12),
-          ),
-          child: pickedFile == null
-              ? Column(
-                  children: [
-                    _uploadIcon(),
-                    const SizedBox(height: 12),
-                    Text(
-                      'Upload Document',
-                      style: GoogleFonts.manrope(
-                        color: const Color(0xFF2F2600),
-                        fontSize: 14,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                    Text(
-                      'Supported formats: PDF, JPG, PNG (Max 5MB)',
-                      style: GoogleFonts.manrope(
-                        color: const Color(0xFF4B5563),
-                        fontSize: 11,
-                      ),
-                    ),
-                  ],
-                )
-              : Row(
-                  children: [
-                    _uploadIcon(),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            pickedFile!.name,
-                            maxLines: 2,
-                            overflow: TextOverflow.ellipsis,
-                            style: GoogleFonts.manrope(
-                              color: const Color(0xFF2F2600),
-                              fontSize: 13,
-                              fontWeight: FontWeight.w700,
-                            ),
-                          ),
-                          const SizedBox(height: 3),
-                          Text(
-                            '${_formatSize(pickedFile!.size)} • Tap to replace',
-                            style: GoogleFonts.manrope(
-                              color: const Color(0xFF4B5563),
-                              fontSize: 11,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    IconButton(
-                      onPressed: onClear,
-                      tooltip: 'Remove student ID card',
-                      icon: const Icon(Icons.close, size: 20),
-                    ),
-                  ],
-                ),
-        ),
-      ),
-    ],
-  );
-
-  Widget _uploadIcon() => Container(
-    width: 40,
-    height: 40,
-    padding: const EdgeInsets.all(10),
-    decoration: const BoxDecoration(
-      color: Color(0xFFE6B800),
-      shape: BoxShape.circle,
-    ),
-    child: SvgPicture.asset('assets/figma/signup_student_file.svg'),
-  );
-
-  String _formatSize(int bytes) {
-    if (bytes < 1024 * 1024) {
-      return '${(bytes / 1024).toStringAsFixed(0)} KB';
-    }
-    return '${(bytes / (1024 * 1024)).toStringAsFixed(2)} MB';
-  }
 }

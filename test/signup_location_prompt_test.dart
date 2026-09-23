@@ -2,10 +2,12 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:skillsikka/core/location/location_service.dart';
 import 'package:skillsikka/core/widgets/location_prompt_dialog.dart';
+import 'package:skillsikka/features/profile/data/user_profile.dart';
 import 'package:skillsikka/features/signup/presentation/signup_student_form_page.dart';
 
 /// Same channel `geolocator` uses; stubbing it keeps the real service
@@ -97,7 +99,9 @@ void main() {
       // 0 == LocationPermission.denied, i.e. a first-time visitor.
       _mockGeolocatorPermission(0);
 
-      await tester.pumpWidget(const MaterialApp(home: SignupStudentFormPage()));
+      await tester.pumpWidget(
+        const ProviderScope(child: MaterialApp(home: SignupStudentFormPage())),
+      );
       // The permission check is a platform round-trip, so the popup lands a
       // frame or two after the form paints.
       await tester.pump();
@@ -114,10 +118,21 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.text('Use your current location?'), findsNothing);
-      expect(
-        find.text('Tap the crosshair to fill this from your current location'),
-        findsOneWidget,
-      );
+
+      // The form kept its identity fields...
+      expect(find.text('e.g. Skill Sikka'), findsOneWidget);
+      expect(find.text('e.g. skill@email.com'), findsOneWidget);
+      expect(find.text('Create Account'), findsOneWidget);
+      // ...exactly six inputs, no more.
+      expect(find.byType(TextField), findsNWidgets(6));
+
+      // ...and the fields that moved to Edit Profile are gone, Location
+      // included. Asserted through the hints because this form draws its
+      // labels with a raw RichText, which the text finders do not match.
+      expect(find.text('Enter your current location'), findsNothing);
+      expect(find.text('Select your class'), findsNothing);
+      expect(find.text('+977 98XXXXXXXX'), findsNothing);
+      expect(find.text('Select school or college'), findsNothing);
     },
   );
 
@@ -251,12 +266,20 @@ void main() {
     expect(find.text('Try Again'), findsOneWidget);
   });
 
-  testWidgets('detected value pre-fills the field but leaves it editable', (
+  testWidgets('the detected location goes to the draft, not to a form field', (
     tester,
   ) async {
     final service = _FakeLocationService(result: _kathmandu);
+    final container = ProviderContainer();
+    addTearDown(container.dispose);
+
     await tester.pumpWidget(
-      MaterialApp(home: SignupStudentFormPage(locationService: service)),
+      UncontrolledProviderScope(
+        container: container,
+        child: MaterialApp(
+          home: SignupStudentFormPage(locationService: service),
+        ),
+      ),
     );
     await tester.pumpAndSettle();
 
@@ -267,27 +290,16 @@ void main() {
     await tester.tap(find.text('Use This Location'));
     await tester.pumpAndSettle();
 
-    expect(find.text('Baneshwor, Kathmandu'), findsOneWidget);
-
-    // Still a normal text input, so the user can correct it by hand.
-    final locationField = tester.widget<TextField>(
-      find.ancestor(
-        of: find.text('Baneshwor, Kathmandu'),
-        matching: find.byType(TextField),
-      ),
+    // The Location field lives on Edit Profile now, so signup keeps the value
+    // on the draft and acknowledges it with a snack bar rather than a field.
+    expect(
+      container.read(userProfileProvider).valueFor('location'),
+      'Baneshwor, Kathmandu',
     );
-    expect(locationField.readOnly, isFalse);
-    expect(locationField.enabled, isTrue);
+    expect(find.textContaining('Location saved'), findsOneWidget);
 
-    // ...and typing over it works.
-    await tester.enterText(
-      find.ancestor(
-        of: find.text('Baneshwor, Kathmandu'),
-        matching: find.byType(TextField),
-      ),
-      'Pokhara, Gandaki',
-    );
-    await tester.pump();
-    expect(find.text('Pokhara, Gandaki'), findsOneWidget);
+    // Let the snack bar expire so no timer outlives the test.
+    await tester.pump(const Duration(seconds: 5));
+    await tester.pumpAndSettle();
   });
 }

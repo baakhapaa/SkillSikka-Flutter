@@ -46,8 +46,20 @@ Future<FakeAuthRepository> _pumpVerify(
       child: MaterialApp.router(routerConfig: router),
     ),
   );
-  await tester.pumpAndSettle();
+  await tester.pump();
   return auth;
+}
+
+/// Pumps enough frames for a stubbed request to finish and the UI to catch up.
+///
+/// Deliberately not [WidgetTester.pumpAndSettle]. The resend countdown schedules
+/// a frame every second, so "no frames scheduled" is not a state this screen
+/// reaches until the cooldown expires — pumpAndSettle would fast-forward the
+/// whole 45 seconds and quietly change the thing under test.
+Future<void> _settleRequest(WidgetTester tester) async {
+  for (var frame = 0; frame < 4; frame++) {
+    await tester.pump(const Duration(milliseconds: 50));
+  }
 }
 
 /// Types [code] one digit at a time, the way a person does.
@@ -57,6 +69,16 @@ Future<void> _enterCode(WidgetTester tester, String code) async {
   for (var index = 0; index < code.length; index++) {
     await tester.enterText(boxes.at(index), code[index]);
     await tester.pump();
+  }
+}
+
+/// Lets the resend cooldown expire, one second per frame.
+///
+/// One second at a time rather than a single 45-second pump so the tick is
+/// exercised the way it actually runs.
+Future<void> _runOutCooldown(WidgetTester tester) async {
+  for (var second = 0; second < 46; second++) {
+    await tester.pump(const Duration(seconds: 1));
   }
 }
 
@@ -101,7 +123,7 @@ void main() {
 
     await _enterCode(tester, '1234');
     await tester.tap(find.text('Verify'));
-    await tester.pumpAndSettle();
+    await _settleRequest(tester);
 
     expect(auth.verifications, hasLength(1));
     expect(auth.verifications.single.email, 'skill@email.com');
@@ -117,7 +139,7 @@ void main() {
 
     await _enterCode(tester, '12');
     await tester.tap(find.text('Verify'));
-    await tester.pumpAndSettle();
+    await _settleRequest(tester);
 
     // It used to push on any input at all, including none.
     expect(find.text('Enter the 4-digit code.'), findsOneWidget);
@@ -144,11 +166,88 @@ void main() {
 
     await _enterCode(tester, '0000');
     await tester.tap(find.text('Verify'));
-    await tester.pumpAndSettle();
+    await _settleRequest(tester);
 
     expect(find.text('That code is not correct.'), findsOneWidget);
     expect(navigated, isEmpty, reason: 'a rejected code must not advance');
 
     await tester.pump(const Duration(seconds: 5));
+  });
+
+  testWidgets('resending is locked until the countdown runs out', (
+    tester,
+  ) async {
+    await _pumpVerify(tester);
+
+    // The label used to be a hardcoded "00:45" with nothing behind it: the
+    // number was decoration and the action did not exist at all.
+    expect(find.textContaining('Resend code in 00:45'), findsOneWidget);
+    // No way to ask for another code while the first is still fresh. The guard
+    // inside _resend is unreachable through the UI, so what is worth pinning is
+    // that the screen offers no early resend at all.
+    expect(find.text('Resend code'), findsNothing);
+
+    await tester.pump(const Duration(seconds: 1));
+    expect(find.textContaining('Resend code in 00:44'), findsOneWidget);
+    expect(find.text('Resend code'), findsNothing);
+  });
+
+  testWidgets('the countdown ending offers a resend that sends the email', (
+    tester,
+  ) async {
+    final auth = await _pumpVerify(tester);
+
+    await _runOutCooldown(tester);
+
+    expect(find.textContaining('Resend code in'), findsNothing);
+    expect(find.text('Resend code'), findsOneWidget);
+
+    await tester.tap(find.text('Resend code'));
+    await _settleRequest(tester);
+
+    expect(auth.resends, ['skill@email.com']);
+    expect(find.textContaining('skill@email.com'), findsWidgets);
+
+    await tester.pump(const Duration(seconds: 5));
+  });
+
+  testWidgets('a failed resend stays retryable instead of relocking', (
+    tester,
+  ) async {
+    final auth = await _pumpVerify(tester);
+    auth.failure = const ApiException(
+      kind: ApiErrorKind.badRequest,
+      statusCode: 400,
+      message: 'That address cannot be used.',
+    );
+
+    await _runOutCooldown(tester);
+    await tester.tap(find.text('Resend code'));
+    await _settleRequest(tester);
+
+    expect(find.text('That address cannot be used.'), findsOneWidget);
+    // A failed resend sent nothing, so restarting the 45-second wait would
+    // leave the user with no code and no way to ask for another.
+    expect(
+      find.text('Resend code'),
+      findsOneWidget,
+      reason: 'the action must not be locked again by a failure',
+    );
+
+    await tester.pump(const Duration(seconds: 5));
+  });
+
+  testWidgets('the countdown is cancelled when the screen goes away', (
+    tester,
+  ) async {
+    await _pumpVerify(tester);
+
+    // Replace the screen, which disposes the State while its periodic timer is
+    // still running. Without the cancel in dispose, the next tick calls
+    // setState on a dead State and the test fails on that exception.
+    await tester.pumpWidget(const MaterialApp(home: SizedBox()));
+    await tester.pump(const Duration(seconds: 60));
+
+    expect(tester.takeException(), isNull);
   });
 }

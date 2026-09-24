@@ -902,10 +902,13 @@ class _InstructorProfilePageState extends State<InstructorProfilePage> {
     if (shouldLogout != true || !mounted) return;
 
     // Clear the in-memory session before replacing the navigation stack.
-    ProviderScope.containerOf(
-      context,
-      listen: false,
-    ).read(authTokenProvider.notifier).state = null;
+    final container = ProviderScope.containerOf(context, listen: false);
+    container.read(authTokenProvider.notifier).state = null;
+    // And the profile with it. Dropping only the token left the previous user's
+    // name, photo and documents in the store, so the next person to sign in on
+    // this device would see them — including on the profile screens, which read
+    // straight from here. `clear()` existed for this and was never called.
+    container.read(userProfileProvider.notifier).clear();
     context.go('/login-screen');
   }
 }

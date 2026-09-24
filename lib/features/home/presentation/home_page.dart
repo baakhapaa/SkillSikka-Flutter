@@ -1664,11 +1664,22 @@ class _HomePageState extends State<HomePage>
                       child: Row(
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
-                          Text(
-                            'Start Learning',
-                            style: GoogleFonts.inter(
-                              fontSize: 13,
-                              fontWeight: FontWeight.w700,
+                          // The button is a fixed 137pt wide (see the Container
+                          // above), so the label has to be able to give ground.
+                          // Without this it overflows as soon as the text is
+                          // wider than the design's metrics — which happens for
+                          // any larger text scale, and in `flutter test`, where
+                          // no Google font can be fetched and the fallback is
+                          // much wider than Inter.
+                          Flexible(
+                            child: Text(
+                              'Start Learning',
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: GoogleFonts.inter(
+                                fontSize: 13,
+                                fontWeight: FontWeight.w700,
+                              ),
                             ),
                           ),
                           const SizedBox(width: 6),

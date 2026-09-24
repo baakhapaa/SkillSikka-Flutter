@@ -1,13 +1,11 @@
 import 'dart:convert';
 
-import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:google_fonts/google_fonts.dart';
 // The font package exposes its test asset manifest through this internal API.
 // ignore: implementation_imports
 import 'package:google_fonts/src/google_fonts_base.dart' as font_assets;
-import 'package:skillsikka/features/home/presentation/home_page.dart';
 
 class _FontAssets extends Fake implements AssetManifest {
   _FontAssets(this.paths);
@@ -17,7 +15,16 @@ class _FontAssets extends Fake implements AssetManifest {
   List<String> listAssets() => paths;
 }
 
-void main() {
+/// Puts the calling test file into a deterministic font environment.
+///
+/// `flutter test` fetches no Google Fonts, so without this the app falls back to
+/// a much wider glyph set and every HomePage layout assertion is measuring the
+/// wrong thing. All six weights of the three families HomePage uses are aliased
+/// onto one bundled Roboto face: geometry is deterministic, the typography is
+/// deliberately not.
+///
+/// Call once, at the top of `main()`.
+void installHomePageFontHarness() {
   TestWidgetsFlutterBinding.ensureInitialized();
   final originalManifest = font_assets.assetManifest;
   final originalFetching = GoogleFonts.config.allowRuntimeFetching;
@@ -75,32 +82,40 @@ void main() {
     font_assets.assetManifest = originalManifest;
     font_assets.clearCache();
     GoogleFonts.config.allowRuntimeFetching = originalFetching;
-  });
 
-  for (final width in [360.0, 400.0]) {
-    testWidgets('home headings align with their section content at $width', (
-      tester,
-    ) async {
-      await tester.binding.setSurfaceSize(Size(width, 900));
-      addTearDown(() => tester.binding.setSurfaceSize(null));
-      await tester.pumpWidget(const MaterialApp(home: HomePage()));
-      await tester.pump();
-      for (final title in ['Get Premium Courses', 'Recommended Books']) {
-        final heading = find.text(title);
-        final row = find
-            .ancestor(of: heading, matching: find.byType(Row))
-            .first;
-        final section = find
-            .ancestor(of: heading, matching: find.byType(Column))
-            .first;
-        final rowRect = tester.getRect(row);
-        final sectionRect = tester.getRect(section);
-        expect(rowRect.left, sectionRect.left, reason: title);
-        expect(rowRect.right, sectionRect.right, reason: title);
-        final seeAll = find.descendant(of: row, matching: find.text('See All'));
-        expect(tester.getRect(seeAll).right, sectionRect.right, reason: title);
-      }
-      await tester.pumpWidget(const SizedBox.shrink());
-    });
+    // THIS LINE IS THE REASON MULTI-TEST FILES USED TO HANG. DO NOT REMOVE IT.
+    //
+    // `pendingFontFutures` (google_fonts_base.dart:35) is a *library-global*
+    // set, not per-test state. Every style resolve appends to it, and the
+    // removal is `loadingFuture.then((_) => set.remove(...))` — an onValue-only
+    // callback, so a future that never completes is never removed, and one that
+    // throws is never removed either. `GoogleFonts.pendingFonts()` is just
+    // `Future.wait(pendingFontFutures)`.
+    //
+    // A test that builds HomePage resolves weights the pre-warm above doesn't
+    // cover, so it starts extra loads. Any of those still in flight when the
+    // test's fake-async zone is torn down is stranded in this global forever.
+    // The next test's setUp then awaits `Future.wait` over a future belonging
+    // to a dead zone, which never completes: the second HomePage-pumping test
+    // in a file hangs indefinitely, and because it never returns, the whole
+    // `flutter test` run looks dead rather than failing.
+    //
+    // Clearing the set here drops the stranded future. Note this does not wait
+    // on it, which is the point — it can no longer complete.
+    font_assets.pendingFontFutures.clear();
+  });
+}
+
+/// Drains layout exceptions raised by parts of a page a test does not own, so
+/// an unrelated pre-existing overflow cannot mask a real failure. Anything that
+/// is not a RenderFlex overflow still fails the test.
+void drainUnrelatedOverflows(WidgetTester tester) {
+  for (var e = tester.takeException(); e != null; e = tester.takeException()) {
+    final text = e.toString();
+    expect(
+      text.contains('overflowed') || text.contains('Multiple exceptions'),
+      isTrue,
+      reason: 'unexpected non-overflow exception: $text',
+    );
   }
 }

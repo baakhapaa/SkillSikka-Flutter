@@ -1,94 +1,12 @@
-import 'dart:convert';
-
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:google_fonts/google_fonts.dart';
-// The font package exposes its test asset manifest through this internal API.
-// ignore: implementation_imports
-import 'package:google_fonts/src/google_fonts_base.dart' as font_assets;
 import 'package:skillsikka/core/widgets/section_bar.dart';
 import 'package:skillsikka/features/home/presentation/home_page.dart';
 
-class _FontAssets extends Fake implements AssetManifest {
-  _FontAssets(this.paths);
-  final List<String> paths;
-
-  @override
-  List<String> listAssets() => paths;
-}
+import 'support/home_page_font_harness.dart';
 
 void main() {
-  TestWidgetsFlutterBinding.ensureInitialized();
-  final originalManifest = font_assets.assetManifest;
-  final originalFetching = GoogleFonts.config.allowRuntimeFetching;
-  final messenger =
-      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
-  const weights = [
-    FontWeight.w300,
-    FontWeight.w400,
-    FontWeight.w500,
-    FontWeight.w600,
-    FontWeight.w700,
-    FontWeight.w800,
-  ];
-  const suffixes = [
-    'Light',
-    'Regular',
-    'Medium',
-    'SemiBold',
-    'Bold',
-    'ExtraBold',
-  ];
-  final aliases = {
-    for (final family in ['Manrope', 'Figtree', 'Inter'])
-      for (final suffix in suffixes) 'test-fonts/$family-$suffix.ttf',
-  };
-
-  setUp(() async {
-    GoogleFonts.config.allowRuntimeFetching = false;
-    font_assets.clearCache();
-    final bytes = await rootBundle.load('assets/fonts/roboto/Regular.ttf');
-    final loader = FontLoader('Roboto')..addFont(Future.value(bytes));
-    await loader.load();
-    font_assets.assetManifest = _FontAssets(aliases.toList());
-    messenger.setMockMessageHandler('flutter/assets', (message) {
-      final key = utf8.decode(
-        message!.buffer.asUint8List(
-          message.offsetInBytes,
-          message.lengthInBytes,
-        ),
-      );
-      if (aliases.contains(key)) return Future.value(bytes);
-      return messenger.delegate.send('flutter/assets', message);
-    });
-    for (final weight in weights) {
-      GoogleFonts.manrope(fontWeight: weight);
-      GoogleFonts.figtree(fontWeight: weight);
-      GoogleFonts.inter(fontWeight: weight);
-    }
-    await GoogleFonts.pendingFonts();
-  });
-
-  tearDown(() {
-    messenger.setMockMessageHandler('flutter/assets', null);
-    font_assets.assetManifest = originalManifest;
-    font_assets.clearCache();
-    GoogleFonts.config.allowRuntimeFetching = originalFetching;
-  });
-
-  /// Drains layout exceptions raised by parts of the home page this test does
-  /// not own, so an unrelated pre-existing overflow can't mask a real failure
-  /// here. Anything that is not a RenderFlex overflow still fails the test.
-  void drainUnrelatedOverflows(WidgetTester tester) {
-    for (var e = tester.takeException(); e != null; e = tester.takeException()) {
-      expect(
-        e.toString(),
-        contains('overflowed'),
-        reason: 'unexpected non-overflow exception on the home page',
-      );
-    }
-  }
+  installHomePageFontHarness();
 
   Future<void> pumpHome(WidgetTester tester, double width) async {
     await tester.binding.setSurfaceSize(Size(width, 800));
@@ -97,9 +15,6 @@ void main() {
     await tester.pump();
   }
 
-  // NOTE: kept as a single test on purpose. Pumping HomePage twice in one file
-  // hangs the second test (see home_heading_alignment_test.dart, same symptom),
-  // so both checks share one pump.
   testWidgets('home section headings and enrollment block are aligned', (
     tester,
   ) async {

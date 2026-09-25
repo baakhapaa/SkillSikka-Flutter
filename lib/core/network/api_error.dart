@@ -44,13 +44,28 @@ enum ApiErrorKind {
   unknown,
 }
 
+/// Stable, machine-readable codes the backend sends in an error body.
+///
+/// Branch on these rather than on [ApiException.message] or on the prose inside a
+/// field error: a code is a contract and a message is copy that will change.
+/// Confirmed by the backend handoff §13, which names these two as the ones safe
+/// to use programmatically.
+abstract final class ApiErrorCode {
+  /// Registration was attempted with an email that already has an account. Comes
+  /// back on a 400, and the useful next step is to log in instead.
+  static const emailAlreadyRegistered = 'EMAIL_ALREADY_REGISTERED';
+
+  /// A token was missing, expired or otherwise invalid. Comes back on a 401.
+  static const tokenNotValid = 'token_not_valid';
+}
+
 /// A failed request, in a form the UI can render without knowing about Dio.
 ///
-/// The backend's error shape is not confirmed yet (see
-/// `.workbuddy-ai/docs/backend-api-requirements.md`, section 6), so parsing is
-/// deliberately tolerant: it accepts the envelope we asked for and several
-/// plausible neighbours, and always degrades to something showable rather than
-/// throwing while handling a throw.
+/// The backend's error shape is only partly documented — it says validation
+/// bodies are field-keyed but also warns that "not every error uses one identical
+/// envelope" — so parsing stays tolerant: it accepts the envelope we asked for
+/// and several plausible neighbours, and always degrades to something showable
+/// rather than throwing while handling a throw.
 @immutable
 class ApiException implements Exception {
   const ApiException({
@@ -92,6 +107,19 @@ class ApiException implements Exception {
   /// True when the fix is to sign in again rather than to retry.
   bool get isAuthFailure =>
       kind == ApiErrorKind.unauthorized || kind == ApiErrorKind.forbidden;
+
+  /// True when the response carried [value] as a code, anywhere in the body.
+  ///
+  /// The backend confirms it sends `EMAIL_ALREADY_REGISTERED` but never says
+  /// which key it sits under. [code] covers the envelope keys this file already
+  /// reads; scanning the field errors covers the case where a serializer attaches
+  /// the code to the offending field instead. Both check the *code*, not prose, so
+  /// this stays a contract test rather than a copy test.
+  bool hasCode(String value) {
+    if (value.isEmpty) return false;
+    if (code == value) return true;
+    return fieldErrors.values.any((message) => message.contains(value));
+  }
 
   /// True when trying the same request again could plausibly succeed.
   ///

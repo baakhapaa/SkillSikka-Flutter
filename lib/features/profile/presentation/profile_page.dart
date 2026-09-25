@@ -3,7 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:google_fonts/google_fonts.dart';
 
-import '../../../core/network/api_client.dart';
+import '../../auth/data/auth_repository.dart';
 import '../data/user_profile.dart';
 import 'edit_profile_page.dart';
 
@@ -901,11 +901,16 @@ class _InstructorProfilePageState extends State<InstructorProfilePage> {
 
     if (shouldLogout != true || !mounted) return;
 
-    // Clear the in-memory session before replacing the navigation stack.
+    // Tell the server first, then clear locally. The backend blacklists the
+    // refresh token (handoff §11), so skipping this call would leave it usable
+    // for the rest of its 7 days. `logOut` is best effort and never throws, so
+    // the local clear happens either way.
     final container = ProviderScope.containerOf(context, listen: false);
-    container.read(authTokenProvider.notifier).state = null;
-    // And the profile with it. Dropping only the token left the previous user's
-    // name, photo and documents in the store, so the next person to sign in on
+    await container.read(authRepositoryProvider).logOut();
+    if (!mounted) return;
+
+    // Clear the profile store too. Dropping only the session left the previous
+    // user's name, photo and documents behind, so the next person to sign in on
     // this device would see them — including on the profile screens, which read
     // straight from here. `clear()` existed for this and was never called.
     container.read(userProfileProvider.notifier).clear();

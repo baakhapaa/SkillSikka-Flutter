@@ -13,6 +13,7 @@ import '../../../core/widgets/location_prompt_dialog.dart';
 import '../../../core/widgets/profile_photo_picker.dart';
 import '../../auth/data/auth_repository.dart';
 import '../../auth/data/registration_request.dart';
+import '../../profile/data/gender.dart';
 import '../../profile/data/user_profile.dart';
 
 Future<String?> _pickOption(
@@ -179,6 +180,14 @@ class _SignupStudentFormPageState extends ConsumerState<SignupStudentFormPage> {
     // avatar blanks the screen on Flutter web.
     final bytes = await picked.readAsBytes();
     if (!mounted) return;
+    final rejection = profilePhotoRejection(
+      fileName: picked.name,
+      byteCount: bytes.length,
+    );
+    if (rejection != null) {
+      _showSnack(rejection);
+      return;
+    }
     // The name travels with the bytes: the multipart part's content type is
     // inferred from the extension.
     ref.read(userProfileProvider.notifier).setPhoto(bytes, picked.name);
@@ -234,8 +243,16 @@ class _SignupStudentFormPageState extends ConsumerState<SignupStudentFormPage> {
               // Read here rather than from the store: a password is only ever
               // read by the method that sends it.
               password: _controller('password').text,
-              gender: _controller('gender').text,
-              dob: _controller('dob').text,
+              // The backend requires this on the wire and validates the pair
+              // itself; the client-side check above is not a substitute.
+              confirmPassword: _controller('confirm').text,
+              // The picker stores the label the user saw; the API wants the
+              // lowercase wire value. Mapped here, at the boundary.
+              gender: Gender.wireValueOf(_controller('gender').text),
+              // The form holds DD / MM / YYYY because that is what the user
+              // picks and reads; the API wants ISO, and the backend explicitly
+              // allows the UI to keep displaying the other format.
+              dob: isoDateOf(_controller('dob').text) ?? '',
               photo: PickedDocument(bytes: photo, fileName: photoName),
             ),
           );
@@ -249,12 +266,15 @@ class _SignupStudentFormPageState extends ConsumerState<SignupStudentFormPage> {
       if (!mounted) return;
       setState(() => _isSubmitting = false);
       _applyServerFieldErrors(error);
-      showApiErrorSnack(
+      showSignupErrorSnack(
         context,
         error,
         // True only when something actually landed on an input. The server may
         // name fields this screen does not have, and those must still be said.
         fieldErrorsAreShown: _serverErrors.isNotEmpty,
+        // Offered only when the server says this email already has an account —
+        // then signing in is the one thing worth doing next.
+        onLogIn: () => context.go('/login-screen'),
       );
     }
   }
@@ -458,11 +478,7 @@ class _SignupStudentFormPageState extends ConsumerState<SignupStudentFormPage> {
       setState(() => _obscurePassword = !_obscurePassword);
 
   Future<void> _selectGender() async {
-    final value = await _pickOption(context, 'Select gender', const [
-      'Female',
-      'Male',
-      'Other',
-    ]);
+    final value = await _pickOption(context, 'Select gender', Gender.labels);
     if (value == null) return;
     setState(() => _controller('gender').text = value);
     _revalidate();

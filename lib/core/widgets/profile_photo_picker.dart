@@ -4,6 +4,38 @@ import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:google_fonts/google_fonts.dart';
 
+/// The photo types and size the backend accepts.
+///
+/// Confirmed by the backend handoff §6: JPG, JPEG or PNG, maximum 5 MB, and an
+/// oversized or wrong-typed file comes back as a 400. Checked here so the user is
+/// told before the upload rather than after a round trip — the backend stays
+/// authoritative, this is only the courtesy.
+const kProfilePhotoExtensions = <String>{'jpg', 'jpeg', 'png'};
+const kProfilePhotoMaxBytes = 5 * 1024 * 1024;
+
+/// Why a picked photo cannot be uploaded, or null when it is acceptable.
+///
+/// [fileName] is checked because the backend rejects by type and a renamed file
+/// would otherwise sail through the picker. [byteCount] is the size of what would
+/// actually be sent, not of the file on disk — `image_picker` re-encodes, so the
+/// two differ, and it is the sent bytes that the server measures.
+String? profilePhotoRejection({
+  required String fileName,
+  required int byteCount,
+}) {
+  final dot = fileName.lastIndexOf('.');
+  final extension = dot == -1 ? '' : fileName.substring(dot + 1).toLowerCase();
+  if (!kProfilePhotoExtensions.contains(extension)) {
+    return 'Profile photo must be a JPG or PNG.';
+  }
+  if (byteCount > kProfilePhotoMaxBytes) {
+    // The backend's own wording for this case, so the message does not change
+    // depending on whether the client or the server caught it.
+    return 'Profile photo must not exceed 5 MB.';
+  }
+  return null;
+}
+
 /// Avatar with a camera badge, used by the signup and edit-profile forms.
 ///
 /// Takes the picked photo as **bytes**, not a `File`: `Image.file` asserts

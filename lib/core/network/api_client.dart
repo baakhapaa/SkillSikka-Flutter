@@ -7,12 +7,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../config/app_config_provider.dart';
 import '../config/app_environment.dart';
 import 'api_error.dart';
-
-/// The bearer token for the signed-in user, or null when signed out.
-///
-/// In-memory only: a session does not survive a restart yet. Persisting it is
-/// part of the session work, not the network layer.
-final authTokenProvider = StateProvider<String?>((ref) => null);
+import 'auth_refresh_interceptor.dart';
+import 'session.dart';
 
 final dioProvider = Provider<Dio>((ref) {
   final config = ref.watch(appConfigProvider);
@@ -26,15 +22,16 @@ final dioProvider = Provider<Dio>((ref) {
     ),
   );
 
+  // One interceptor owns the whole token lifecycle: it attaches the access token
+  // to every request, and renews it once when the server says it has expired.
+  // Keeping both halves together is what stops the header and the refresh from
+  // disagreeing about where the token lives.
   dio.interceptors.add(
-    InterceptorsWrapper(
-      onRequest: (options, handler) {
-        final token = ref.read(authTokenProvider);
-        if (token != null && token.isNotEmpty) {
-          options.headers['Authorization'] = 'Bearer $token';
-        }
-        handler.next(options);
-      },
+    AuthRefreshInterceptor(
+      dio: dio,
+      readSession: () => ref.read(sessionProvider),
+      writeSession: (session) =>
+          ref.read(sessionProvider.notifier).state = session,
     ),
   );
 

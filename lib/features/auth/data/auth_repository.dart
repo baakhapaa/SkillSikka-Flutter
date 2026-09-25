@@ -2,6 +2,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/network/api_client.dart';
 import '../../../core/network/api_error.dart';
+import '../../../core/network/session.dart';
+import '../../profile/data/profile_role.dart';
 import 'auth_api.dart';
 import 'registered_account.dart';
 import 'registration_request.dart';
@@ -16,17 +18,40 @@ import 'registration_request.dart';
 /// never a bare socket error. That is what lets a screen decide what to show
 /// without knowing what a `DioException` is.
 abstract interface class AuthRepository {
-  /// Creates the account. The returned account may or may not carry a session,
-  /// depending on whether the backend issues a token here (handover doc §6.1).
+  /// Creates the account and adopts the session the backend returns with it.
+  ///
+  /// There is no email-verification step: registration returns JWT tokens
+  /// immediately (backend handoff §1), so this is the authenticated step.
   Future<RegisteredAccount> register(RegistrationRequest request);
+
+  /// Signs in with email and password, and adopts the session.
+  ///
+  /// Throws [ApiException] on bad credentials — the backend answers 400 with a
+  /// JSON `detail`, not an HTML page.
+  Future<RegisteredAccount> logIn({
+    required String email,
+    required String password,
+  });
+
+  /// Ends the session, server-side and locally.
+  ///
+  /// Best effort on the network call: the backend blacklists the refresh token
+  /// (handoff §11), but the user asked to be signed out, so a failed request must
+  /// not leave them signed in on this device. The local session is cleared either
+  /// way.
+  Future<void> logOut();
 
   /// Confirms the emailed code. Returns the account when verification
   /// established a session, and null when it did not.
+  ///
+  /// **The endpoint does not exist.** Kept only until the signup flow is rewired;
+  /// see [AuthApi.verifyOtp].
   Future<RegisteredAccount?> verifyOtp({
     required String email,
     required String code,
   });
 
+  /// **Does not exist** — see [verifyOtp].
   Future<void> resendOtp({required String email});
 }
 
@@ -34,18 +59,47 @@ abstract interface class AuthRepository {
 class DioAuthRepository implements AuthRepository {
   DioAuthRepository({
     required ApiClient client,
-    required StateController<String?> authToken,
+    required StateController<Session?> session,
   }) : _api = AuthApi(client),
-       _authToken = authToken;
+       _session = session;
 
   final AuthApi _api;
-  final StateController<String?> _authToken;
+  final StateController<Session?> _session;
 
   @override
   Future<RegisteredAccount> register(RegistrationRequest request) async {
     final account = await _api.register(request);
     _adopt(account);
     return account;
+  }
+
+  @override
+  Future<RegisteredAccount> logIn({
+    required String email,
+    required String password,
+  }) async {
+    final account = await _api.logIn(email: email, password: password);
+    _adopt(account);
+    return account;
+  }
+
+  @override
+  Future<void> logOut() async {
+    final refresh = _session.state?.refresh;
+    try {
+      // Only worth telling the server when there is a refresh token to
+      // blacklist. Without one the session is local-only and clearing it is the
+      // whole job.
+      if (refresh != null && refresh.isNotEmpty) {
+        await _api.logOut(refresh: refresh);
+      }
+    } on ApiException {
+      // Swallowed deliberately. See the interface doc: the user asked to be
+      // signed out, and a 401 or a dropped connection here must not leave them
+      // signed in on this device. The token is left to expire on its own.
+    } finally {
+      _session.state = null;
+    }
   }
 
   @override
@@ -62,18 +116,20 @@ class DioAuthRepository implements AuthRepository {
   Future<void> resendOtp({required String email}) =>
       _api.resendOtp(email: email);
 
-  /// Keeps the session when the response carried one, and does nothing when it
-  /// did not.
+  /// Stores the session the response carried, and does nothing when it carried
+  /// none.
   ///
-  /// This is the whole of the "does registration return a token" question from
-  /// the client's side: adopting a token if it is there makes the flow work
-  /// under either backend model, so the answer changes nothing here. Persisting
-  /// it across launches is separate work.
+  /// Both tokens are kept. The access token lasts 30 minutes (backend handoff
+  /// §10), so a session holding only that is signed out half an hour in with no
+  /// way to renew — the refresh token is the difference between "session expires"
+  /// and "user is logged out".
+  ///
+  /// Persisting this across launches is separate work, and wants a platform
+  /// decision this layer should not make on its own.
   void _adopt(RegisteredAccount account) {
-    final token = account.accessToken;
-    if (token != null && token.isNotEmpty) {
-      _authToken.state = token;
-    }
+    final access = account.accessToken;
+    if (access == null || access.isEmpty) return;
+    _session.state = Session(access: access, refresh: account.refreshToken);
   }
 }
 
@@ -103,6 +159,11 @@ class FakeAuthRepository implements AuthRepository {
   final List<RegistrationRequest> registrations = [];
   final List<({String email, String code})> verifications = [];
   final List<String> resends = [];
+  final List<({String email, String password})> logins = [];
+
+  /// How many times [logOut] was called. A count rather than a list because
+  /// there is nothing to record beyond the fact.
+  int logOuts = 0;
 
   @override
   Future<RegisteredAccount> register(RegistrationRequest request) async {
@@ -116,6 +177,36 @@ class FakeAuthRepository implements AuthRepository {
       status: 'pending',
       accessToken: tokenOnRegister ? 'fake-access-token' : null,
     );
+  }
+
+  @override
+  Future<RegisteredAccount> logIn({
+    required String email,
+    required String password,
+  }) async {
+    await _wait();
+    _throwIfFailing();
+    logins.add((email: email, password: password));
+    // A real session, unlike [register]'s optional token: the backend always
+    // issues one on sign-in.
+    return RegisteredAccount(
+      email: email,
+      userId: 'fake-user-1',
+      role: ProfileRole.student,
+      status: 'not_applicable',
+      accessToken: 'fake-access-token',
+      refreshToken: 'fake-refresh-token',
+    );
+  }
+
+  /// Deliberately does **not** honour [failure], because neither does the real
+  /// implementation: a failed logout call must not stop the local session being
+  /// cleared. The best-effort behaviour is tested against `DioAuthRepository`
+  /// with a failing transport, not through this double.
+  @override
+  Future<void> logOut() async {
+    await _wait();
+    logOuts++;
   }
 
   @override
@@ -164,8 +255,8 @@ final authApiProvider = Provider<AuthApi>(
 final authRepositoryProvider = Provider<AuthRepository>(
   (ref) => DioAuthRepository(
     client: ref.watch(apiClientProvider),
-    // `.notifier` rather than the value: the repository writes the token, and
+    // `.notifier` rather than the value: the repository writes the session, and
     // watching the notifier does not rebuild this provider when it changes.
-    authToken: ref.watch(authTokenProvider.notifier),
+    session: ref.watch(sessionProvider.notifier),
   ),
 );

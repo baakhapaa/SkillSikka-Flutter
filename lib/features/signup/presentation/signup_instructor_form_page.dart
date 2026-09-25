@@ -10,11 +10,13 @@ import 'package:image_picker/image_picker.dart';
 
 import '../../../core/location/location_service.dart';
 import '../../../core/network/api_error.dart';
+import '../../../core/validation/validators.dart';
 import '../../../core/widgets/api_error_snack.dart';
 import '../../../core/widgets/location_prompt_dialog.dart';
 import '../../../core/widgets/profile_photo_picker.dart';
 import '../../auth/data/auth_repository.dart';
 import '../../auth/data/registration_request.dart';
+import '../../profile/data/gender.dart';
 import '../../profile/data/profile_role.dart';
 import '../../profile/data/user_profile.dart';
 
@@ -308,7 +310,14 @@ class _SignupInstructorFormPageState
                                 const SizedBox(width: 10),
                                 Expanded(
                                   child: Text(
-                                    "Our admin team reviews all verification requests within 24-48 business hours. You'll receive an email notification once approved.",
+                                    // "verified", not "approved": that is the
+                                    // status value the API actually sends, and
+                                    // the user should be looking for the word
+                                    // they will see.
+                                    'Our admin team reviews all verification '
+                                    'requests within 24-48 business hours. '
+                                    "You'll receive an email notification "
+                                    'once verified.',
                                     style: GoogleFonts.manrope(
                                       color: const Color(0xFF2F2600),
                                       fontSize: 11,
@@ -383,6 +392,16 @@ class _SignupInstructorFormPageState
     // Bytes, not a path: `Image.file` is not supported on Flutter web.
     final bytes = await picked.readAsBytes();
     if (!mounted) return;
+    final rejection = profilePhotoRejection(
+      fileName: picked.name,
+      byteCount: bytes.length,
+    );
+    if (rejection != null) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(rejection)));
+      return;
+    }
     setState(() {
       _profilePhotoBytes = bytes;
       // Kept so the multipart part carries the real extension — dio infers the
@@ -539,8 +558,14 @@ class _SignupInstructorFormPageState
               // Read here rather than from the store: a password is only ever
               // read by the method that sends it.
               password: _controller('password').text,
-              gender: _controller('gender').text,
-              dob: _controller('dob').text,
+              // The backend requires this on the wire and validates the pair
+              // itself; the client-side check above is not a substitute.
+              confirmPassword: _controller('confirmPassword').text,
+              // The picker stores the label the user saw; the API wants the
+              // lowercase wire value. Mapped here, at the boundary.
+              gender: Gender.wireValueOf(_controller('gender').text),
+              // The form holds DD / MM / YYYY for display; the API wants ISO.
+              dob: isoDateOf(_controller('dob').text) ?? '',
               phone: _controller('phone').text.trim(),
               location: _controller('location').text.trim(),
               qualification: _controller('degree').text.trim(),
@@ -567,17 +592,22 @@ class _SignupInstructorFormPageState
       if (!mounted) return;
       setState(() => _isSubmitting = false);
       // No inline validation on this screen, so the server's per-field messages
-      // are listed in the snack bar rather than dropped.
-      showApiErrorSnack(context, error);
+      // are listed in the snack bar rather than dropped. A duplicate email also
+      // gets a "Log In" action.
+      showSignupErrorSnack(
+        context,
+        error,
+        onLogIn: () => context.go('/login-screen'),
+      );
     }
   }
 
   Future<void> _selectGender() async {
-    final value = await _pickInstructorOption(context, 'Select gender', const [
-      'Female',
-      'Male',
-      'Other',
-    ]);
+    final value = await _pickInstructorOption(
+      context,
+      'Select gender',
+      Gender.labels,
+    );
     if (value != null) setState(() => _controller('gender').text = value);
   }
 

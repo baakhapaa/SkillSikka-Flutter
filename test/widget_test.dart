@@ -10,6 +10,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:skillsikka/app.dart';
+import 'package:skillsikka/features/auth/data/auth_repository.dart';
 
 void main() {
   /// The screens here are laid out for fonts `flutter test` cannot fetch, so the
@@ -33,7 +34,17 @@ void main() {
   testWidgets('renders splash and opens login screen', (
     WidgetTester tester,
   ) async {
-    await tester.pumpWidget(const ProviderScope(child: SkillSikkaApp()));
+    await tester.pumpWidget(
+      ProviderScope(
+        // Signing in now runs through the repository, so the test supplies one.
+        // Without this the button would call the real API and the flow would
+        // never leave the login screen.
+        overrides: [
+          authRepositoryProvider.overrideWithValue(FakeAuthRepository()),
+        ],
+        child: const SkillSikkaApp(),
+      ),
+    );
 
     expect(find.text('Get Started'), findsOneWidget);
     expect(find.text('Already have an account? Log In'), findsNothing);
@@ -76,7 +87,19 @@ void main() {
     await tester.tap(loginRedirectAgain);
     await tester.pumpAndSettle();
 
+    // The button now performs a real sign-in, so the form has to be filled. An
+    // empty one is rejected client-side and never reaches the repository.
+    final credentials = find.byType(TextField);
+    await tester.enterText(credentials.at(0), 'sita@example.com');
+    await tester.enterText(credentials.at(1), 'Passw0rd');
+    await tester.pump();
+
     await tester.tap(find.widgetWithText(FilledButton, 'Log In'));
+    // Explicit pumps rather than pumpAndSettle straight away: the button shows a
+    // CircularProgressIndicator while the request is in flight, and an infinite
+    // animation never settles — pumpAndSettle would spin until it timed out.
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 50));
     await tester.pumpAndSettle();
     drainUnrelatedOverflows(tester);
 

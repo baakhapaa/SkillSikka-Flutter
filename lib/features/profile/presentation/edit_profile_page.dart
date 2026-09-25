@@ -14,6 +14,7 @@ import '../../../core/widgets/location_prompt_dialog.dart';
 import '../../../core/widgets/option_picker_sheet.dart';
 import '../../../core/widgets/profile_photo_picker.dart';
 import '../../../core/widgets/upload_card.dart';
+import '../data/gender.dart';
 import '../data/profile_role.dart';
 import '../data/user_profile.dart';
 
@@ -178,6 +179,14 @@ class _EditProfilePageState extends ConsumerState<EditProfilePage> {
     // Bytes, not a path: `Image.file` is not supported on Flutter web.
     final bytes = await picked.readAsBytes();
     if (!mounted) return;
+    final rejection = profilePhotoRejection(
+      fileName: picked.name,
+      byteCount: bytes.length,
+    );
+    if (rejection != null) {
+      _showUploadError(rejection);
+      return;
+    }
     setState(() => _photoBytes = bytes);
   }
 
@@ -239,8 +248,10 @@ class _EditProfilePageState extends ConsumerState<EditProfilePage> {
       allowedExtensions: const ['jpg', 'jpeg', 'png', 'pdf'],
     );
     if (file == null || !mounted) return;
-    if (file.size > 5 * 1024 * 1024) {
-      _showUploadError('Student ID card must be 5 MB or smaller.');
+    // The backend allows 10 MB for the student ID card (handoff §6). This guard
+    // used to be 5 MB, which refused files the backend would have accepted.
+    if (file.size > 10 * 1024 * 1024) {
+      _showUploadError('Student ID card must be 10 MB or smaller.');
       return;
     }
     final bytes = _bytesOf(file);
@@ -461,7 +472,7 @@ class _EditProfilePageState extends ConsumerState<EditProfilePage> {
         onTap: () => _pickOption(
           key: 'gender',
           title: 'Select gender',
-          options: const ['Female', 'Male', 'Other'],
+          options: Gender.labels,
         ),
       ),
       _field(
@@ -555,7 +566,7 @@ class _EditProfilePageState extends ConsumerState<EditProfilePage> {
     ),
     UploadCard(
       title: 'Student ID Card',
-      formats: 'Supported formats: PDF, JPG, PNG (Max 5MB)',
+      formats: 'Supported formats: PDF, JPG, PNG (Max 10MB)',
       asset: 'assets/figma/signup_student_file.svg',
       pickedFile: _studentIdCard,
       onTap: _pickStudentIdCard,

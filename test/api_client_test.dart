@@ -9,6 +9,7 @@ import 'package:skillsikka/core/config/app_config_provider.dart';
 import 'package:skillsikka/core/config/app_environment.dart';
 import 'package:skillsikka/core/network/api_client.dart';
 import 'package:skillsikka/core/network/api_error.dart';
+import 'package:skillsikka/core/network/session.dart';
 
 /// A stand-in for the real transport.
 ///
@@ -486,7 +487,9 @@ void main() {
       final adapter = _FakeAdapter((_) => _json({'ok': true}));
       final scope = _scopeFor(adapter);
       addTearDown(scope.dispose);
-      scope.read(authTokenProvider.notifier).state = 'token_abc';
+      scope.read(sessionProvider.notifier).state = const Session(
+        access: 'token_abc',
+      );
 
       await scope.read(apiClientProvider).get<Map<String, dynamic>>('/me');
 
@@ -506,15 +509,177 @@ void main() {
       expect(adapter.requests.single.headers, isNot(contains('Authorization')));
     });
 
-    test('treats an empty token as signed out', () async {
+    test('treats an empty access token as signed out', () async {
       final adapter = _FakeAdapter((_) => _json({'ok': true}));
       final scope = _scopeFor(adapter);
       addTearDown(scope.dispose);
-      scope.read(authTokenProvider.notifier).state = '';
+      scope.read(sessionProvider.notifier).state = const Session(access: '');
 
       await scope.read(apiClientProvider).get<Map<String, dynamic>>('/courses');
 
       expect(adapter.requests.single.headers, isNot(contains('Authorization')));
+    });
+  });
+
+  // Access tokens last 30 minutes (backend handoff §10), so without this the
+  // session dies mid-screen with nothing the user can do about it.
+  group('refreshing an expired access token', () {
+    /// A session with a refresh token, which is what makes renewal possible.
+    const signedIn = Session(access: 'stale-access', refresh: 'refresh-abc');
+
+    /// Answers 401 `token_not_valid` to everything except the refresh call,
+    /// which answers with [refreshBody].
+    _FakeAdapter expiringAdapter({
+      Object? refreshBody,
+      int refreshStatus = 200,
+    }) {
+      return _FakeAdapter((options) {
+        if (options.path.contains('/token/refresh/')) {
+          return _json(
+            refreshBody ?? {'access': 'fresh-access'},
+            status: refreshStatus,
+          );
+        }
+        return _json(
+          {'detail': 'Given token not valid for any token type'},
+          status: 401,
+        );
+      });
+    }
+
+    test('renews the token and replays the request', () async {
+      final adapter = expiringAdapter();
+      final scope = _scopeFor(adapter);
+      addTearDown(scope.dispose);
+      scope.read(sessionProvider.notifier).state = signedIn;
+
+      // The replay 401s too — this adapter never says yes — so the call still
+      // fails; what is being checked is that the refresh happened and that the
+      // session was updated.
+      await expectLater(
+        scope.read(apiClientProvider).get<Map<String, dynamic>>('/me'),
+        throwsA(isA<ApiException>()),
+      );
+
+      expect(adapter.requests.first.path, '/me');
+      expect(adapter.requests[1].path, contains('/token/refresh/'));
+      // The refresh carries the refresh token and no bearer header.
+      expect(
+        adapter.requests[1].data,
+        {'refresh': 'refresh-abc'},
+      );
+      expect(
+        adapter.requests[1].headers,
+        isNot(contains('Authorization')),
+      );
+      expect(scope.read(sessionProvider)?.access, 'fresh-access');
+      // The refresh token is carried forward, not lost.
+      expect(scope.read(sessionProvider)?.refresh, 'refresh-abc');
+    });
+
+    test('replays with the new token, and only once', () async {
+      // Succeeds on the replay, so the call should come back clean.
+      var served = 0;
+      final adapter = _FakeAdapter((options) {
+        if (options.path.contains('/token/refresh/')) {
+          return _json({'access': 'fresh-access'});
+        }
+        served++;
+        if (served == 1) {
+          return _json({'detail': 'expired'}, status: 401);
+        }
+        return _json({'id': 42, 'onboarding_completed': false});
+      });
+      final scope = _scopeFor(adapter);
+      addTearDown(scope.dispose);
+      scope.read(sessionProvider.notifier).state = signedIn;
+
+      final me = await scope
+          .read(apiClientProvider)
+          .get<Map<String, dynamic>>('/me');
+
+      expect(me['id'], 42);
+      // Exactly three requests: the original, the refresh, the replay. A fourth
+      // would mean the retry guard is not working.
+      expect(adapter.requests, hasLength(3));
+      expect(
+        adapter.requests.last.headers['Authorization'],
+        'Bearer fresh-access',
+      );
+    });
+
+    test('clears the session when the refresh token is rejected', () async {
+      final adapter = expiringAdapter(
+        refreshBody: {'detail': 'Token is invalid or expired'},
+        refreshStatus: 401,
+      );
+      final scope = _scopeFor(adapter);
+      addTearDown(scope.dispose);
+      scope.read(sessionProvider.notifier).state = signedIn;
+
+      await expectLater(
+        scope.read(apiClientProvider).get<Map<String, dynamic>>('/me'),
+        throwsA(isA<ApiException>()),
+      );
+
+      // There is no way back in without signing in again, so the session goes.
+      expect(scope.read(sessionProvider), isNull);
+      // …and the request is not replayed with a token that is known to be dead.
+      expect(adapter.requests, hasLength(2));
+    });
+
+    test('keeps the session when the refresh cannot be attempted', () async {
+      // A dropped connection says nothing about whether the token is still
+      // valid, so signing the user out would be wrong.
+      final adapter = _FakeAdapter((options) {
+        if (options.path.contains('/token/refresh/')) {
+          throw DioException.connectionError(
+            requestOptions: options,
+            reason: 'no route to host',
+          );
+        }
+        return _json({'detail': 'expired'}, status: 401);
+      });
+      final scope = _scopeFor(adapter);
+      addTearDown(scope.dispose);
+      scope.read(sessionProvider.notifier).state = signedIn;
+
+      await expectLater(
+        scope.read(apiClientProvider).get<Map<String, dynamic>>('/me'),
+        throwsA(isA<ApiException>()),
+      );
+
+      expect(scope.read(sessionProvider)?.access, 'stale-access');
+    });
+
+    test('does not try to refresh without a refresh token', () async {
+      final adapter = expiringAdapter();
+      final scope = _scopeFor(adapter);
+      addTearDown(scope.dispose);
+      scope.read(sessionProvider.notifier).state = const Session(
+        access: 'stale-access',
+      );
+
+      await expectLater(
+        scope.read(apiClientProvider).get<Map<String, dynamic>>('/me'),
+        throwsA(isA<ApiException>()),
+      );
+
+      // Nothing to renew with, so no refresh call is made.
+      expect(adapter.requests, hasLength(1));
+    });
+
+    test('leaves an unauthenticated 401 alone', () async {
+      final adapter = expiringAdapter();
+      final scope = _scopeFor(adapter);
+      addTearDown(scope.dispose);
+
+      await expectLater(
+        scope.read(apiClientProvider).get<Map<String, dynamic>>('/me'),
+        throwsA(isA<ApiException>()),
+      );
+
+      expect(adapter.requests, hasLength(1));
     });
   });
 }

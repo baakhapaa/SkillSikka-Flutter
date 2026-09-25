@@ -258,7 +258,14 @@ void main() {
     expect(sent.fields['name'], 'Sita Rai');
     expect(sent.fields['email'], 'sita@example.com');
     expect(sent.fields['password'], 'Passw0rd');
-    expect(sent.fields['gender'], 'Female');
+    // The form compares the two itself, but the backend requires the field on
+    // the wire and validates the pair server-side.
+    expect(sent.fields['confirm_password'], 'Passw0rd');
+    // The picker shows `Female`; the API takes the lowercase wire value.
+    expect(sent.fields['gender'], 'female');
+    // The field displays DD / MM / YYYY; the API takes ISO. The picker opens on
+    // 2005-01-01 and this test accepts it unchanged.
+    expect(sent.fields['dob'], '2005-01-01');
     expect(sent.photo.fileName, 'avatar.png');
   });
 

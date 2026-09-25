@@ -5,10 +5,14 @@ import '../../profile/data/profile_role.dart';
 /// What the auth endpoints told us about an account — returned by registration,
 /// and by OTP verification when the backend issues the session there.
 ///
-/// **This class is where the one open backend question lives.** The handover doc
-/// (§6.1) asks whether `POST /auth/register` returns a token or whether the user
-/// has to pass OTP first. Both models are parsed here and nowhere else, so when
-/// the answer arrives this file is the only one that has to change.
+/// The shape is now **confirmed**, not guessed. Registration returns
+/// `{"user": {...}, "tokens": {"refresh": ..., "access": ...}}` and the user
+/// object carries `verification_status`, not `status` (backend response §1).
+///
+/// The tolerant fallbacks below are kept deliberately: they cost nothing and
+/// they are the difference between a contract drift showing up as a missing
+/// token and it showing up as an exception. But the confirmed paths are checked
+/// **first**, and they are what the code should be read as expecting.
 @immutable
 class RegisteredAccount {
   const RegisteredAccount({
@@ -17,6 +21,7 @@ class RegisteredAccount {
     this.role,
     this.status,
     this.accessToken,
+    this.refreshToken,
   });
 
   /// The address the account was created for. The OTP screen needs it, and it
@@ -32,24 +37,24 @@ class RegisteredAccount {
   /// would hide that rather than surface it.
   final ProfileRole? role;
 
-  /// e.g. `pending` while an instructor awaits admin review (doc §11).
+  /// From `user.verification_status` — e.g. `pending` while an instructor awaits
+  /// admin review, and one of `not_applicable` / `pending` / `verified` /
+  /// `rejected`.
   final String? status;
 
   /// Null when the backend verifies by OTP before issuing a session.
   final String? accessToken;
 
+  /// From `tokens.refresh`. Exchanged for a new access token when the 30-minute
+  /// one expires (handoff §10); without it the session cannot be renewed.
+  final String? refreshToken;
+
   /// True when this response established a session, so the client can stop
   /// treating the user as signed out.
   bool get hasSession => accessToken != null && accessToken!.isNotEmpty;
 
-  /// Parses either response model, or returns null when the body does not
-  /// describe an account at all.
-  ///
-  /// Tolerant on purpose: the user object may be nested under `user` or be the
-  /// body itself, and the token appears as `access_token` (SimpleJWT), `token`,
-  /// or `access`. None of that is guesswork we can avoid — it is the question
-  /// we have asked and not yet had answered — so the cost of tolerating it here
-  /// is one file instead of every call site.
+  /// Parses the confirmed response shape, or returns null when the body does
+  /// not describe an account at all.
   ///
   /// Null rather than a half-filled object: a body with no identity in it is a
   /// contract mismatch, and [AuthApi] turns that into an error rather than
@@ -62,6 +67,15 @@ class RegisteredAccount {
     final nested = json['user'];
     final user = nested is Map ? nested.cast<String, dynamic>() : json;
 
+    // `{"tokens": {"access": ..., "refresh": ...}}` is the confirmed nesting.
+    // Reading only the top level here was a real bug: the token was one level
+    // down, so a *successful* registration parsed as "registered but not signed
+    // in" and the user was left on the OTP step with no session.
+    final nestedTokens = json['tokens'];
+    final tokens = nestedTokens is Map
+        ? nestedTokens.cast<String, dynamic>()
+        : const <String, dynamic>{};
+
     final email = _firstString([user['email'], json['email']]);
     final userId = _firstString([
       user['id'],
@@ -70,12 +84,20 @@ class RegisteredAccount {
       json['id'],
     ]);
     final accessToken = _firstString([
+      tokens['access'],
       json['access_token'],
       json['accessToken'],
       json['token'],
       json['access'],
       user['access_token'],
       user['token'],
+    ]);
+    final refreshToken = _firstString([
+      tokens['refresh'],
+      json['refresh_token'],
+      json['refreshToken'],
+      json['refresh'],
+      user['refresh_token'],
     ]);
 
     // An identity or a session, or this is not an account. Checked so that a
@@ -86,8 +108,16 @@ class RegisteredAccount {
       email: email ?? '',
       userId: userId,
       role: ProfileRole.tryParse(_firstString([user['role'], json['role']])),
-      status: _firstString([user['status'], json['status']]),
+      // `verification_status` is the real field name; `status` is the older
+      // guess, kept as a fallback.
+      status: _firstString([
+        user['verification_status'],
+        json['verification_status'],
+        user['status'],
+        json['status'],
+      ]),
       accessToken: accessToken,
+      refreshToken: refreshToken,
     );
   }
 
@@ -97,12 +127,19 @@ class RegisteredAccount {
       'status: $status, hasSession: $hasSession)';
 }
 
-/// The first non-blank string in [candidates], or null.
+/// The first non-blank scalar in [candidates], as a string, or null.
+///
+/// Numbers are accepted and stringified, because `user.id` is a Django
+/// `AutoField` and so arrives as a JSON **number** (`42`), not a string.
+/// Accepting only strings would silently drop the id — and a silently absent id
+/// is exactly the kind of contract drift that is hard to notice, since the
+/// account still parses and the flow still runs.
 ///
 /// Values are trimmed and blanks treated as absent, so `{"token": ""}` reads as
 /// "no token" rather than as a session that is not there.
 String? _firstString(List<Object?> candidates) {
   for (final candidate in candidates) {
+    if (candidate is num) return candidate.toString();
     if (candidate is String && candidate.trim().isNotEmpty) {
       return candidate.trim();
     }

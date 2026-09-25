@@ -21,6 +21,8 @@ void showApiErrorSnack(
   BuildContext context,
   ApiException error, {
   bool fieldErrorsAreShown = false,
+  String? actionLabel,
+  VoidCallback? onAction,
 }) {
   final lines = <String>[];
 
@@ -36,6 +38,37 @@ void showApiErrorSnack(
     SnackBar(
       content: Text(lines.join('\n')),
       behavior: SnackBarBehavior.floating,
+      action: (actionLabel != null && onAction != null)
+          ? SnackBarAction(label: actionLabel, onPressed: onAction)
+          : null,
     ),
+  );
+}
+
+/// Shows a failed signup attempt, offering the one useful action when there is
+/// one.
+///
+/// A duplicate email is the case this exists for. The backend now returns a
+/// stable [ApiErrorCode.emailAlreadyRegistered] on a 400, and the only thing the
+/// user can usefully do next is log in to the account they already have. Deciding
+/// it here rather than in each screen is the same reasoning as the rest of this
+/// file: the student and instructor forms must not drift into offering different
+/// affordances for the same failure.
+///
+/// The code is checked, never the message. Matching the server's wording would
+/// break the first time anyone edits it.
+void showSignupErrorSnack(
+  BuildContext context,
+  ApiException error, {
+  bool fieldErrorsAreShown = false,
+  VoidCallback? onLogIn,
+}) {
+  final duplicateEmail = error.hasCode(ApiErrorCode.emailAlreadyRegistered);
+  showApiErrorSnack(
+    context,
+    error,
+    fieldErrorsAreShown: fieldErrorsAreShown,
+    actionLabel: duplicateEmail && onLogIn != null ? 'Log In' : null,
+    onAction: duplicateEmail ? onLogIn : null,
   );
 }

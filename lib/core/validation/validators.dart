@@ -138,6 +138,17 @@ String? validateChoice(String? value, String label) {
   return null;
 }
 
+/// Non-empty, for a field whose only rule is that something was typed.
+///
+/// Deliberately separate from [validatePassword]. Signing in must not re-apply
+/// the registration policy: the server decides whether the credentials are
+/// right, and a client that also enforced a minimum length would refuse a
+/// perfectly valid password the moment the policy changed.
+String? validateRequired(String? value, String label) {
+  if ((value ?? '').trim().isEmpty) return 'Please enter your $label.';
+  return null;
+}
+
 /// Parses the form's `DD / MM / YYYY` representation, or null if it is not a
 /// real calendar date.
 DateTime? parseDateOfBirth(String? value) {
@@ -154,6 +165,28 @@ DateTime? parseDateOfBirth(String? value) {
   if (date.day != day || date.month != month || date.year != year) return null;
   return date;
 }
+
+/// The wire format for a date: `YYYY-MM-DD`.
+///
+/// The forms hold dates as `DD / MM / YYYY` because that is what the user picks
+/// and reads, and the API wants ISO. Converting at the boundary is what lets the
+/// two formats differ — the backend explicitly allows the UI to keep displaying
+/// `DD/MM/YYYY`, and before this the form was sending its display string
+/// verbatim, spaces around the slashes included, which matches neither format
+/// the backend accepts.
+String? isoDate(DateTime? date) {
+  if (date == null) return null;
+  final month = date.month.toString().padLeft(2, '0');
+  final day = date.day.toString().padLeft(2, '0');
+  return '${date.year.toString().padLeft(4, '0')}-$month-$day';
+}
+
+/// The ISO form of a `DD / MM / YYYY` form value, or null when it is not a real
+/// calendar date.
+///
+/// Returns null rather than the raw string on a parse failure, so a malformed
+/// date is sent as absent instead of as nonsense the backend has to reject.
+String? isoDateOf(String? formValue) => isoDate(parseDateOfBirth(formValue));
 
 /// [today] is injectable so tests do not drift with the wall clock.
 String? validateDateOfBirth(String? value, {DateTime? today}) {

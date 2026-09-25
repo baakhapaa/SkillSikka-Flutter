@@ -4,7 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
-import 'package:skillsikka/core/network/api_client.dart';
+import 'package:skillsikka/core/network/session.dart';
 import 'package:skillsikka/features/profile/data/user_profile.dart';
 import 'package:skillsikka/features/profile/presentation/profile_page.dart';
 
@@ -38,7 +38,9 @@ void main() {
 
     // A signed-in user, with every kind of data the store can hold. This is
     // what used to survive a logout and greet the next person to sign in.
-    container.read(authTokenProvider.notifier).state = 'token-abc';
+    container.read(sessionProvider.notifier).state = const Session(
+      access: 'token-abc',
+    );
     final profile = container.read(userProfileProvider.notifier);
     profile.save({'name': 'Sita', 'email': 'sita@email.com'});
     profile.setPhoto(Uint8List.fromList([1, 2, 3]), 'avatar.jpg');
@@ -84,7 +86,7 @@ void main() {
     await tester.pumpAndSettle();
     drainUnrelatedOverflows(tester);
 
-    expect(container.read(authTokenProvider), isNull);
+    expect(container.read(sessionProvider), isNull);
     expect(
       find.text('login screen'),
       findsOneWidget,

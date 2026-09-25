@@ -1,29 +1,96 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:go_router/go_router.dart';
+
+import '../../../core/network/api_error.dart';
+import '../../../core/validation/validators.dart';
+import '../../../core/widgets/api_error_snack.dart';
+import '../../auth/data/auth_repository.dart';
 
 /// Padding around the form. Its vertical part is also what turns the viewport
 /// height into the column's minimum height, so keep the two in step.
 const _pagePadding = EdgeInsets.fromLTRB(24, 14, 24, 12);
 
-class LoginScreenPage extends StatefulWidget {
+class LoginScreenPage extends ConsumerStatefulWidget {
   const LoginScreenPage({super.key});
 
   @override
-  State<LoginScreenPage> createState() => _LoginScreenPageState();
+  ConsumerState<LoginScreenPage> createState() => _LoginScreenPageState();
 }
 
-class _LoginScreenPageState extends State<LoginScreenPage> {
+class _LoginScreenPageState extends ConsumerState<LoginScreenPage> {
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
   bool _obscurePassword = true;
+
+  /// True while the sign-in request is in flight, so the button cannot be
+  /// pressed twice and the user can see something is happening.
+  bool _isSubmitting = false;
+
+  /// Field errors, held here rather than in a `Form`.
+  ///
+  /// Deliberate: this screen has two fields, and — more importantly — signing in
+  /// must **not** re-apply the registration password policy. A `Form` wired to
+  /// the same validators the signup forms use would reject a valid password the
+  /// moment the policy changed, so the rules are spelled out here instead.
+  String? _emailError;
+  String? _passwordError;
 
   @override
   void dispose() {
     _emailController.dispose();
     _passwordController.dispose();
     super.dispose();
+  }
+
+  Future<void> _submit() async {
+    if (_isSubmitting) return;
+
+    final emailError = validateEmail(_emailController.text);
+    final passwordError = validateRequired(
+      _passwordController.text,
+      'password',
+    );
+    setState(() {
+      _emailError = emailError;
+      _passwordError = passwordError;
+    });
+    if (emailError != null || passwordError != null) return;
+
+    setState(() => _isSubmitting = true);
+    try {
+      await ref
+          .read(authRepositoryProvider)
+          .logIn(
+            email: _emailController.text.trim(),
+            // Not trimmed: leading and trailing spaces are legitimate password
+            // characters, and the server compares what was typed.
+            password: _passwordController.text,
+          );
+      if (!mounted) return;
+      setState(() => _isSubmitting = false);
+      context.go('/');
+    } on ApiException catch (error) {
+      if (!mounted) return;
+      setState(() => _isSubmitting = false);
+      // Wrong credentials come back as a 400 carrying a JSON `detail`, so the
+      // server's own wording is the most useful thing to show. No field is
+      // highlighted: the backend does not say which of the two was wrong, and
+      // guessing would point the user at the wrong one half the time.
+      showApiErrorSnack(context, error);
+    }
+  }
+
+  /// Clears a field's message as soon as the user edits it, so a stale complaint
+  /// does not sit under a field they have already fixed.
+  void _clearEmailError() {
+    if (_emailError != null) setState(() => _emailError = null);
+  }
+
+  void _clearPasswordError() {
+    if (_passwordError != null) setState(() => _passwordError = null);
   }
 
   @override
@@ -72,10 +139,16 @@ class _LoginScreenPageState extends State<LoginScreenPage> {
                     const SizedBox(height: 20),
                     _InputField(
                       controller: _emailController,
-                      label: 'username',
-                      fieldLabel: 'Email or Phone',
+                      // `label` is the in-field hint text; `fieldLabel` is the
+                      // small heading above it. Login is email-only — the
+                      // backend uses email as USERNAME_FIELD and looks the user
+                      // up by it, so there is no username to accept.
+                      label: 'email',
+                      fieldLabel: 'Email',
                       iconAsset: 'assets/figma/mail.svg',
                       keyboardType: TextInputType.emailAddress,
+                      errorText: _emailError,
+                      onChanged: (_) => _clearEmailError(),
                     ),
                     const SizedBox(height: 14),
                     _InputField(
@@ -84,6 +157,8 @@ class _LoginScreenPageState extends State<LoginScreenPage> {
                       fieldLabel: 'Password',
                       iconAsset: 'assets/figma/lock.svg',
                       obscureText: _obscurePassword,
+                      errorText: _passwordError,
+                      onChanged: (_) => _clearPasswordError(),
                       suffixIcon: IconButton(
                         onPressed: () => setState(() {
                           _obscurePassword = !_obscurePassword;
@@ -137,7 +212,9 @@ class _LoginScreenPageState extends State<LoginScreenPage> {
                       width: double.infinity,
                       height: 54,
                       child: FilledButton(
-                        onPressed: () => context.go('/'),
+                        // Null while in flight, so a second tap cannot fire a
+                        // second sign-in.
+                        onPressed: _isSubmitting ? null : _submit,
                         style: FilledButton.styleFrom(
                           backgroundColor: const Color(0xFFE6B800),
                           foregroundColor: const Color(0xFF111827),
@@ -145,14 +222,29 @@ class _LoginScreenPageState extends State<LoginScreenPage> {
                             borderRadius: BorderRadius.circular(100),
                           ),
                           elevation: 0,
+                          // Kept gold rather than greyed, matching the signup
+                          // forms: the spinner is the cue that it is working,
+                          // and a grey button on a slow connection reads as
+                          // broken.
+                          disabledBackgroundColor: const Color(0xFFE6B800),
+                          disabledForegroundColor: const Color(0xFF111827),
                         ),
-                        child: const Text(
-                          'Log In',
-                          style: TextStyle(
-                            fontSize: 17,
-                            fontWeight: FontWeight.w900,
-                          ),
-                        ),
+                        child: _isSubmitting
+                            ? const SizedBox(
+                                width: 22,
+                                height: 22,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2.5,
+                                  color: Color(0xFF111827),
+                                ),
+                              )
+                            : const Text(
+                                'Log In',
+                                style: TextStyle(
+                                  fontSize: 17,
+                                  fontWeight: FontWeight.w900,
+                                ),
+                              ),
                       ),
                     ),
                     const SizedBox(height: 16),
@@ -228,6 +320,8 @@ class _InputField extends StatelessWidget {
     this.keyboardType,
     this.obscureText = false,
     this.suffixIcon,
+    this.errorText,
+    this.onChanged,
   });
 
   final TextEditingController controller;
@@ -237,6 +331,11 @@ class _InputField extends StatelessWidget {
   final TextInputType? keyboardType;
   final bool obscureText;
   final Widget? suffixIcon;
+
+  /// Shown under the field, and turns its border red. Null when it is fine.
+  final String? errorText;
+
+  final ValueChanged<String>? onChanged;
 
   @override
   Widget build(BuildContext context) {
@@ -256,6 +355,7 @@ class _InputField extends StatelessWidget {
           controller: controller,
           keyboardType: keyboardType,
           obscureText: obscureText,
+          onChanged: onChanged,
           style: GoogleFonts.manrope(
             color: const Color(0xFF4B5563),
             fontSize: 14,
@@ -271,6 +371,7 @@ class _InputField extends StatelessWidget {
               color: const Color(0xFF4B5563),
               fontSize: 14,
             ),
+            errorText: errorText,
             prefixIcon: Padding(
               padding: const EdgeInsets.all(16),
               child: SvgPicture.asset(iconAsset, width: 18, height: 18),

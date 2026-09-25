@@ -9,6 +9,7 @@ import 'package:skillsikka/core/config/app_config_provider.dart';
 import 'package:skillsikka/core/config/app_environment.dart';
 import 'package:skillsikka/core/network/api_client.dart';
 import 'package:skillsikka/core/network/api_error.dart';
+import 'package:skillsikka/core/network/session.dart';
 import 'package:skillsikka/features/auth/data/auth_repository.dart';
 import 'package:skillsikka/features/auth/data/registration_request.dart';
 import 'package:skillsikka/features/profile/data/profile_role.dart';
@@ -89,7 +90,7 @@ Future<void> _withRepo(
 
   final repository = DioAuthRepository(
     client: scope.read(apiClientProvider),
-    authToken: scope.read(authTokenProvider.notifier),
+    session: scope.read(sessionProvider.notifier),
   );
   await body(repository, adapter, scope);
 }
@@ -104,7 +105,7 @@ Future<ApiException> _captureError(
   addTearDown(scope.dispose);
   final repository = DioAuthRepository(
     client: scope.read(apiClientProvider),
-    authToken: scope.read(authTokenProvider.notifier),
+    session: scope.read(sessionProvider.notifier),
   );
 
   try {
@@ -126,6 +127,7 @@ RegistrationRequest _studentRequest() => RegistrationRequest.student(
   name: 'Sarah Sharma',
   email: 'sarah@example.com',
   password: 'hunter2pass',
+  confirmPassword: 'hunter2pass',
   gender: 'Female',
   dob: '2005-04-12',
   photo: _doc(_photoBytes, 'avatar.png'),
@@ -135,6 +137,7 @@ RegistrationRequest _instructorRequest() => RegistrationRequest.instructor(
   name: 'Bikash Rai',
   email: 'bikash@example.com',
   password: 'hunter2pass',
+  confirmPassword: 'hunter2pass',
   gender: 'Male',
   dob: '1990-01-20',
   phone: '9812345678',
@@ -149,7 +152,7 @@ RegistrationRequest _instructorRequest() => RegistrationRequest.instructor(
 
 void main() {
   group('AuthApi.register — the request', () {
-    test('is a multipart POST carrying the role and every text field', () async {
+    test('is a multipart POST to the student endpoint', () async {
       await _withRepo(
         (_) => _json({
           'user': {'id': 'u1', 'email': 'sarah@example.com', 'role': 'student'},
@@ -159,24 +162,44 @@ void main() {
 
           final request = adapter.requests.single;
           expect(request.method, 'POST');
-          expect(request.path, endsWith('/auth/register'));
+          expect(request.path, endsWith('/register/student/'));
 
           final form = request.data as FormData;
           final fields = {for (final e in form.fields) e.key: e.value};
 
-          // The role rides with the fields rather than in the path: it decides
-          // which field set the server validates.
-          expect(fields['role'], 'student');
+          // The role selects the endpoint, so it is not a field. Sending one
+          // would be harmless but it is not part of the contract.
+          expect(fields.containsKey('role'), isFalse);
           expect(fields['name'], 'Sarah Sharma');
           expect(fields['email'], 'sarah@example.com');
           expect(fields['password'], 'hunter2pass');
+          expect(fields['confirm_password'], 'hunter2pass');
           expect(fields['gender'], 'Female');
           expect(fields['dob'], '2005-04-12');
         },
       );
     });
 
-    test('never sends confirm_password', () async {
+    test('posts the instructor role to the instructor endpoint', () async {
+      await _withRepo(
+        (_) => _json({
+          'user': {'id': 'u1', 'email': 'bikash@example.com'},
+        }),
+        (repository, adapter, _) async {
+          await repository.register(_instructorRequest());
+
+          // One endpoint per role, rather than a single endpoint taking a `role`
+          // field — so the path is what tells the server which field set to
+          // validate.
+          expect(
+            adapter.requests.single.path,
+            endsWith('/register/instructor/'),
+          );
+        },
+      );
+    });
+
+    test('sends confirm_password, which the backend requires', () async {
       await _withRepo(
         (_) => _json({
           'user': {'id': 'u1', 'email': 'sarah@example.com'},
@@ -185,18 +208,17 @@ void main() {
           await repository.register(_studentRequest());
 
           final form = adapter.requests.single.data as FormData;
-          // It is a client-side check only. Sending it would put the same
-          // secret on the wire twice.
-          expect(
-            form.fields.map((e) => e.key),
-            isNot(contains('confirm_password')),
-          );
+          final fields = {for (final e in form.fields) e.key: e.value};
+          // We used to leave this out on the grounds that the form already
+          // compares the two values. The backend requires the field and
+          // validates the pair itself, so omitting it failed registration.
+          expect(fields['confirm_password'], 'hunter2pass');
         },
       );
     });
 
     test(
-      'sends the avatar as `photo` and documents under their slot names',
+      'sends the avatar as `profile_photo`, documents by slot name',
       () async {
         await _withRepo(
           (_) => _json({
@@ -210,11 +232,15 @@ void main() {
 
             expect(
               files.keys,
-              containsAll(['photo', 'cv_resume', 'certificates']),
+              containsAll(['profile_photo', 'cv_resume', 'certificates']),
             );
             // The slot names are already the multipart field names, so a rename
             // in the UI cannot silently change the wire contract.
-            expect(files['photo']!.filename, 'avatar.png');
+            //
+            // `certificates` is still off-contract: the backend expects
+            // `certificates_and_recommendations`. Renaming the slot is
+            // instructor-path work and is deliberately not done yet.
+            expect(files['profile_photo']!.filename, 'avatar.png');
             expect(files['cv_resume']!.filename, 'cv.pdf');
             expect(files['certificates']!.filename, 'cert.png');
           },
@@ -259,6 +285,36 @@ void main() {
 
           expect(account.accessToken, 'abc.def.ghi');
           expect(account.hasSession, isTrue);
+        },
+      );
+    });
+
+    test('reads tokens.access and verification_status', () async {
+      await _withRepo(
+        (_) => _json({
+          'user': {
+            // A Django AutoField arrives as a JSON number, not a string.
+            'id': 42,
+            'email': 'sarah@example.com',
+            'name': 'Sarah Sharma',
+            'role': 'student',
+            'verification_status': 'pending',
+          },
+          'tokens': {'refresh': 'refresh-abc', 'access': 'access-abc'},
+        }),
+        (repository, _, _) async {
+          final account = await repository.register(_studentRequest());
+
+          // The token is nested under `tokens`. Reading only the top level was a
+          // real bug: a *successful* registration parsed as "registered but not
+          // signed in", so the user was left on the OTP step with no session.
+          expect(account.accessToken, 'access-abc');
+          expect(account.hasSession, isTrue);
+          expect(account.userId, '42');
+          expect(account.role, ProfileRole.student);
+          // The field is `verification_status`; we were reading `status`, which
+          // never arrives, so this was always null.
+          expect(account.status, 'pending');
         },
       );
     });
@@ -371,7 +427,7 @@ void main() {
         (repository, _, scope) async {
           await repository.register(_studentRequest());
 
-          expect(scope.read(authTokenProvider), 'abc.def.ghi');
+          expect(scope.read(sessionProvider)?.access, 'abc.def.ghi');
         },
       );
     });
@@ -392,7 +448,7 @@ void main() {
 
             // The OTP-first backend model. Adopting nothing is correct here; the
             // flow continues to verification.
-            expect(scope.read(authTokenProvider), isNull);
+            expect(scope.read(sessionProvider), isNull);
           },
         );
       },
@@ -407,7 +463,7 @@ void main() {
         (repository, _, scope) async {
           await repository.verifyOtp(email: 'sarah@example.com', code: '1234');
 
-          expect(scope.read(authTokenProvider), 'from-otp');
+          expect(scope.read(sessionProvider)?.access, 'from-otp');
         },
       );
     });
@@ -424,7 +480,7 @@ void main() {
         );
 
         expect(account, isNull);
-        expect(scope.read(authTokenProvider), isNull);
+        expect(scope.read(sessionProvider), isNull);
         // …and the code really was sent.
         final sent = adapter.requests.single.data as Map<String, dynamic>;
         expect(sent['email'], 'sarah@example.com');
@@ -525,5 +581,119 @@ void main() {
         expect(repository.verifications, isEmpty);
       },
     );
+  });
+
+  group('AuthApi.logIn', () {
+    test('posts email and password to /login/', () async {
+      await _withRepo(
+        (_) => _json({
+          'user': {'id': 7, 'email': 'sita@example.com', 'role': 'student'},
+          'tokens': {'access': 'access-abc', 'refresh': 'refresh-abc'},
+        }),
+        (repository, adapter, _) async {
+          await repository.logIn(
+            email: 'sita@example.com',
+            password: 'Passw0rd',
+          );
+
+          final request = adapter.requests.single;
+          expect(request.method, 'POST');
+          expect(request.path, endsWith('/login/'));
+          expect(request.data, {
+            'email': 'sita@example.com',
+            'password': 'Passw0rd',
+          });
+        },
+      );
+    });
+
+    test('adopts the session the response carries', () async {
+      await _withRepo(
+        (_) => _json({
+          'user': {'id': 7, 'email': 'sita@example.com', 'role': 'student'},
+          'tokens': {'access': 'access-abc', 'refresh': 'refresh-abc'},
+        }),
+        (repository, _, scope) async {
+          await repository.logIn(email: 'sita@example.com', password: 'p');
+
+          // Both tokens: the access token alone dies after 30 minutes, so a
+          // session without the refresh token cannot be renewed.
+          expect(scope.read(sessionProvider)?.access, 'access-abc');
+          expect(scope.read(sessionProvider)?.refresh, 'refresh-abc');
+        },
+      );
+    });
+
+    test('surfaces a bad-credentials 400 with the server wording', () async {
+      final error = await _captureError(
+        (repository) => repository.logIn(email: 'a@b.com', password: 'wrong'),
+        handler: (_) => _json(
+          {'detail': 'No active account found with the given credentials'},
+          status: 400,
+        ),
+      );
+
+      expect(error.statusCode, 400);
+      expect(error.message, contains('No active account found'));
+      // The backend does not say which of the two was wrong, which is why the
+      // screen cannot highlight a field.
+      expect(error.fieldErrors, isEmpty);
+    });
+  });
+
+  group('DioAuthRepository.logOut', () {
+    test('sends the refresh token so the server can blacklist it', () async {
+      await _withRepo(
+        (_) => _json({'detail': 'Logged out successfully.'}),
+        (repository, adapter, scope) async {
+          scope.read(sessionProvider.notifier).state = const Session(
+            access: 'access-abc',
+            refresh: 'refresh-abc',
+          );
+
+          await repository.logOut();
+
+          expect(adapter.requests.single.path, endsWith('/logout/'));
+          expect(adapter.requests.single.data, {'refresh': 'refresh-abc'});
+          expect(scope.read(sessionProvider), isNull);
+        },
+      );
+    });
+
+    test('clears the session even when the call fails', () async {
+      await _withRepo(
+        (_) => _json({'detail': 'nope'}, status: 500),
+        (repository, adapter, scope) async {
+          scope.read(sessionProvider.notifier).state = const Session(
+            access: 'access-abc',
+            refresh: 'refresh-abc',
+          );
+
+          // Must not throw. The user asked to be signed out, so a server fault
+          // cannot be allowed to leave them signed in on this device.
+          await repository.logOut();
+
+          expect(adapter.requests, hasLength(1));
+          expect(scope.read(sessionProvider), isNull);
+        },
+      );
+    });
+
+    test('makes no call when there is no refresh token', () async {
+      await _withRepo(
+        (_) => _json({'detail': 'ok'}),
+        (repository, adapter, scope) async {
+          scope.read(sessionProvider.notifier).state = const Session(
+            access: 'access-abc',
+          );
+
+          await repository.logOut();
+
+          // Nothing to blacklist, so clearing locally is the whole job.
+          expect(adapter.requests, isEmpty);
+          expect(scope.read(sessionProvider), isNull);
+        },
+      );
+    });
   });
 }

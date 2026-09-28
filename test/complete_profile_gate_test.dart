@@ -2,9 +2,58 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:skillsikka/features/profile/data/profile_completeness.dart';
+import 'package:skillsikka/features/profile/data/reference_data.dart';
 import 'package:skillsikka/features/profile/data/user_profile.dart';
 import 'package:skillsikka/features/profile/presentation/complete_profile_gate.dart';
 import 'package:skillsikka/features/profile/presentation/edit_profile_page.dart';
+
+/// The reference lists the province/district/school pickers read.
+///
+/// **These used to be `const` lists inside `edit_profile_page.dart`**, so a test
+/// could tap 'Bagmati' with no setup at all. They come from the backend now
+/// (`/locations/*`), which means a widget test has to stand them in — under
+/// `flutter test` every real HTTP request returns 400, so without these
+/// overrides the picker would open empty and the taps below would find nothing.
+///
+/// The sets are deliberately the real ones (seven provinces, `Grade 1`–`12`) so
+/// a shape change on the backend that the parser mishandles would surface here.
+const _provinces = [
+  ReferenceItem(id: '1', name: 'Bagmati'),
+  ReferenceItem(id: '2', name: 'Gandaki'),
+  ReferenceItem(id: '3', name: 'Koshi'),
+];
+
+const _districts = [
+  ReferenceItem(id: '10', name: 'Kathmandu', provinceId: '1'),
+  ReferenceItem(id: '11', name: 'Lalitpur', provinceId: '1'),
+  ReferenceItem(id: '12', name: 'Kaski', provinceId: '2'),
+];
+
+const _schools = [
+  ReferenceItem(id: '20', name: 'National College'),
+  ReferenceItem(id: '21', name: 'Kathmandu Model College'),
+];
+
+/// A container whose reference data never touches the network.
+ProviderContainer _referenceContainer() {
+  final container = ProviderContainer(
+    overrides: [
+      provincesProvider.overrideWith((ref) async => _provinces),
+      districtsForProvinceProvider.overrideWith(
+        (ref, provinceName) async => provinceName.trim() == 'Bagmati'
+            ? _districts.where((d) => d.provinceId == '1').toList()
+            : const <ReferenceItem>[],
+      ),
+      schoolsForDistrictProvider.overrideWith(
+        (ref, districtName) async => districtName.trim() == 'Kathmandu'
+            ? _schools
+            : const <ReferenceItem>[],
+      ),
+      gradesProvider.overrideWith((ref) async => const <ReferenceItem>[]),
+    ],
+  );
+  return container;
+}
 
 /// The gate is called from the enrol button, so the test drives it the same
 /// way: a button that records whatever `ensureProfileComplete` decides.
@@ -126,6 +175,16 @@ void main() {
     final container = ProviderContainer();
     addTearDown(container.dispose);
 
+    // Name and email are supplied — they are always required — while everything
+    // the completion flow is actually about is left blank, so Save must refuse
+    // and keep the screen open. The form no longer pre-fills these from a seed,
+    // so the test states them. **Before the pump**, because the form reads the
+    // store once when it builds its controllers.
+    container.read(userProfileProvider.notifier).save({
+      'name': 'Real User',
+      'email': 'real@user.test',
+    });
+
     final results = <bool>[];
     // Tall enough that every field is reachable without scrolling.
     await _pump(tester, container, results, height: 1400);
@@ -136,8 +195,6 @@ void main() {
 
     expect(find.byType(EditProfilePage), findsOneWidget);
 
-    // The demo seed fills name, email, phone and class; the rest are empty, so
-    // Save must refuse and keep the screen open.
     await tester.tap(find.text('Save Changes'));
     await tester.pumpAndSettle();
 
@@ -157,8 +214,23 @@ void main() {
   testWidgets('finishing the profile from the popup lets enrolment continue', (
     tester,
   ) async {
-    final container = ProviderContainer();
+    // Reference data comes from the overrides, not from `/locations/*` — see
+    // `_referenceContainer`. Without it the picker sheets open empty here,
+    // because every real request under `flutter test` returns 400.
+    final container = _referenceContainer();
     addTearDown(container.dispose);
+
+    // Name, email, phone and class are pre-filled, the way a real user arrives
+    // at this screen — signup captured the first three and `GET /me/` fills the
+    // rest. This used to be `_studentSeed` in the page itself; the seed is gone,
+    // so the test supplies the same starting state honestly rather than relying
+    // on the form to invent it.
+    container.read(userProfileProvider.notifier).save({
+      'name': 'Real User',
+      'email': 'real@user.test',
+      'phone': '9801234567',
+      'grade': 'Grade 9',
+    });
 
     final results = <bool>[];
     await _pump(tester, container, results, height: 1400);
@@ -167,7 +239,7 @@ void main() {
     await tester.pumpAndSettle();
 
     // Field order: name, email, phone, gender, dob, location, class, province,
-    // district, school. The seed already covers name/email/phone/class.
+    // district, school.
     final fields = find.byType(TextFormField);
 
     await tester.tap(fields.at(3));
@@ -183,6 +255,8 @@ void main() {
     await tester.enterText(fields.at(5), 'Baneshwor, Kathmandu');
     await tester.pumpAndSettle();
 
+    // Province, district and school are async now: the tap opens a sheet only
+    // after the list resolves, so `pumpAndSettle` has to cover the fetch.
     await tester.tap(fields.at(7));
     await tester.pumpAndSettle();
     await tester.tap(find.text('Bagmati'));

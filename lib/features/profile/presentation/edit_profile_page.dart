@@ -16,30 +16,13 @@ import '../../../core/widgets/profile_photo_picker.dart';
 import '../../../core/widgets/upload_card.dart';
 import '../data/gender.dart';
 import '../data/profile_role.dart';
+import '../data/reference_data.dart';
 import '../data/user_profile.dart';
 
 const _pageBackground = Color(0xFFFAF9F6);
 const _ink = Color(0xFF111827);
 const _accent = Color(0xFFE6B800);
 const _chevron = 'assets/figma/signup_chevron_down.svg';
-
-/// Values the form opens with, keyed by field id. Stands in for the API until
-/// there is one; the seeds mirror what each profile screen displays.
-const _studentSeed = <String, String>{
-  'name': 'Shuvanga Karki',
-  'email': 'shuvanga.karki@email.com',
-  'phone': '9801234567',
-  'grade': 'Class 9',
-};
-
-const _instructorSeed = <String, String>{
-  'name': 'Prof. Shuvanga Karki',
-  'email': 'prof.karki@email.com',
-  'phone': '9801234567',
-  'qualification': 'Adobe Certified Instructor',
-  'expertise': 'Illustration, Digital Arts',
-  'experience': '8 Years',
-};
 
 /// Edit the signed-in user's profile.
 ///
@@ -143,15 +126,22 @@ class _EditProfilePageState extends ConsumerState<EditProfilePage> {
   FormFieldValidator<String>? _requiredChoice(String label) =>
       widget.requireCompletion ? (value) => validateChoice(value, label) : null;
 
-  /// Whatever the profile already holds wins; the demo seed fills the gaps.
+  /// Whatever the profile holds, or blank.
   ///
-  /// This is also how the location the signup popup detected surfaces — signup
-  /// has no field to show it in.
-  String _initialValue(String key) {
-    final saved = ref.read(userProfileProvider).valueFor(key);
-    if (saved.isNotEmpty) return saved;
-    return (_isInstructor ? _instructorSeed : _studentSeed)[key] ?? '';
-  }
+  /// **No fallback to demo values.** This used to fall back to a hardcoded
+  /// `_studentSeed` / `_instructorSeed` holding "Shuvanga Karki" and a fake
+  /// email, from when the profile store was a stand-in for an API. Now that
+  /// `GET /me/` fills the store on sign-in (see `SessionBootstrap`), a seed
+  /// would be worse than blank: it would show a real user someone else's name
+  /// and email, and Save would then write those into their profile.
+  ///
+  /// A blank field is the honest state — the completeness gate treats it as
+  /// missing and asks the user to fill it.
+  ///
+  /// The location detected at signup surfaces here for the same reason it always
+  /// did: signup has no field to show it in.
+  String _initialValue(String key) =>
+      ref.read(userProfileProvider).valueFor(key);
 
   @override
   void initState() {
@@ -227,6 +217,47 @@ class _EditProfilePageState extends ConsumerState<EditProfilePage> {
       }
     });
     _revalidate();
+  }
+
+  /// The same, but the options come from the backend and have to be awaited
+  /// before the sheet can open.
+  ///
+  /// Province, district, school and grade were hardcoded `const` lists — four
+  /// provinces against the backend's seven, and school names the database has
+  /// never held. Fetching them is what makes the saved value real: a const list
+  /// invites the user to save something the backend will not recognise, and it
+  /// goes stale silently the moment the reference data changes.
+  ///
+  /// An empty result opens no sheet at all. That is deliberate: the school list
+  /// is genuinely empty on the backend today, and a sheet with nothing in it
+  /// looks broken, whereas doing nothing plus the empty-state message below
+  /// reads as "nothing to choose yet".
+  Future<void> _pickRemoteOption({
+    required String key,
+    required String title,
+    required Future<List<ReferenceItem>> Function() load,
+    List<String> clearKeys = const [],
+  }) async {
+    final items = await load();
+    if (!mounted) return;
+    if (items.isEmpty) {
+      _showEmptyOptions(title);
+      return;
+    }
+    await _pickOption(
+      key: key,
+      title: title,
+      options: items.map((item) => item.name).toList(growable: false),
+      clearKeys: clearKeys,
+    );
+  }
+
+  /// Tells the user there is nothing to pick, rather than opening a blank sheet.
+  void _showEmptyOptions(String title) {
+    final messenger = ScaffoldMessenger.maybeOf(context);
+    messenger?.showSnackBar(
+      SnackBar(content: Text('No $title options are available yet.')),
+    );
   }
 
   Future<void> _pickDateOfBirth() async {
@@ -504,16 +535,13 @@ class _EditProfilePageState extends ConsumerState<EditProfilePage> {
       hint: 'Select your class',
       trailing: _chevron,
       validator: _requiredChoice('class'),
-      onTap: () => _pickOption(
+      onTap: () => _pickRemoteOption(
         key: 'grade',
-        title: 'Select class',
-        options: const [
-          'Class 8',
-          'Class 9',
-          'Class 10',
-          'Class 11',
-          'Class 12',
-        ],
+        title: 'class',
+        // `Grade 1` … `Grade 12` from `/grades/`. The hardcoded list here said
+        // `Class 8`–`Class 12` — different words **and** a different range, so a
+        // saved value would not have matched anything the backend holds.
+        load: () => ref.read(gradesProvider.future),
       ),
     ),
     _twoUp(
@@ -524,10 +552,11 @@ class _EditProfilePageState extends ConsumerState<EditProfilePage> {
         hintFontSize: 12,
         trailing: _chevron,
         validator: _requiredChoice('province'),
-        onTap: () => _pickOption(
+        onTap: () => _pickRemoteOption(
           key: 'province',
-          title: 'Select province',
-          options: const ['Bagmati', 'Gandaki', 'Koshi', 'Lumbini'],
+          title: 'province',
+          // The real seven provinces, not the four that were hardcoded here.
+          load: () => ref.read(provincesProvider.future),
           clearKeys: const ['district', 'school'],
         ),
       ),
@@ -539,10 +568,15 @@ class _EditProfilePageState extends ConsumerState<EditProfilePage> {
         trailing: _chevron,
         enabled: _controller('province').text.isNotEmpty,
         validator: _requiredChoice('district'),
-        onTap: () => _pickOption(
+        onTap: () => _pickRemoteOption(
           key: 'district',
-          title: 'Select district',
-          options: const ['Kathmandu', 'Lalitpur', 'Bhaktapur', 'Chitwan'],
+          title: 'district',
+          // Filtered to the chosen province, which is what `province_id` on each
+          // district is for. Without the filter every district in the country
+          // would be offered under any province.
+          load: () => ref.read(
+            districtsForProvinceProvider(_controller('province').text).future,
+          ),
           clearKeys: const ['school'],
         ),
       ),
@@ -554,14 +588,12 @@ class _EditProfilePageState extends ConsumerState<EditProfilePage> {
       trailing: _chevron,
       enabled: _controller('district').text.isNotEmpty,
       validator: _requiredChoice('school or college'),
-      onTap: () => _pickOption(
+      onTap: () => _pickRemoteOption(
         key: 'school',
-        title: 'Select school or college',
-        options: const [
-          'Skill Sikka Academy',
-          'Kathmandu Model College',
-          'National College',
-        ],
+        title: 'school or college',
+        load: () => ref.read(
+          schoolsForDistrictProvider(_controller('district').text).future,
+        ),
       ),
     ),
     UploadCard(

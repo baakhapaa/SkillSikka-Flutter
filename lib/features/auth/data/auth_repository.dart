@@ -5,6 +5,7 @@ import '../../../core/network/api_error.dart';
 import '../../../core/network/session.dart';
 import '../../profile/data/profile_role.dart';
 import 'auth_api.dart';
+import 'me_profile.dart';
 import 'registered_account.dart';
 import 'registration_request.dart';
 
@@ -40,6 +41,19 @@ abstract interface class AuthRepository {
   /// not leave them signed in on this device. The local session is cleared either
   /// way.
   Future<void> logOut();
+
+  /// The signed-in user, as the server knows them, or null when the server did
+  /// not describe one.
+  ///
+  /// Called right after adopting a session, because the auth responses carry
+  /// only an id, email and role — not the name the profile screens render.
+  /// Without it the app is signed in but anonymous, and every screen showing the
+  /// user's own details falls back to placeholder data.
+  ///
+  /// Throws [ApiException] when the request fails, including a 401 from an
+  /// expired access token. Callers are expected to treat failure as
+  /// non-fatal — see `SessionBootstrap`.
+  Future<MeProfile?> fetchMe();
 
   /// Confirms the emailed code. Returns the account when verification
   /// established a session, and null when it did not.
@@ -116,6 +130,9 @@ class DioAuthRepository implements AuthRepository {
   Future<void> resendOtp({required String email}) =>
       _api.resendOtp(email: email);
 
+  @override
+  Future<MeProfile?> fetchMe() => _api.fetchMe();
+
   /// Stores the session the response carried, and does nothing when it carried
   /// none.
   ///
@@ -139,11 +156,29 @@ class DioAuthRepository implements AuthRepository {
 /// Deliberately **not** wired in by default: a fake that switches itself on is
 /// how "it worked on my machine" happens. Tests override
 /// [authRepositoryProvider] with it.
+///
+/// **[session] is not optional in practice.** The interface promises that
+/// `logIn`/`register`/`verifyOtp` *adopt the session* they return, and a fake
+/// that only returns the account breaks that promise silently: a screen calls
+/// `logIn`, gets a valid-looking account, and then finds `sessionProvider` still
+/// null — so every guarded route bounces it back to the login screen with no
+/// error anywhere. Pass the same `StateController<Session?>` the real repository
+/// would write, i.e. `ref.read(sessionProvider.notifier)`.
+///
+/// Leaving it null stays legal for a test that only cares about what was *sent*
+/// (the recorded lists below still fill), and it is asserted here rather than
+/// left to chance, so a test that expects a session fails loudly instead of
+/// quietly sitting on the login screen.
 class FakeAuthRepository implements AuthRepository {
   FakeAuthRepository({
     this.latency = Duration.zero,
     this.tokenOnRegister = false,
-  });
+    StateController<Session?>? session,
+  }) : _session = session;
+
+  /// Where an adopted session is written. Null means "record the call, adopt
+  /// nothing" — see the class doc.
+  final StateController<Session?>? _session;
 
   /// How long each call takes, so a test can observe the submitting state.
   Duration latency;
@@ -170,13 +205,15 @@ class FakeAuthRepository implements AuthRepository {
     await _wait();
     _throwIfFailing();
     registrations.add(request);
-    return RegisteredAccount(
+    final account = RegisteredAccount(
       email: request.fields['email'] ?? '',
       userId: 'fake-user-${registrations.length}',
       role: request.role,
       status: 'pending',
       accessToken: tokenOnRegister ? 'fake-access-token' : null,
     );
+    _adopt(account);
+    return account;
   }
 
   @override
@@ -189,7 +226,7 @@ class FakeAuthRepository implements AuthRepository {
     logins.add((email: email, password: password));
     // A real session, unlike [register]'s optional token: the backend always
     // issues one on sign-in.
-    return RegisteredAccount(
+    final account = RegisteredAccount(
       email: email,
       userId: 'fake-user-1',
       role: ProfileRole.student,
@@ -197,16 +234,23 @@ class FakeAuthRepository implements AuthRepository {
       accessToken: 'fake-access-token',
       refreshToken: 'fake-refresh-token',
     );
+    _adopt(account);
+    return account;
   }
 
   /// Deliberately does **not** honour [failure], because neither does the real
   /// implementation: a failed logout call must not stop the local session being
   /// cleared. The best-effort behaviour is tested against `DioAuthRepository`
   /// with a failing transport, not through this double.
+  ///
+  /// Clears the session like the real one does — see the class doc. A fake that
+  /// left the session in place after a logout would make every "logout returns
+  /// you to login" test pass for the wrong reason.
   @override
   Future<void> logOut() async {
     await _wait();
     logOuts++;
+    _session?.state = null;
   }
 
   @override
@@ -218,12 +262,14 @@ class FakeAuthRepository implements AuthRepository {
     _throwIfFailing();
     verifications.add((email: email, code: code));
     // Mirrors the backend answering with a session once the code is accepted.
-    return RegisteredAccount(
+    final account = RegisteredAccount(
       email: email,
       userId: 'fake-user-1',
       status: 'active',
       accessToken: 'fake-access-token',
     );
+    _adopt(account);
+    return account;
   }
 
   @override
@@ -231,6 +277,42 @@ class FakeAuthRepository implements AuthRepository {
     await _wait();
     _throwIfFailing();
     resends.add(email);
+  }
+
+  /// What [fetchMe] answers with, and how many times it was asked.
+  ///
+  /// Null by default rather than a hardcoded profile: a test that does not care
+  /// about the fetch should see it *not* overwrite the store, and a fake that
+  /// invented a name would make the "profile is populated" assertion pass
+  /// without the production path being wired at all.
+  MeProfile? me;
+
+  int meFetches = 0;
+
+  /// Thrown by [fetchMe] when set, **independently of [failure]**, so a test can
+  /// have a successful login followed by a failed profile fetch — which is the
+  /// case the login screen has to survive.
+  ApiException? meFailure;
+
+  @override
+  Future<MeProfile?> fetchMe() async {
+    await _wait();
+    meFetches++;
+    final error = meFailure;
+    if (error != null) throw error;
+    return me;
+  }
+
+  /// Stores the session the account carried, and does nothing when it carried
+  /// none — the same rule as `DioAuthRepository._adopt`, so the two cannot
+  /// disagree about when a session exists.
+  ///
+  /// Silently does nothing when no [session] controller was supplied. That is
+  /// the documented way to use this double for "what was sent" assertions only.
+  void _adopt(RegisteredAccount account) {
+    final access = account.accessToken;
+    if (access == null || access.isEmpty) return;
+    _session?.state = Session(access: access, refresh: account.refreshToken);
   }
 
   /// Only waits when there is something to wait for. A zero delay would still

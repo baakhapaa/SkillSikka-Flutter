@@ -10,6 +10,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:skillsikka/app.dart';
+import 'package:skillsikka/core/network/session.dart';
 import 'package:skillsikka/features/auth/data/auth_repository.dart';
 
 void main() {
@@ -34,14 +35,33 @@ void main() {
   testWidgets('renders splash and opens login screen', (
     WidgetTester tester,
   ) async {
+    // Built by hand rather than with a bare `ProviderScope`, because the fake
+    // repository has to be handed the *same* session controller the real one
+    // would write to. A `ProviderScope`'s `overrides` list cannot reach into the
+    // container it is about to create, so `ref.read(sessionProvider.notifier)` is
+    // not available there.
+    final container = ProviderContainer(
+      // Signing in now runs through the repository, so the test supplies one.
+      // Without this the button would call the real API and the flow would never
+      // leave the login screen.
+      //
+      // `overrideWith` rather than `overrideWithValue` because the fake needs the
+      // container's own session controller: `AuthRepository` promises that
+      // `logIn` *adopts* the session, and a fake that only returns the account
+      // leaves `sessionProvider` null. The login then "succeeds" with no error
+      // anywhere, and the route guard bounces the user straight back here.
+      overrides: [
+        authRepositoryProvider.overrideWith(
+          (ref) =>
+              FakeAuthRepository(session: ref.read(sessionProvider.notifier)),
+        ),
+      ],
+    );
+    addTearDown(container.dispose);
+
     await tester.pumpWidget(
-      ProviderScope(
-        // Signing in now runs through the repository, so the test supplies one.
-        // Without this the button would call the real API and the flow would
-        // never leave the login screen.
-        overrides: [
-          authRepositoryProvider.overrideWithValue(FakeAuthRepository()),
-        ],
+      UncontrolledProviderScope(
+        container: container,
         child: const SkillSikkaApp(),
       ),
     );
@@ -102,6 +122,18 @@ void main() {
     await tester.pump(const Duration(milliseconds: 50));
     await tester.pumpAndSettle();
     drainUnrelatedOverflows(tester);
+
+    // The sign-in had to actually establish a session, or the assertion below is
+    // testing nothing. This is the guarantee `FakeAuthRepository` used to
+    // silently break: it returned a valid-looking account without writing
+    // `sessionProvider`, so `context.go('/')` was undone by the guard, which saw
+    // no session and left the user on this public screen. Asserted here rather
+    // than only inferred from the footer, so a future regression names itself.
+    expect(
+      container.read(sessionProvider),
+      isNotNull,
+      reason: 'login must adopt a session, not just return one',
+    );
 
     // This used to assert `find.text('Learn. Practice. Grow.')`. That string is
     // not in `lib/` at all — it was the placeholder body of the old home

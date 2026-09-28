@@ -39,10 +39,22 @@ void main() {
     await tester.binding.setSurfaceSize(const Size(360, 800));
     addTearDown(() => tester.binding.setSurfaceSize(null));
 
+    // Seeded so the entry-point check below runs against a signed-in user
+    // rather than an empty store. A bare `ProviderScope()` would also work —
+    // the page degrades to its placeholders — but this is the state the app is
+    // actually in when the tab is reachable.
+    final container = ProviderContainer();
+    addTearDown(container.dispose);
+    container.read(userProfileProvider.notifier).save({
+      'name': 'Real User',
+      'grade': 'Grade 9',
+    });
+
     // --- the entry point on the profile page ---
     await tester.pumpWidget(
-      const ProviderScope(
-        child: MaterialApp(home: Scaffold(body: ProfilePage())),
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: Scaffold(body: ProfilePage())),
       ),
     );
     await tester.pump();
@@ -69,9 +81,18 @@ void main() {
     expect(inPage(find.text('Student ID Card')), findsOneWidget);
     expect(inPage(find.textContaining('About Me')), findsNothing);
 
-    // Opens with what the profile already displays, not an empty form.
-    expect(inPage(find.text('Shuvanga Karki')), findsOneWidget);
-    expect(inPage(find.text('Class 9')), findsOneWidget);
+    // Opens with what the profile store holds. This used to assert a hardcoded
+    // `_studentSeed` ('Shuvanga Karki' / 'Class 9') that the form fell back to
+    // when the store was empty — which meant every account was shown a
+    // stranger's name. The seed is gone (see `_initialValue`), so the value
+    // under test is now the store's own.
+    expect(inPage(find.text('Real User')), findsOneWidget);
+    expect(inPage(find.text('Grade 9')), findsOneWidget);
+    expect(
+      inPage(find.text('Shuvanga Karki')),
+      findsNothing,
+      reason: 'the deleted seed must not resurface',
+    );
 
     // --- the instructor variant of the same screen ---
     // Tear the tree down first: pumping a new MaterialApp reuses the
@@ -106,8 +127,18 @@ void main() {
     // --- saving closes the screen and confirms ---
     await tester.pumpWidget(const SizedBox.shrink());
     await tester.pump();
+    // Seeded because Save requires a name and a valid email, and the form no
+    // longer invents them from a seed — an empty store would refuse to save,
+    // which is correct behaviour but not what this step is checking.
+    final saveContainer = ProviderContainer();
+    addTearDown(saveContainer.dispose);
+    saveContainer.read(userProfileProvider.notifier).save({
+      'name': 'Real User',
+      'email': 'real@user.test',
+    });
     await tester.pumpWidget(
-      ProviderScope(
+      UncontrolledProviderScope(
+        container: saveContainer,
         child: MaterialApp(
           home: Builder(
             builder: (context) => Scaffold(
@@ -263,5 +294,95 @@ void main() {
     // Let the summary snack bar expire so no timer outlives the test.
     await tester.pump(const Duration(seconds: 5));
     await tester.pumpAndSettle();
+  });
+
+  testWidgets('the profile header shows the user\'s own photo', (tester) async {
+    await tester.binding.setSurfaceSize(const Size(360, 800));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    // A one-pixel PNG, as the store would hold after signup or Edit Profile.
+    final onePixelPng = Uint8List.fromList(
+      base64Decode(
+        'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8DwHwAF'
+        'AAH/q842iQAAAABJRU5ErkJggg==',
+      ),
+    );
+
+    final container = ProviderContainer();
+    addTearDown(container.dispose);
+    container.read(userProfileProvider.notifier)
+      ..setPhoto(onePixelPng, 'me.png')
+      ..save({'name': 'Real User'});
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: Scaffold(body: ProfilePage())),
+      ),
+    );
+    await tester.pump();
+    drainUnrelatedOverflows(tester);
+
+    // The header used to render a fixed `Image.asset`, so every account showed
+    // the same stock portrait. A `MemoryImage` here is the proof it is now the
+    // photo this user actually picked — and that it went through bytes, not a
+    // `File` (`Image.file` asserts `!kIsWeb`).
+    //
+    // Addressed by key, not `find.byType(Image)`: the page renders five other
+    // images (streak, pencil, chevron icons) and an unscoped finder would be
+    // ambiguous.
+    final avatar = tester.widget<Image>(find.byKey(avatarKey));
+    expect(
+      avatar.image,
+      isA<MemoryImage>(),
+      reason: 'the avatar must render the store, not a bundled asset',
+    );
+    expect(
+      avatar.image,
+      isNot(isA<AssetImage>()),
+      reason: 'a bundled AssetImage is the hardcoded portrait this replaced',
+    );
+    expect(avatar.width, 107, reason: 'the header avatar is 107px');
+
+    // The image must be decoded inside a circle, not shown as a raw rectangle.
+    expect(
+      find.ancestor(of: find.byKey(avatarKey), matching: find.byType(ClipOval)),
+      findsWidgets,
+    );
+  });
+
+  testWidgets('with no photo the header shows a placeholder, not a stranger', (
+    tester,
+  ) async {
+    await tester.binding.setSurfaceSize(const Size(360, 800));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    final container = ProviderContainer();
+    addTearDown(container.dispose);
+    container.read(userProfileProvider.notifier).save({'name': 'Real User'});
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: Scaffold(body: ProfilePage())),
+      ),
+    );
+    await tester.pump();
+    drainUnrelatedOverflows(tester);
+
+    // No photo means the placeholder, not a bundled portrait. The neutral
+    // silhouette is an `Icon`, so the keyed avatar must not contain an `Image`.
+    expect(
+      find.descendant(of: find.byKey(avatarKey), matching: find.byType(Image)),
+      findsNothing,
+      reason: 'an account with no photo must not be given someone else\'s face',
+    );
+    expect(
+      find.descendant(
+        of: find.byKey(avatarKey),
+        matching: find.byIcon(Icons.person),
+      ),
+      findsOneWidget,
+    );
   });
 }

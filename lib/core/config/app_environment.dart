@@ -56,19 +56,63 @@ class AppConfig {
   ///
   /// ```
   /// adb reverse tcp:8000 tcp:8000
-  /// flutter run          // the default below already points at 127.0.0.1:8000
+  /// flutter run --dart-define=API_BASE_URL=http://127.0.0.1:8000/api/v1
   /// ```
   ///
-  /// That forwards the *device's* `127.0.0.1:8000` to the host, so the default
-  /// base URL works unchanged — and requests arrive with `Host: 127.0.0.1:8000`,
-  /// which Django's default `ALLOWED_HOSTS` accepts under `DEBUG`, unlike
-  /// `10.0.2.2`. It must be re-run after the device reconnects.
+  /// That forwards the *device's* `127.0.0.1:8000` to the host, and requests
+  /// arrive with `Host: 127.0.0.1:8000`, which Django's default `ALLOWED_HOSTS`
+  /// accepts under `DEBUG`, unlike `10.0.2.2`. It must be re-run after the
+  /// device reconnects, and the explicit `--dart-define` is **required** now
+  /// that the default is the LAN address below rather than loopback.
   ///
-  /// The alternative is the host's LAN address, which additionally needs the
-  /// server bound beyond loopback and that address in `ALLOWED_HOSTS`:
-  /// `python manage.py runserver 0.0.0.0:8000`.
+  /// **The host's LAN address is the other route, and the one to prefer when
+  /// there is a real backend to talk to.** It survives a device reconnect, needs
+  /// no `adb`, and works from a second machine or an iOS device. Three things
+  /// have to be true, and each fails differently:
+  ///
+  /// 1. The server must listen beyond loopback — `runserver`'s default binds
+  ///    `127.0.0.1` only. `python manage.py runserver 0.0.0.0:8000`.
+  /// 2. The address must be in Django's `ALLOWED_HOSTS`, as a **bare host**:
+  ///    `'192.168.1.84'`, no scheme and no port. Django compares it against the
+  ///    `Host` header with the port stripped, so `'http://192.168.1.84:8000'`
+  ///    never matches, and `0.0.0.0` cannot be listed at all — it is a bind
+  ///    directive, not an address a client sends. Under `DEBUG=True` Django
+  ///    narrows the default to `localhost`, `127.0.0.1` and `[::1]`, so the LAN
+  ///    address is rejected with `DisallowedHost` (400) until it is added.
+  /// 3. Both devices on the same network, and inbound TCP 8000 allowed by the
+  ///    host's firewall — on Windows the first launch prompts, and a click on
+  ///    "Cancel" leaves a rule that silently drops the packets.
+  ///
+  /// ```
+  /// flutter run --dart-define=API_BASE_URL=http://192.168.1.84:8000/api/v1
+  /// ```
+  ///
+  /// A quick confirmation that the host, address and firewall are all right,
+  /// before involving Flutter: open `http://192.168.1.84:8000/api/v1/` in the
+  /// phone's browser. A JSON 404 means the request got through; a timeout or a
+  /// "site can't be reached" means it did not, and the problem is on the host.
+  ///
+  /// Note this address also decides what the *server* sees, so anything the
+  /// backend does with request origins (CORS, `CSRF_TRUSTED_ORIGINS`) has to
+  /// name this host too.
+  ///
+  /// **The LAN address is the default below**, so a plain `flutter run` reaches
+  /// the dev backend from a physical device with no flags. Override with
+  /// `--dart-define=API_BASE_URL=...` to point anywhere else — including back at
+  /// loopback via `adb reverse`, above.
+  ///
+  /// Two consequences of it being a private address: it only resolves on the
+  /// network that owns it, and **the server must actually be running** —
+  /// `./manage.py runserver 0.0.0.0:8000`, with `'192.168.1.84'` in
+  /// `ALLOWED_HOSTS`.
+  ///
+  /// Reachability can be checked without Flutter: the URL in a browser, or a
+  /// raw TCP probe. A **timeout, connection refused, or `HTTP 000`** means
+  /// nothing is listening (the server is down, or still bound to loopback) —
+  /// that is a host problem, not a client bug. Any HTTP response at all, even
+  /// `400`, means the request got through.
   static const _defaultUrls = <AppEnvironment, String>{
-    AppEnvironment.development: 'http://127.0.0.1:8000/api/v1',
+    AppEnvironment.development: 'http://192.168.1.84:8000/api/v1',
     AppEnvironment.staging: 'https://staging-api.skillsikka.com/api/v1',
     AppEnvironment.production: 'https://api.skillsikka.com/api/v1',
   };

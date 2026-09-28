@@ -581,6 +581,94 @@ void main() {
         expect(repository.verifications, isEmpty);
       },
     );
+
+    // The three tests above all inspect the *returned account* and never supply a
+    // session controller, so none of them could have caught the bug this group
+    // exists for: `FakeAuthRepository` used to return a valid-looking account
+    // without writing `sessionProvider`, which the interface explicitly promises
+    // ("Signs in ... and adopts the session"). Every guarded screen then bounced
+    // the user back to login with no error anywhere, while both the guard suite
+    // (which sets the session directly) and these tests (which ignore it) passed.
+    // It took `widget_test.dart` driving the real app to surface it.
+    group('session adoption — the promise the double has to keep', () {
+      test('logIn writes the session it returns', () async {
+        final container = ProviderContainer();
+        addTearDown(container.dispose);
+        final repository = FakeAuthRepository(
+          session: container.read(sessionProvider.notifier),
+        );
+
+        final account = await repository.logIn(
+          email: 'sita@example.com',
+          password: 'Passw0rd',
+        );
+
+        expect(account.hasSession, isTrue);
+        final session = container.read(sessionProvider);
+        expect(session, isNotNull);
+        // Both tokens, matching `DioAuthRepository._adopt`: an access-only
+        // session is signed out half an hour in with no way to renew.
+        expect(session!.access, account.accessToken);
+        expect(session.refresh, account.refreshToken);
+      });
+
+      test('register adopts only when it actually returned a token', () async {
+        final withToken = ProviderContainer();
+        addTearDown(withToken.dispose);
+        await FakeAuthRepository(
+          tokenOnRegister: true,
+          session: withToken.read(sessionProvider.notifier),
+        ).register(_studentRequest());
+        expect(withToken.read(sessionProvider), isNotNull);
+
+        // The OTP-first model: no token, so no session. `_adopt` is a no-op
+        // rather than storing a session with an empty access token.
+        final withoutToken = ProviderContainer();
+        addTearDown(withoutToken.dispose);
+        await FakeAuthRepository(
+          session: withoutToken.read(sessionProvider.notifier),
+        ).register(_studentRequest());
+        expect(withoutToken.read(sessionProvider), isNull);
+      });
+
+      test('logOut clears the session, like the real one', () async {
+        final container = ProviderContainer();
+        addTearDown(container.dispose);
+        final repository = FakeAuthRepository(
+          session: container.read(sessionProvider.notifier),
+        );
+        await repository.logIn(email: 'sita@example.com', password: 'Passw0rd');
+        expect(container.read(sessionProvider), isNotNull);
+
+        await repository.logOut();
+
+        expect(repository.logOuts, 1);
+        expect(
+          container.read(sessionProvider),
+          isNull,
+          reason:
+              'a fake that leaves the session set makes every '
+              '"logout returns you to login" test pass for the wrong reason',
+        );
+      });
+
+      test('with no controller it records the call, adopts nothing', () async {
+        // The documented escape hatch: legal for a test that only asserts on what
+        // was *sent*. Pinned so it stays deliberate rather than becoming an
+        // accidental default someone relies on.
+        final repository = FakeAuthRepository();
+
+        final account = await repository.logIn(
+          email: 'sita@example.com',
+          password: 'Passw0rd',
+        );
+
+        // The call was recorded and the account still carries a session — the
+        // only omission is that nothing was written anywhere.
+        expect(repository.logins, hasLength(1));
+        expect(account.hasSession, isTrue);
+      });
+    });
   });
 
   group('AuthApi.logIn', () {

@@ -1,6 +1,7 @@
 import '../../../core/network/api_client.dart';
 import '../../../core/network/api_error.dart';
 import '../../profile/data/profile_role.dart';
+import 'me_profile.dart';
 import 'registered_account.dart';
 import 'registration_request.dart';
 
@@ -108,6 +109,23 @@ class AuthApi {
   /// rather than a payload, and there is nothing here to read.
   Future<void> logOut({required String refresh}) async {
     await _client.postOptionalBody('/logout/', data: {'refresh': refresh});
+  }
+
+  /// `GET /me/` — the signed-in user, as the server knows them.
+  ///
+  /// Confirmed live 2026-09-28: returns a **flat** object
+  /// (`{"id","email","name","role","verification_status","onboarding_completed",
+  /// "is_active"}`), needs a Bearer token (**401** without one), and **needs the
+  /// trailing slash** — without it Django answers **301** and dio does not follow
+  /// a redirect onto a different method/path for us. The path below is written
+  /// with the slash for that reason; do not "tidy" it away.
+  ///
+  /// This is what makes the app know *who* is signed in. The auth responses
+  /// carry an id, email and role, but nothing the profile screens can render —
+  /// so without this call the profile tab and Edit Profile have no name to show.
+  Future<MeProfile?> fetchMe() async {
+    final body = await _client.get<Map<String, dynamic>>('/me/');
+    return MeProfile.tryParse(body);
   }
 
   /// `POST /auth/verify-otp`.

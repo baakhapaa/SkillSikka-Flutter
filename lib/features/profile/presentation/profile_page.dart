@@ -15,6 +15,14 @@ const _yellow = Color(0xFFE6B800);
 const _streakBorder = Color(0xFFE2E8F0);
 const _streakIconBg = Color(0xFFF8FAFC);
 
+/// Identifies the header avatar — the photo when there is one, the placeholder
+/// otherwise.
+///
+/// Public so a test can address the avatar directly. The page renders five other
+/// `Image` widgets (streak, pencil, chevron icons), so `find.byType(Image)` is
+/// ambiguous and cannot prove which one is the user's face.
+const avatarKey = ValueKey<String>('profile-avatar');
+
 /// Public profile destination used by the app shell and navigation tests.
 class ProfilePage extends StatelessWidget {
   const ProfilePage({super.key});
@@ -152,7 +160,102 @@ class _InstructorProfilePageState extends State<InstructorProfilePage> {
   // ─────────────────────────────────────────────────────────────
   // PROFILE HEADER  (avatar + camera badge + name + stats + edit)
   // ─────────────────────────────────────────────────────────────
+
+  /// The signed-in user's own profile, filled by `SessionBootstrap` from
+  /// `GET /me/`. Read once per build rather than per label so the two texts
+  /// cannot disagree.
+  ///
+  /// **Watched, not read-and-forgotten.** `containerOf` with its default
+  /// `listen: true` registers a dependency on the scope, so this page rebuilds
+  /// when the fetch lands. Reading it once with no dependency — or passing
+  /// `listen: false` — would render the placeholder and never update, which
+  /// looks exactly like the hardcoded name this replaced.
+  ///
+  /// **Returns an empty profile when there is no scope above this widget**
+  /// rather than throwing. `main.dart` always provides one, so the app is
+  /// unaffected, but this page is pumped bare by `navigation_test` and by
+  /// `edit_profile_test`, and crashing a whole screen because a provider is
+  /// absent turns a missing test harness into a fake app failure. An empty
+  /// profile is the honest degradation: the header shows its neutral
+  /// placeholders, which is what it did before any of this existed.
+  UserProfile _readOwnProfile() {
+    // `containerOf` throws when no scope is found — it has no nullable form —
+    // so the absence has to be caught rather than tested for.
+    try {
+      return ProviderScope.containerOf(context).read(userProfileProvider);
+    } on StateError {
+      return const UserProfile();
+    }
+  }
+
+  /// Opens the edit screen for this user's role.
+  ///
+  /// Read at tap time rather than hardcoding student: an instructor has to land
+  /// on the instructor field set, and the role is only known once signup has
+  /// recorded it.
+  ///
+  /// Uses [_readOwnProfile]'s container lookup so a missing scope degrades to
+  /// the student field set instead of throwing — see that method for why.
+  void _openEditProfile() {
+    final role = _readOwnProfile().effectiveRole;
+    Navigator.of(
+      context,
+    ).push(MaterialPageRoute(builder: (_) => EditProfilePage(role: role)));
+  }
+
+  /// The user's own photo, or a neutral placeholder when there is none.
+  ///
+  /// **This used to be a hardcoded `Image.asset`**
+  /// (`assets/figma/instructorprofile/adobe-certified.png`), so every account —
+  /// student or instructor, photo picked or not — saw the same stock portrait.
+  /// The name beside it was fixed at the same time; this is the other half of
+  /// that bug.
+  ///
+  /// Rendered from [UserProfile.photoBytes] with `Image.memory`, matching
+  /// [ProfilePhotoPicker]. Not a URL and not a `File`:
+  /// - `GET /me/` returns **no photo field at all** (confirmed live and against
+  ///   the OpenAPI schema, where `profile_photo` appears only in the two
+  ///   *registration* schemas), so there is no server URL to load yet.
+  /// - `Image.file` asserts `!kIsWeb`, and this app ships to Flutter web.
+  ///
+  /// The bytes are the ones picked at signup, carried in the store, or set by
+  /// Edit Profile — so this is the same photo the user chose, and it appears
+  /// without a round trip.
+  Widget _buildAvatar(UserProfile profile) {
+    final bytes = profile.photoBytes;
+    if (bytes != null && bytes.isNotEmpty) {
+      return Image.memory(
+        bytes,
+        key: avatarKey,
+        width: 107,
+        height: 107,
+        fit: BoxFit.cover,
+        // A truncated or corrupt image must not blank the whole header — and
+        // this builder is also what keeps a decode failure from surfacing as a
+        // test failure: Flutter sets `reportErrors: errorBuilder == null`
+        // (`widgets/image.dart:1233`), so supplying it *suppresses* the error.
+        // `logout_clears_session_test` stores `[1, 2, 3]` as a photo, which is
+        // not a decodable image, and relies on exactly that.
+        errorBuilder: (_, _, _) => _buildAvatarPlaceholder(),
+      );
+    }
+    return _buildAvatarPlaceholder();
+  }
+
+  /// What an account with no photo shows: a neutral silhouette, not someone
+  /// else's face.
+  Widget _buildAvatarPlaceholder() {
+    return Container(
+      key: avatarKey,
+      width: 107,
+      height: 107,
+      color: const Color(0xFFE5E7EB),
+      child: const Icon(Icons.person, size: 48, color: Colors.white),
+    );
+  }
+
   Widget _buildProfileHeader() {
+    final profile = _readOwnProfile();
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 16, 16, 16),
       child: Column(
@@ -166,24 +269,7 @@ class _InstructorProfilePageState extends State<InstructorProfilePage> {
                 Positioned(
                   top: 0,
                   left: 0,
-                  child: ClipOval(
-                    child: Image.asset(
-                      'assets/figma/instructorprofile/adobe-certified.png',
-                      width: 107,
-                      height: 107,
-                      fit: BoxFit.cover,
-                      errorBuilder: (_, _, _) => Container(
-                        width: 107,
-                        height: 107,
-                        color: const Color(0xFFE5E7EB),
-                        child: const Icon(
-                          Icons.person,
-                          size: 48,
-                          color: Colors.white,
-                        ),
-                      ),
-                    ),
-                  ),
+                  child: ClipOval(child: _buildAvatar(profile)),
                 ),
                 // Camera badge
                 Positioned(
@@ -191,7 +277,11 @@ class _InstructorProfilePageState extends State<InstructorProfilePage> {
                   left: 81,
                   child: GestureDetector(
                     behavior: HitTestBehavior.opaque,
-                    onTap: () {},
+                    // Opens the same editor the button below does, because that
+                    // is where the photo is actually changed. It used to be
+                    // `onTap: () {}` — a badge that looks pressable and does
+                    // nothing is worse than no badge.
+                    onTap: _openEditProfile,
                     child: Container(
                       width: 26,
                       height: 27,
@@ -224,7 +314,14 @@ class _InstructorProfilePageState extends State<InstructorProfilePage> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        'Shuvanga Karki',
+                        // The signed-in user, from `GET /me/`. Falls back to a
+                        // neutral label rather than a placeholder name: this
+                        // used to be the hardcoded 'Shuvanga Karki', which meant
+                        // every account saw a stranger's name on their own
+                        // profile. A real name appears once the fetch lands.
+                        profile.valueFor('name').isNotEmpty
+                            ? profile.valueFor('name')
+                            : 'Your profile',
                         style: GoogleFonts.manrope(
                           fontSize: 18,
                           fontWeight: FontWeight.w800,
@@ -233,7 +330,11 @@ class _InstructorProfilePageState extends State<InstructorProfilePage> {
                       ),
                       const SizedBox(height: 4),
                       Text(
-                        'Class 9',
+                        // The grade the user picked, or the role while it is
+                        // still empty — 'Class 9' here was hardcoded too.
+                        profile.valueFor('grade').isNotEmpty
+                            ? profile.valueFor('grade')
+                            : profile.effectiveRole.label,
                         style: GoogleFonts.figtree(fontSize: 10, color: _gray),
                       ),
                     ],
@@ -271,20 +372,7 @@ class _InstructorProfilePageState extends State<InstructorProfilePage> {
           const SizedBox(height: 16),
           GestureDetector(
             behavior: HitTestBehavior.opaque,
-            onTap: () {
-              // Read at tap time rather than hardcoding student: an instructor
-              // has to land on the instructor field set, and the role is only
-              // known once signup has recorded it.
-              final role = ProviderScope.containerOf(
-                context,
-                listen: false,
-              ).read(userProfileProvider).effectiveRole;
-              Navigator.of(context).push(
-                MaterialPageRoute(
-                  builder: (_) => EditProfilePage(role: role),
-                ),
-              );
-            },
+            onTap: _openEditProfile,
             child: Container(
               height: 44,
               decoration: BoxDecoration(

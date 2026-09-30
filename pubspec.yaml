@@ -34,6 +34,23 @@ dependencies:
   dio: ^5.8.0+1
   flutter_svg: ^2.0.17
   flutter_riverpod: ^2.6.1
+  # Persists the signed-in session. On Android this is Keystore-backed, on iOS it
+  # is the Keychain — see `lib/core/network/session_store.dart` for why the app
+  # can rely on that. Note `android:allowBackup="false"` in AndroidManifest.xml is
+  # part of this: Auto Backup copies the encrypted data but not the Keystore key.
+  #
+  # **Pinned to 10.x deliberately — do not "upgrade" this without also moving
+  # file_picker.** 11.x depends on flutter_secure_storage_windows ^4.2.2, which
+  # needs win32 ^6.0.1; file_picker ^10.3.10 needs win32 ^5.9.0. Those two ranges
+  # do not overlap, so pub cannot resolve both and `pub get` fails outright.
+  #
+  # 11.x is not needed here. It removes deprecated Android cipher options we never
+  # set, adds a biometric flag we do not use, and fixes Linux/Windows paths that
+  # are not targets. The API actually used — read/write/delete — is identical in
+  # both. Moving to 11.x means first taking file_picker 10 → 13, which is a much
+  # bigger change: `FilePicker.platform` becomes static, `FilePickerResult` is
+  # removed, and the iOS deployment target has to go from 13.0 to 14.0.
+  flutter_secure_storage: ^10.3.4
   go_router: ^15.1.2
   google_fonts: ^6.2.1
   video_player: ^2.8.6

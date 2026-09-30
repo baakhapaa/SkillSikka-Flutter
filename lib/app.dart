@@ -4,12 +4,24 @@ import 'package:google_fonts/google_fonts.dart';
 
 import 'core/routing/app_router.dart';
 import 'core/session_bootstrap.dart';
+import 'core/session_persistence.dart';
 
 class SkillSikkaApp extends ConsumerWidget {
   const SkillSikkaApp({super.key});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    // Restores a session saved on a previous launch, and saves every change after
+    // that. Watched here for the same reason as the loader below: the provider does
+    // nothing at all until something watches it, and this is the single place that
+    // should.
+    //
+    // Watched before the loader so a restored session is in place as early as
+    // possible. The order is not load-bearing — the restore is async, so the loader
+    // is registered long before a session arrives, and its own listener catches it
+    // whenever it lands.
+    ref.watch(sessionPersistenceProvider);
+
     // Loads the signed-in user's own details whenever a session appears, and
     // clears them when it ends. Watched here so it is alive for the whole app —
     // the provider does nothing until something watches it, and this is the

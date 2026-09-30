@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!--
+	  Required by flutter_secure_storage, which stores the signed-in session in the
+	  iOS Keychain.
+
+	  The array is deliberately EMPTY. An empty keychain-access-groups gives the app
+	  its own default access group — the Keychain Sharing capability, without sharing
+	  with anything. That is all a single app needs, and it avoids requiring a
+	  provisioning profile that names a group.
+
+	  Without this key the package's own docs warn that values "appear written but
+	  never actually persist" — a silent failure, which is why it is set up now rather
+	  than debugged later. If an App Group is ever added, its name goes in this array
+	  as $(AppIdentifierPrefix)<group-name>.
+
+	  Wired to all three Runner build configurations via CODE_SIGN_ENTITLEMENTS in
+	  project.pbxproj. One file, not separate Debug/Release copies, so the two can
+	  never drift apart.
+	-->
+	<key>keychain-access-groups</key>
+	<array/>
+</dict>
+</plist>

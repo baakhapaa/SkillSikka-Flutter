@@ -11,6 +11,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:skillsikka/app.dart';
 import 'package:skillsikka/core/network/session.dart';
+import 'package:skillsikka/core/network/session_store.dart';
 import 'package:skillsikka/features/auth/data/auth_repository.dart';
 
 void main() {
@@ -55,6 +56,12 @@ void main() {
           (ref) =>
               FakeAuthRepository(session: ref.read(sessionProvider.notifier)),
         ),
+        // The app now persists the session, so it would otherwise reach for
+        // Keystore through a platform channel that no widget test has. The real
+        // store swallows that and reports "no session", so this is not strictly
+        // required — but a test should not depend on a production fallback firing,
+        // and the fake also lets this test assert on what was persisted.
+        sessionStoreProvider.overrideWithValue(FakeSessionStore()),
       ],
     );
     addTearDown(container.dispose);

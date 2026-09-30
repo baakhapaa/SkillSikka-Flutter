@@ -2,9 +2,24 @@
     <!-- Location is used to auto-fill the address field on the signup forms. -->
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+    <!--
+      android:allowBackup="false" is required, not optional.
+
+      The signed-in session is stored with flutter_secure_storage, which on Android
+      encrypts it with a key held in the Keystore. Android's Auto Backup copies the
+      app's data directory but **not** the Keystore, so with backup enabled a restore
+      onto a new device produces ciphertext that nothing on that device can decrypt.
+      The app would then read a session it cannot use and, depending on how the read
+      is handled, either fail to start signed in or throw on startup.
+
+      The default is `true`, so this has to be stated explicitly. Turning it off costs
+      nothing here: there is no local database, the profile lives in memory, and photos
+      are uploaded to the backend — there is no app data worth restoring.
+    -->
     <application
         android:label="Skill Sikka"
         android:name="${applicationName}"
+        android:allowBackup="false"
         android:icon="@mipmap/ic_launcher">
         <activity
             android:name=".MainActivity"

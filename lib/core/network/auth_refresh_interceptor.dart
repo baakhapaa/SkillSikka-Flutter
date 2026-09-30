@@ -163,6 +163,17 @@ class AuthRefreshInterceptor extends Interceptor {
       // 4xx means the refresh token itself is no good. Anything else — no
       // connection, a timeout, a 5xx — says nothing about the token, so the
       // session is left alone.
+      //
+      // This split is load-bearing, and the backend confirmed on 2026-09-30 that
+      // it is safe: a dead refresh token is **structurally** always a 401.
+      // `TokenRefreshView` raises `InvalidToken`, which is a DRF
+      // `ValidationError` subclass, so it is mapped to 401 by design and no code
+      // path turns it into a 5xx. A 5xx here therefore really does mean a server
+      // fault unrelated to the token.
+      //
+      // Without that guarantee this branch would be a trap: a token that can
+      // never succeed answering 5xx would leave the user holding a session they
+      // can never use, with no way out.
       if (status != null && status >= 400 && status < 500) {
         return _RefreshOutcome.rejected;
       }
@@ -211,21 +222,24 @@ Object? _replayableBody(Object? data) {
 
 /// The access token out of a refresh response.
 ///
-/// The documented shape is `{"access": "..."}` — SimpleJWT's own. `tokens.access`
-/// is accepted too, because that is the nesting registration and login use, and a
-/// backend that reused its serializer for this endpoint would be perfectly
-/// reasonable.
+/// **Flat, and only flat.** Confirmed by the backend on 2026-09-30:
+/// `POST /token/refresh/` is SimpleJWT's unmodified `TokenRefreshView` with
+/// `ROTATE_REFRESH_TOKENS` and `BLACKLIST_AFTER_ROTATION` both left at their
+/// `False` defaults. So the body is always `{"access": "..."}` — never nested
+/// under `tokens`, and never carrying a `refresh`.
+///
+/// This used to also accept `tokens.access`, because registration and login nest
+/// their token that way and it was not known which shape this endpoint used. That
+/// tolerance is deliberately gone. It was never exercised by a test, it cannot
+/// occur, and a branch that cannot run only makes the parser look more forgiving
+/// than the contract it is written against — the kind of thing that later reads as
+/// evidence the endpoint is flexible when it is not.
+///
+/// **If the backend ever swaps this view out or turns rotation on, this is the
+/// function that has to change**, along with `_refresh`'s write of the session.
 String? _accessFrom(Object? body) {
   if (body is! Map) return null;
-  final json = body.cast<String, dynamic>();
-  final nested = json['tokens'];
-  final tokens = nested is Map
-      ? nested.cast<String, dynamic>()
-      : const <String, dynamic>{};
-  for (final candidate in [json['access'], tokens['access']]) {
-    if (candidate is String && candidate.trim().isNotEmpty) {
-      return candidate.trim();
-    }
-  }
+  final access = body.cast<String, dynamic>()['access'];
+  if (access is String && access.trim().isNotEmpty) return access.trim();
   return null;
 }

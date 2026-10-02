@@ -8,9 +8,13 @@ import 'profile_role.dart';
 /// Named constants rather than bare strings because the same slot has to be
 /// written by a form and later read by the multipart assembly — a typo in one
 /// of those two places would drop a file silently rather than fail.
+///
+/// **The values are the multipart field names**, so this list is a wire contract
+/// as much as an internal key. That is why the instructor certificates slot
+/// carries the backend's long name rather than the word the UI shows.
 abstract final class ProfileDocumentSlot {
   static const cvResume = 'cv_resume';
-  static const certificates = 'certificates';
+  static const certificates = 'certificates_and_recommendations';
   static const studentIdCard = 'student_id_card';
 }
 

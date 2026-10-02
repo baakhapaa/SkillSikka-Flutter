@@ -1,4 +1,5 @@
 import 'package:file_picker/file_picker.dart';
+
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
@@ -8,12 +9,16 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:image_picker/image_picker.dart';
 
 import '../../../core/location/location_service.dart';
+import '../../../core/network/api_error.dart';
 import '../../../core/validation/validators.dart';
+import '../../../core/widgets/api_error_snack.dart';
 import '../../../core/widgets/labeled_text_field.dart';
 import '../../../core/widgets/location_prompt_dialog.dart';
 import '../../../core/widgets/option_picker_sheet.dart';
 import '../../../core/widgets/profile_photo_picker.dart';
 import '../../../core/widgets/upload_card.dart';
+import '../../auth/data/auth_repository.dart';
+import '../../auth/data/profile_completion_request.dart';
 import '../data/gender.dart';
 import '../data/profile_role.dart';
 import '../data/reference_data.dart';
@@ -23,6 +28,47 @@ const _pageBackground = Color(0xFFFAF9F6);
 const _ink = Color(0xFF111827);
 const _accent = Color(0xFFE6B800);
 const _chevron = 'assets/figma/signup_chevron_down.svg';
+
+/// What became of the user's answers when they tapped Save.
+///
+/// A `bool?` used to carry this and could not: `false` meant both "this role has
+/// no server call to make" and "the call was made and the route is not built
+/// yet", which are the same *result* and different *stories*. Only the second
+/// one deserves a message that hedges, so the states are named instead of
+/// inferred.
+enum SaveOutcome {
+  /// The server accepted the deferred fields.
+  sentToServer,
+
+  /// Nothing was sent because nothing needed sending — the ordinary student
+  /// save, or an instructor whose deferred section is still empty. Not a
+  /// failure, and the message must not read like one.
+  storedLocally,
+
+  /// The deferred fields exist but the completion route answered 404, so they
+  /// are on the device only for now.
+  deferred,
+
+  /// The request was made and failed. The error was shown; the local save stands.
+  failed,
+}
+
+/// A [SaveOutcome] together with the failure that produced it, when there was
+/// one.
+///
+/// Exists so `_sendCompletion` can report a failure **without presenting it**.
+/// The screen has to show the error while it is still mounted and skip the
+/// confirmation afterwards; a method that showed the error itself could not
+/// express that, and the two snack bars ended up queued on top of each other.
+@immutable
+class SaveResult {
+  const SaveResult(this.outcome, {this.error});
+
+  final SaveOutcome outcome;
+
+  /// The rejection to show, for [SaveOutcome.failed] and only that outcome.
+  final ApiException? error;
+}
 
 /// Edit the signed-in user's profile.
 ///
@@ -66,10 +112,27 @@ class _EditProfilePageState extends ConsumerState<EditProfilePage> {
   /// user types.
   AutovalidateMode _autovalidateMode = AutovalidateMode.disabled;
 
+  /// True while Save is awaiting the completion request. See the button.
+  bool _isSaving = false;
+
   Uint8List? _photoBytes;
   PlatformFile? _studentIdCard;
   PlatformFile? _cvFile;
   PlatformFile? _certificatesFile;
+
+  /// The backend ids behind the geographic fields, keyed by controller key.
+  ///
+  /// The store holds what the user *read* (`Bagmati`, `Kathmandu`), while the
+  /// completion endpoint validates the hierarchy by **id** — and the picker's
+  /// captured id is the only place that exists, so it is dropped the moment the
+  /// sheet closes unless it is kept here. Cleared alongside the field by
+  /// [_pickRemoteOption], exactly as signup does it.
+  ///
+  /// **Unverified against a live endpoint**: no schema fetch has confirmed the
+  /// completion route's spelling for these. They are sent; if the backend wants
+  /// different names the values will simply be ignored rather than misfiled,
+  /// because they are only ever written when the user actually picked one.
+  final _selectedIds = <String, String>{};
 
   bool get _isInstructor => widget.role == ProfileRole.instructor;
 
@@ -108,6 +171,9 @@ class _EditProfilePageState extends ConsumerState<EditProfilePage> {
     'qualification',
     'expertise',
     'experience',
+    'province',
+    'district',
+    'municipality',
   ];
 
   List<String> get _editableKeys => [
@@ -198,22 +264,46 @@ class _EditProfilePageState extends ConsumerState<EditProfilePage> {
     _revalidate();
   }
 
+  /// Opens the option sheet and writes the choice into [key].
+  ///
+  /// [title] is the **bare noun** — `class`, `province`, `school or college` —
+  /// not the sheet's heading. The sheet is given `Select $title`, while
+  /// [_showEmptyOptions] needs the noun on its own: "No class options are
+  /// available yet." is a sentence, "No Select class options…" is not.
+  /// `signup_instructor_form_page.dart` splits the two the same way.
+  ///
+  /// This is why the pickers used to read just "class" and "province" while
+  /// Gender read "Select gender" — that one call site was passing the finished
+  /// heading, and the sheet rendered whatever it was handed.
   Future<void> _pickOption({
     required String key,
     required String title,
     required List<String> options,
     List<String> clearKeys = const [],
+    List<String>? optionIds,
   }) async {
     final value = await showOptionPickerSheet(
       context,
-      title: title,
+      title: 'Select $title',
       options: options,
     );
     if (value == null || !mounted) return;
+    // By name, not by index: this sheet answers with the label the user tapped,
+    // and `optionIds` is aligned with `options`, so the matching id is the one at
+    // the same position. The reference lists genuinely contain duplicate names
+    // (two municipalities really are both called "Aaurahi"), which is why the
+    // *id* is recorded rather than looked up again later.
+    final index = options.indexOf(value);
     setState(() {
       _controller(key).text = value;
+      if (optionIds != null && index >= 0 && index < optionIds.length) {
+        _selectedIds[key] = optionIds[index];
+      }
+      // A child list is only valid under the parent just chosen — and the id it
+      // carried is now wrong, so it goes with the name.
       for (final clearKey in clearKeys) {
         _controller(clearKey).clear();
+        _selectedIds.remove(clearKey);
       }
     });
     _revalidate();
@@ -232,6 +322,8 @@ class _EditProfilePageState extends ConsumerState<EditProfilePage> {
   /// is genuinely empty on the backend today, and a sheet with nothing in it
   /// looks broken, whereas doing nothing plus the empty-state message below
   /// reads as "nothing to choose yet".
+  ///
+  /// [title] is the bare noun, as in [_pickOption].
   Future<void> _pickRemoteOption({
     required String key,
     required String title,
@@ -249,14 +341,20 @@ class _EditProfilePageState extends ConsumerState<EditProfilePage> {
       title: title,
       options: items.map((item) => item.name).toList(growable: false),
       clearKeys: clearKeys,
+      // Two lists in step: the names the user reads, and the ids the completion
+      // endpoint validates against. Dropping the ids here is what made the
+      // deferred geographic fields unsendable.
+      optionIds: items.map((item) => item.id).toList(growable: false),
     );
   }
 
   /// Tells the user there is nothing to pick, rather than opening a blank sheet.
-  void _showEmptyOptions(String title) {
+  ///
+  /// Takes the bare [noun], not the sheet's `Select …` heading.
+  void _showEmptyOptions(String noun) {
     final messenger = ScaffoldMessenger.maybeOf(context);
     messenger?.showSnackBar(
-      SnackBar(content: Text('No $title options are available yet.')),
+      SnackBar(content: Text('No $noun options are available yet.')),
     );
   }
 
@@ -372,7 +470,7 @@ class _EditProfilePageState extends ConsumerState<EditProfilePage> {
     ).showSnackBar(SnackBar(content: Text(message)));
   }
 
-  void _save() {
+  Future<void> _save() async {
     final form = _formKey.currentState;
     if (form == null || !form.validate()) {
       // Name and email are the only mandatory fields here; everything else is
@@ -386,14 +484,128 @@ class _EditProfilePageState extends ConsumerState<EditProfilePage> {
     }
 
     final messenger = ScaffoldMessenger.of(context);
+    final navigator = Navigator.of(context);
+    setState(() => _isSaving = true);
+
     // No backend yet, so the profile store is the store — write back every key
     // this screen owns, or re-opening it would silently discard the edit.
+    //
+    // Written **before** the network call, not after: an edit the user made is
+    // theirs whether or not the server accepted it, and a failed completion
+    // request must not also lose their typing.
     ref.read(userProfileProvider.notifier).save({
       for (final key in _editableKeys) key: _controller(key).text.trim(),
     });
 
-    Navigator.of(context).pop();
-    messenger.showSnackBar(const SnackBar(content: Text('Profile updated.')));
+    // The deferred half of the profile, for the role that has one. Until this
+    // call existed the instructor's nine fields were captured here and never
+    // left the device — a form that changed nothing.
+    final result = await _sendCompletion();
+
+    if (!mounted) return;
+    setState(() => _isSaving = false);
+
+    // **One message, never two.** A failure has an error to report, and showing
+    // that *and* a confirmation queues two snack bars on the same messenger —
+    // the confirmation then arrives four seconds later, over a screen the user
+    // has already left, with nothing to attach it to. So the error replaces the
+    // confirmation, and goes through the shared helper so this screen's failures
+    // look like every other screen's.
+    //
+    // Both branches use the app-level messenger, which outlives this route
+    // either way — so the order relative to `pop()` is not what keeps the
+    // message alive. The error goes before the pop purely so its `context` is
+    // still this screen's; the helper resolves the messenger from it.
+    final error = result.error;
+
+    if (error != null) {
+      showApiErrorSnack(context, error);
+      navigator.pop();
+      return;
+    }
+
+    navigator.pop();
+    messenger.showSnackBar(
+      SnackBar(content: Text(_savedMessage(result.outcome))),
+    );
+  }
+
+  /// Hands the role's deferred fields to the completion endpoint.
+  ///
+  /// Returns the [SaveResult] — what happened, and the error when something did
+  /// — **without showing anything**. The caller decides how to present it,
+  /// because only the caller knows the route is about to be popped and that the
+  /// error has to replace the confirmation rather than queue behind it. Showing
+  /// a snack bar from here is what queued two of them.
+  ///
+  /// A student sends nothing. Their completion endpoint wants `grade_id` and
+  /// `school_id`; this screen holds names from a different field set, and
+  /// guessing at that encoding is a separate job from the instructor trim this
+  /// belongs to. A student's edit stays local-only, exactly as before.
+  Future<SaveResult> _sendCompletion() async {
+    if (!_isInstructor) {
+      // Not this screen's job to await anything, so the caller's `await` still
+      // resolves a frame later — hence the immediate return rather than a
+      // Future.value, which would make the method async for no reason.
+      return const SaveResult(SaveOutcome.storedLocally);
+    }
+
+    final request = InstructorCompletionRequest.forInstructor(
+      {for (final key in _editableKeys) key: _controller(key).text.trim()},
+      provinceId: _selectedIds['province'],
+      districtId: _selectedIds['district'],
+      municipalityId: _selectedIds['municipality'],
+    );
+    if (request.isEmpty) return const SaveResult(SaveOutcome.storedLocally);
+
+    try {
+      final accepted = await ref
+          .read(authRepositoryProvider)
+          .completeProfile(
+            role: widget.role,
+            fields: request.toWireBody(widget.role),
+          );
+      // `false` here means the route answered 404 — the one case where the user
+      // typed something that genuinely did not reach a server. Everything else
+      // that did not go is `storedLocally`, which needs no apology.
+      return SaveResult(
+        accepted ? SaveOutcome.sentToServer : SaveOutcome.deferred,
+      );
+    } on ApiException catch (error) {
+      return SaveResult(SaveOutcome.failed, error: error);
+    }
+  }
+
+  /// What to say after a save, which depends on what actually happened to the
+  /// user's answers.
+  ///
+  /// Four outcomes hide behind one button, and "Profile updated." for all of them
+  /// was the old behaviour. It was only a lie in *some* of them: a user whose
+  /// details genuinely reached the server should hear it, and so should a user
+  /// whose role simply has no server call to make. Telling a student their edit
+  /// was "stored on this device" invents a limitation that does not exist for
+  /// them and reads as a warning.
+  ///
+  /// So the message follows [SaveOutcome], not "did it send".
+  String _savedMessage(SaveOutcome outcome) {
+    switch (outcome) {
+      case SaveOutcome.sentToServer:
+      // No server call exists for this role or there was nothing to send. The
+      // store is the store — this is the normal, successful path.
+      case SaveOutcome.storedLocally:
+        return 'Profile updated.';
+      case SaveOutcome.deferred:
+        // The instructor filled something in and the route is not live yet. We
+        // cannot honestly claim it reached the server.
+        return 'Profile saved on this device.';
+      case SaveOutcome.failed:
+        // **Unreachable, and deliberately not thrown away.** `_save` returns
+        // early for this outcome, showing the error instead — a failure gets the
+        // error message, never a confirmation on top of it. Kept so the switch
+        // stays exhaustive: if the early return is ever removed, this is the
+        // sentence that comes back, and it is written to be true.
+        return 'Saved on this device — the server rejected the update.';
+    }
   }
 
   @override
@@ -429,21 +641,36 @@ class _EditProfilePageState extends ConsumerState<EditProfilePage> {
                           width: double.infinity,
                           height: 52,
                           child: FilledButton(
-                            onPressed: _save,
+                            // Disabled while the completion request is in
+                            // flight: a second tap would send the same profile
+                            // twice, and the button is the only thing on screen
+                            // that says anything is happening.
+                            onPressed: _isSaving ? null : _save,
                             style: FilledButton.styleFrom(
                               backgroundColor: _accent,
                               foregroundColor: _ink,
                               elevation: 4,
                               shadowColor: const Color(0x40E6B800),
                               shape: const StadiumBorder(),
+                              disabledBackgroundColor: _accent,
+                              disabledForegroundColor: _ink,
                             ),
-                            child: Text(
-                              'Save Changes',
-                              style: GoogleFonts.manrope(
-                                fontSize: 16,
-                                fontWeight: FontWeight.w700,
-                              ),
-                            ),
+                            child: _isSaving
+                                ? const SizedBox(
+                                    width: 22,
+                                    height: 22,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2.5,
+                                      color: _ink,
+                                    ),
+                                  )
+                                : Text(
+                                    'Save Changes',
+                                    style: GoogleFonts.manrope(
+                                      fontSize: 16,
+                                      fontWeight: FontWeight.w700,
+                                    ),
+                                  ),
                           ),
                         ),
                       ],
@@ -502,7 +729,9 @@ class _EditProfilePageState extends ConsumerState<EditProfilePage> {
         validator: _requiredChoice('gender'),
         onTap: () => _pickOption(
           key: 'gender',
-          title: 'Select gender',
+          // Bare noun — the sheet adds "Select" itself. Passing the finished
+          // "Select gender" here is what made the other pickers look different.
+          title: 'gender',
           options: Gender.labels,
         ),
       ),
@@ -635,6 +864,62 @@ class _EditProfilePageState extends ConsumerState<EditProfilePage> {
       hint: 'e.g. 5 Years',
       keyboardType: TextInputType.number,
       validator: _requiredOrOptional(validateYearsOfExperience),
+    ),
+    // The three geographic fields, which a student picks on the way to a school
+    // and an instructor needs for the same reason: the completion endpoint
+    // validates them as a hierarchy. Municipality comes third here where a
+    // student's third field is School — same provinces, same districts, a
+    // different leaf.
+    _twoUp(
+      _field(
+        key: 'province',
+        label: 'Province',
+        hint: 'Select province',
+        hintFontSize: 12,
+        trailing: _chevron,
+        validator: _requiredChoice('province'),
+        onTap: () => _pickRemoteOption(
+          key: 'province',
+          title: 'province',
+          load: () => ref.read(provincesProvider.future),
+          clearKeys: const ['district', 'municipality'],
+        ),
+      ),
+      _field(
+        key: 'district',
+        label: 'District',
+        hint: 'Select province first',
+        hintFontSize: 11,
+        trailing: _chevron,
+        enabled: _controller('province').text.isNotEmpty,
+        validator: _requiredChoice('district'),
+        onTap: () => _pickRemoteOption(
+          key: 'district',
+          title: 'district',
+          load: () => ref.read(
+            districtsForProvinceProvider(_controller('province').text).future,
+          ),
+          clearKeys: const ['municipality'],
+        ),
+      ),
+    ),
+    _field(
+      key: 'municipality',
+      label: 'Municipality',
+      hint: 'Select district first',
+      hintFontSize: 12,
+      trailing: _chevron,
+      enabled: _controller('district').text.isNotEmpty,
+      validator: _requiredChoice('municipality'),
+      onTap: () => _pickRemoteOption(
+        key: 'municipality',
+        title: 'municipality',
+        load: () => ref.read(
+          municipalitiesForDistrictProvider(
+            _controller('district').text,
+          ).future,
+        ),
+      ),
     ),
     UploadCard(
       title: 'CV / Resume',

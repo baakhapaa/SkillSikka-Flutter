@@ -128,6 +128,51 @@ class AuthApi {
     return MeProfile.tryParse(body);
   }
 
+  /// `POST /me/complete-profile/` — the deferred half of a profile.
+  ///
+  /// **Status: a granted request, not a confirmed contract.** We asked the
+  /// backend to make the nine instructor fields optional at registration *and* to
+  /// give them somewhere to go afterwards, and were told the first part is done.
+  /// The second part is what this method assumes. Two things about it are
+  /// **unverified** and marked as such rather than dressed up:
+  ///
+  /// - **The path.** The original contract in `backend-contract.md` named
+  ///   `/me/complete-profile/`. No schema fetch has confirmed it holds the
+  ///   instructor field set.
+  /// - **The body.** The completion endpoint was described as taking a flat
+  ///   `Map<String, String>`, but the student version takes `grade_id` and
+  ///   `school_id`, which an instructor has no values for. We send the
+  ///   instructor's own keys (see [InstructorCompletionRequest.toWireBody]) and a
+  ///   `role` field, which is the honest encoding of what we know.
+  ///
+  /// `relativeToBase` is therefore **true**: a 404 here means the endpoint is not
+  /// there yet, not that the client is broken. `AuthRepository.completeProfile`
+  /// turns that into a quiet no-op; everything else still surfaces.
+  ///
+  /// **The 404 is left to throw here on purpose.** `throwOnMissingResource` is
+  /// `true` (the default), so a 404 arrives at the repository as an
+  /// [ApiException] — which is the single place that decides a missing route is
+  /// not a failure. Swallowing it *here* as well looked harmless and was not: the
+  /// repository's `on ApiException` clause could never fire, so it returned
+  /// `true` for a request that had not happened, and the user was told their
+  /// profile was saved. Two layers disagreeing about who owns a condition is
+  /// worse than either owning it.
+  ///
+  /// The response is not read. Whatever it returns — the updated profile, a
+  /// `{"detail": …}`, or nothing — this call's job is to have happened.
+  Future<void> completeProfile({
+    required ProfileRole role,
+    required Map<String, String> fields,
+  }) async {
+    await _client.postOptionalBody(
+      _completeProfilePath,
+      data: {'role': role.wireValue, ...fields},
+    );
+  }
+
+  /// Kept in one place because it is the piece we are least sure of.
+  static const _completeProfilePath = '/me/complete-profile/';
+
   /// `POST /auth/verify-otp`.
   ///
   /// **This endpoint does not exist.** The backend response is explicit that

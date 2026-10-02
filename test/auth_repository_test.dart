@@ -88,9 +88,14 @@ Future<void> _withRepo(
   final scope = _scopeFor(adapter);
   addTearDown(scope.dispose);
 
+  // Mirrors `authRepositoryProvider`, profile store included. The repository
+  // *writes* the role on sign-in, so a helper that omitted it would let a
+  // regression in that write pass unnoticed — the same trap the fake's `session`
+  // parameter is documented against.
   final repository = DioAuthRepository(
     client: scope.read(apiClientProvider),
     session: scope.read(sessionProvider.notifier),
+    profile: scope.read(userProfileProvider.notifier),
   );
   await body(repository, adapter, scope);
 }
@@ -106,6 +111,7 @@ Future<ApiException> _captureError(
   final repository = DioAuthRepository(
     client: scope.read(apiClientProvider),
     session: scope.read(sessionProvider.notifier),
+    profile: scope.read(userProfileProvider.notifier),
   );
 
   try {
@@ -133,6 +139,14 @@ RegistrationRequest _studentRequest() => RegistrationRequest.student(
   photo: _doc(_photoBytes, 'avatar.png'),
 );
 
+/// The signup form's request: identity only, the same six fields a student
+/// sends.
+///
+/// Kept that way on purpose. This used to carry a phone, a location, a
+/// qualification, an expertise, an experience and three geographic ids, because
+/// `InstructorRegistration` required all fifteen. It requires six now, and a
+/// fixture that still supplied the other nine would keep passing on a client
+/// that could never have collected them — see [_instructorRequestWithDeferred].
 RegistrationRequest _instructorRequest() => RegistrationRequest.instructor(
   name: 'Bikash Rai',
   email: 'bikash@example.com',
@@ -140,15 +154,33 @@ RegistrationRequest _instructorRequest() => RegistrationRequest.instructor(
   confirmPassword: 'hunter2pass',
   gender: 'Male',
   dob: '1990-01-20',
-  phone: '9812345678',
-  location: 'Baneshwor, Kathmandu',
-  qualification: 'Master of Computer Applications',
-  expertise: 'Physics, Fullstack Web Dev',
-  experience: '5',
   photo: _doc(_photoBytes, 'avatar.png'),
-  cv: _doc(_cvBytes, 'cv.pdf'),
-  certificates: _doc(_certBytes, 'cert.png'),
 );
+
+/// The same request with the deferred fields supplied, for the tests that check
+/// their encoding rather than their absence.
+RegistrationRequest _instructorRequestWithDeferred() =>
+    RegistrationRequest.instructor(
+      name: 'Bikash Rai',
+      email: 'bikash@example.com',
+      password: 'hunter2pass',
+      confirmPassword: 'hunter2pass',
+      gender: 'Male',
+      dob: '1990-01-20',
+      phone: '9812345678',
+      location: 'Baneshwor, Kathmandu',
+      qualification: 'Master of Computer Applications',
+      expertise: 'Physics, Fullstack Web Dev',
+      // Deliberately the display form: the wire needs the bare number, and the
+      // factory is what reduces it.
+      experience: '5 Years',
+      provinceId: '3',
+      districtId: '23',
+      municipalityId: '108',
+      photo: _doc(_photoBytes, 'avatar.png'),
+      cv: _doc(_cvBytes, 'cv.pdf'),
+      certificates: _doc(_certBytes, 'cert.png'),
+    );
 
 void main() {
   group('AuthApi.register — the request', () {
@@ -217,8 +249,99 @@ void main() {
       );
     });
 
+    test('sends the avatar under its own field, and any documents by slot name', () async {
+      await _withRepo(
+        (_) => _json({
+          'user': {'id': 'u1', 'email': 'bikash@example.com'},
+        }),
+        (repository, adapter, _) async {
+          // **The deferred fixture, deliberately.** Signup no longer collects the
+          // CV or the certificates — they live on Edit Profile — so a request
+          // built from `_instructorRequest()` cannot produce them. This used to
+          // assert all three parts against the signup fixture, which passed only
+          // while signup still asked for documents it no longer asks for.
+          await repository.register(_instructorRequestWithDeferred());
+
+          final form = adapter.requests.single.data as FormData;
+          final files = {for (final e in form.files) e.key: e.value};
+
+          // The avatar has its own field: it is not a `ProfileDocumentSlot`
+          // because it is required for both roles, which is why registration is
+          // one multipart request rather than "create the account, then upload".
+          expect(files.keys, contains('profile_photo'));
+          // The slot values *are* the multipart field names, so a rename in the
+          // UI cannot silently change the wire contract. This used to be
+          // `certificates` — the backend's name is the long one, and the
+          // instructor pass renamed the slot itself rather than translating at
+          // the call site, so the two cannot drift apart again.
+          expect(
+            files.keys,
+            containsAll(['cv_resume', 'certificates_and_recommendations']),
+          );
+          expect(files['profile_photo']!.filename, 'avatar.png');
+          expect(files['cv_resume']!.filename, 'cv.pdf');
+          expect(
+            files['certificates_and_recommendations']!.filename,
+            'cert.png',
+          );
+        },
+      );
+    });
+
+    test('sends only the avatar when no documents were supplied', () async {
+      await _withRepo(
+        (_) => _json({
+          'user': {'id': 'u1', 'email': 'bikash@example.com'},
+        }),
+        (repository, adapter, _) async {
+          await repository.register(_instructorRequest());
+
+          final form = adapter.requests.single.data as FormData;
+          final files = {for (final e in form.files) e.key: e.value};
+
+          // The counterpart to the test above, and the one that describes what
+          // signup actually does today: absent documents add no parts at all,
+          // rather than empty ones the backend would have to reject.
+          expect(files.keys, ['profile_photo']);
+        },
+      );
+    });
+
+    test('sends the instructor fields under the schema field names', () async {
+      await _withRepo(
+        (_) => _json({
+          'user': {'id': 'u1', 'email': 'bikash@example.com'},
+        }),
+        (repository, adapter, _) async {
+          await repository.register(_instructorRequestWithDeferred());
+
+          final form = adapter.requests.single.data as FormData;
+          final fields = {for (final e in form.fields) e.key: e.value};
+
+          // Spec §D listed the phone split and the two renamed fields as
+          // deliberately left until the instructor pass.
+          expect(fields.containsKey('phone'), isFalse);
+          expect(fields['phone_country_code'], '+977');
+          expect(fields['phone_number'], '9812345678');
+          expect(fields['subject_expertise'], 'Physics, Fullstack Web Dev');
+          expect(fields['qualification'], 'Master of Computer Applications');
+          // The field's hint invites `5 Years`; the wire takes the number,
+          // because the backend types this as a decimal with a digit-only
+          // pattern. The fixture passes the display form on purpose.
+          expect(fields['experience_years'], '5');
+
+          // The geographic fields carry the backend's own ids, not the names the
+          // pickers display — the endpoint validates the hierarchy.
+          expect(fields['province_id'], '3');
+          expect(fields['district_id'], '23');
+          expect(fields['municipality_id'], '108');
+          expect(fields['location'], 'Baneshwor, Kathmandu');
+        },
+      );
+    });
+
     test(
-      'sends the avatar as `profile_photo`, documents by slot name',
+      'registers an instructor with the same six fields as a student',
       () async {
         await _withRepo(
           (_) => _json({
@@ -228,25 +351,219 @@ void main() {
             await repository.register(_instructorRequest());
 
             final form = adapter.requests.single.data as FormData;
-            final files = {for (final e in form.files) e.key: e.value};
+            final fields = {for (final e in form.fields) e.key: e.value};
 
-            expect(
-              files.keys,
-              containsAll(['profile_photo', 'cv_resume', 'certificates']),
-            );
-            // The slot names are already the multipart field names, so a rename
-            // in the UI cannot silently change the wire contract.
+            // **The grant, asserted as a set.** `InstructorRegistration` required
+            // fifteen fields until 2026-10-01; a probe POST then answered 400
+            // naming exactly the seven that were missing, which is what put them
+            // back on the form. The backend has since made them optional.
             //
-            // `certificates` is still off-contract: the backend expects
-            // `certificates_and_recommendations`. Renaming the slot is
-            // instructor-path work and is deliberately not done yet.
-            expect(files['profile_photo']!.filename, 'avatar.png');
-            expect(files['cv_resume']!.filename, 'cv.pdf');
-            expect(files['certificates']!.filename, 'cert.png');
+            // Asserted as equality rather than "contains each of": the looser
+            // version cannot fail when a field is *re-added* by accident, and a
+            // field re-added here is what would put the nine prompts back on a
+            // signup screen that is not supposed to ask for them.
+            //
+            // `profile_photo` is a file part, not a field, so it is not in this
+            // map — see the multipart test below.
+            expect(fields.keys.toSet(), {
+              'name',
+              'email',
+              'password',
+              'confirm_password',
+              'gender',
+              'dob',
+            });
           },
         );
       },
     );
+
+    test('omits every deferred field rather than sending it blank', () async {
+      await _withRepo(
+        (_) => _json({
+          'user': {'id': 'u1', 'email': 'bikash@example.com'},
+        }),
+        (repository, adapter, _) async {
+          await repository.register(_instructorRequest());
+
+          final form = adapter.requests.single.data as FormData;
+          final fields = {for (final e in form.fields) e.key: e.value};
+
+          // The distinction that matters, and the reason these are null-aware
+          // map entries rather than `''` defaults: the endpoint's optional
+          // geographic fields are typed as integers, so a blank `province_id`
+          // is a **parse** error rather than an absent one. An absent one
+          // registers; a blank one 400s.
+          for (final key in const [
+            'phone_country_code',
+            'phone_number',
+            'location',
+            'province_id',
+            'district_id',
+            'municipality_id',
+            'qualification',
+            'subject_expertise',
+            'experience_years',
+          ]) {
+            expect(
+              fields.containsKey(key),
+              isFalse,
+              reason: '$key must be absent when it was not supplied, not blank',
+            );
+          }
+        },
+      );
+    });
+
+    test(
+      'omits only the unparseable phone, keeping the other fields',
+      () async {
+        await _withRepo(
+          (_) => _json({
+            'user': {'id': 'u1', 'email': 'bikash@example.com'},
+          }),
+          (repository, adapter, _) async {
+            await repository.register(
+              RegistrationRequest.instructor(
+                name: 'Bikash Rai',
+                email: 'bikash@example.com',
+                password: 'hunter2pass',
+                confirmPassword: 'hunter2pass',
+                gender: 'Male',
+                dob: '1990-01-20',
+                // Too short to split. The two halves are a pair, so both go.
+                phone: '12345',
+                location: 'Baneshwor, Kathmandu',
+                photo: _doc(_photoBytes, 'avatar.png'),
+              ),
+            );
+
+            final form = adapter.requests.single.data as FormData;
+            final fields = {for (final e in form.fields) e.key: e.value};
+
+            expect(fields.containsKey('phone_country_code'), isFalse);
+            expect(fields.containsKey('phone_number'), isFalse);
+            // A bad phone must not take the rest of the payload down with it.
+            expect(fields['location'], 'Baneshwor, Kathmandu');
+          },
+        );
+      },
+    );
+  });
+
+  group('DioAuthRepository.completeProfile', () {
+    test('posts the role and fields to the completion endpoint', () async {
+      await _withRepo((_) => ResponseBody.fromString('', 204), (
+        repository,
+        adapter,
+        _,
+      ) async {
+        final sent = await repository.completeProfile(
+          role: ProfileRole.instructor,
+          fields: {'qualification': 'MCA', 'phone_number': '9812345678'},
+        );
+
+        expect(sent, isTrue);
+        final request = adapter.requests.single;
+        expect(request.method, 'POST');
+        expect(request.path, endsWith('/me/complete-profile/'));
+
+        final body = request.data as Map;
+        // `role` rides along so a role-discriminated endpoint can tell which
+        // field set it is looking at — the student keys are a different set
+        // entirely (`grade_id`, `school_id`).
+        expect(body['role'], 'instructor');
+        expect(body['qualification'], 'MCA');
+        expect(body['phone_number'], '9812345678');
+      });
+    });
+
+    test('sends nothing when there is nothing to send', () async {
+      await _withRepo((_) => ResponseBody.fromString('', 204), (
+        repository,
+        adapter,
+        _,
+      ) async {
+        final sent = await repository.completeProfile(
+          role: ProfileRole.instructor,
+          fields: const {},
+        );
+
+        // Silence, not an error. A user who opened Edit Profile and changed
+        // nothing has not done anything wrong, and there is no request to make.
+        expect(sent, isFalse);
+        expect(adapter.requests, isEmpty);
+      });
+    });
+
+    test('treats a 404 as "not built yet" rather than a failure', () async {
+      await _withRepo((_) => _json({'detail': 'Not found.'}, status: 404), (
+        repository,
+        adapter,
+        _,
+      ) async {
+        // The endpoint is a **granted request, not a confirmed contract** — see
+        // `AuthApi.completeProfile`. Until it exists, every instructor save
+        // would otherwise end in an error the user can do nothing about, for a
+        // feature that is working as far as they can tell.
+        final sent = await repository.completeProfile(
+          role: ProfileRole.instructor,
+          fields: {'qualification': 'MCA'},
+        );
+
+        expect(sent, isFalse);
+        expect(adapter.requests.single.path, endsWith('/me/complete-profile/'));
+      });
+    });
+
+    test('still reports a 400, which is our payload being wrong', () async {
+      final error = await _captureError(
+        (repository) => repository.completeProfile(
+          role: ProfileRole.instructor,
+          fields: {'province_id': ''},
+        ),
+        handler: (_) => _json({
+          'province_id': ['A valid integer is required.'],
+        }, status: 400),
+      );
+
+      // The narrowness of the 404 swallow is the point: a body the server
+      // *rejected* is a bug in what we send, and hiding it would leave the field
+      // permanently unsaveable with a cheerful message on screen.
+      expect(error.statusCode, 400);
+      expect(error.hasFieldErrors, isTrue);
+    });
+  });
+
+  group('FakeAuthRepository.completeProfile', () {
+    test('records what was sent, so a screen test can assert on it', () async {
+      final repository = FakeAuthRepository();
+
+      final sent = await repository.completeProfile(
+        role: ProfileRole.instructor,
+        fields: {'qualification': 'MCA'},
+      );
+
+      // The double has to keep the whole contract, not just the signature: a
+      // fake that returned `true` without recording would let a screen test pass
+      // with the fields never assembled.
+      expect(sent, isTrue);
+      expect(repository.completions, hasLength(1));
+      expect(repository.completions.single.role, ProfileRole.instructor);
+      expect(repository.completions.single.fields['qualification'], 'MCA');
+    });
+
+    test('is a silent no-op for an empty body, like the real one', () async {
+      final repository = FakeAuthRepository();
+
+      final sent = await repository.completeProfile(
+        role: ProfileRole.instructor,
+        fields: const {},
+      );
+
+      expect(sent, isFalse);
+      expect(repository.completions, isEmpty);
+    });
   });
 
   group('AuthApi.register — the response', () {
@@ -695,6 +1012,39 @@ void main() {
       );
     });
 
+    test('writes the role the response carried', () async {
+      // Regression. The role was parsed out of the login body and then dropped,
+      // which left `GET /me/` as the only source of it — and that fetch fails
+      // silently by design. So an instructor who *signed in* had no role in the
+      // store, `effectiveRole` fell back to student, and the profile tab drew
+      // the student layout. Signup was unaffected because its form calls
+      // `setRole` directly, which is why the bug only ever showed on sign-in.
+      await _withRepo(
+        (_) => _json({
+          'user': {
+            'id': 7,
+            'email': 'teacher@example.com',
+            'role': 'instructor',
+          },
+          'tokens': {'access': 'access-abc', 'refresh': 'refresh-abc'},
+        }),
+        (repository, _, scope) async {
+          await repository.logIn(
+            email: 'teacher@example.com',
+            password: 'Passw0rd',
+          );
+
+          expect(scope.read(userProfileProvider).role, ProfileRole.instructor);
+          // The fallback is the thing that turned a missing role into a
+          // confident wrong answer, so assert through it too.
+          expect(
+            scope.read(userProfileProvider).effectiveRole,
+            ProfileRole.instructor,
+          );
+        },
+      );
+    });
+
     test('adopts the session the response carries', () async {
       await _withRepo(
         (_) => _json({
@@ -715,10 +1065,9 @@ void main() {
     test('surfaces a bad-credentials 400 with the server wording', () async {
       final error = await _captureError(
         (repository) => repository.logIn(email: 'a@b.com', password: 'wrong'),
-        handler: (_) => _json(
-          {'detail': 'No active account found with the given credentials'},
-          status: 400,
-        ),
+        handler: (_) => _json({
+          'detail': 'No active account found with the given credentials',
+        }, status: 400),
       );
 
       expect(error.statusCode, 400);
@@ -731,57 +1080,60 @@ void main() {
 
   group('DioAuthRepository.logOut', () {
     test('sends the refresh token so the server can blacklist it', () async {
-      await _withRepo(
-        (_) => _json({'detail': 'Logged out successfully.'}),
-        (repository, adapter, scope) async {
-          scope.read(sessionProvider.notifier).state = const Session(
-            access: 'access-abc',
-            refresh: 'refresh-abc',
-          );
+      await _withRepo((_) => _json({'detail': 'Logged out successfully.'}), (
+        repository,
+        adapter,
+        scope,
+      ) async {
+        scope.read(sessionProvider.notifier).state = const Session(
+          access: 'access-abc',
+          refresh: 'refresh-abc',
+        );
 
-          await repository.logOut();
+        await repository.logOut();
 
-          expect(adapter.requests.single.path, endsWith('/logout/'));
-          expect(adapter.requests.single.data, {'refresh': 'refresh-abc'});
-          expect(scope.read(sessionProvider), isNull);
-        },
-      );
+        expect(adapter.requests.single.path, endsWith('/logout/'));
+        expect(adapter.requests.single.data, {'refresh': 'refresh-abc'});
+        expect(scope.read(sessionProvider), isNull);
+      });
     });
 
     test('clears the session even when the call fails', () async {
-      await _withRepo(
-        (_) => _json({'detail': 'nope'}, status: 500),
-        (repository, adapter, scope) async {
-          scope.read(sessionProvider.notifier).state = const Session(
-            access: 'access-abc',
-            refresh: 'refresh-abc',
-          );
+      await _withRepo((_) => _json({'detail': 'nope'}, status: 500), (
+        repository,
+        adapter,
+        scope,
+      ) async {
+        scope.read(sessionProvider.notifier).state = const Session(
+          access: 'access-abc',
+          refresh: 'refresh-abc',
+        );
 
-          // Must not throw. The user asked to be signed out, so a server fault
-          // cannot be allowed to leave them signed in on this device.
-          await repository.logOut();
+        // Must not throw. The user asked to be signed out, so a server fault
+        // cannot be allowed to leave them signed in on this device.
+        await repository.logOut();
 
-          expect(adapter.requests, hasLength(1));
-          expect(scope.read(sessionProvider), isNull);
-        },
-      );
+        expect(adapter.requests, hasLength(1));
+        expect(scope.read(sessionProvider), isNull);
+      });
     });
 
     test('makes no call when there is no refresh token', () async {
-      await _withRepo(
-        (_) => _json({'detail': 'ok'}),
-        (repository, adapter, scope) async {
-          scope.read(sessionProvider.notifier).state = const Session(
-            access: 'access-abc',
-          );
+      await _withRepo((_) => _json({'detail': 'ok'}), (
+        repository,
+        adapter,
+        scope,
+      ) async {
+        scope.read(sessionProvider.notifier).state = const Session(
+          access: 'access-abc',
+        );
 
-          await repository.logOut();
+        await repository.logOut();
 
-          // Nothing to blacklist, so clearing locally is the whole job.
-          expect(adapter.requests, isEmpty);
-          expect(scope.read(sessionProvider), isNull);
-        },
-      );
+        // Nothing to blacklist, so clearing locally is the whole job.
+        expect(adapter.requests, isEmpty);
+        expect(scope.read(sessionProvider), isNull);
+      });
     });
   });
 }

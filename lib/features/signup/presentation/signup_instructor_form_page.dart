@@ -1,6 +1,3 @@
-import 'dart:typed_data';
-
-import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_svg/flutter_svg.dart';
@@ -8,11 +5,11 @@ import 'package:go_router/go_router.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:image_picker/image_picker.dart';
 
-import '../../../core/location/location_service.dart';
 import '../../../core/network/api_error.dart';
 import '../../../core/validation/validators.dart';
 import '../../../core/widgets/api_error_snack.dart';
-import '../../../core/widgets/location_prompt_dialog.dart';
+import '../../../core/widgets/labeled_text_field.dart';
+import '../../../core/widgets/option_picker_sheet.dart';
 import '../../../core/widgets/profile_photo_picker.dart';
 import '../../auth/data/auth_repository.dart';
 import '../../auth/data/registration_request.dart';
@@ -20,51 +17,45 @@ import '../../profile/data/gender.dart';
 import '../../profile/data/profile_role.dart';
 import '../../profile/data/user_profile.dart';
 
-Future<String?> _pickInstructorOption(
-  BuildContext context,
-  String title,
-  List<String> options,
-) {
-  return showModalBottomSheet<String>(
-    context: context,
-    backgroundColor: Colors.white,
-    builder: (context) => SafeArea(
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(24, 20, 24, 8),
-            child: Text(
-              title,
-              style: GoogleFonts.manrope(
-                fontSize: 18,
-                fontWeight: FontWeight.w800,
-                color: const Color(0xFF111827),
-              ),
-            ),
-          ),
-          ...options.map(
-            (option) => ListTile(
-              title: Text(option),
-              onTap: () => Navigator.pop(context, option),
-            ),
-          ),
-          const SizedBox(height: 8),
-        ],
-      ),
-    ),
-  );
-}
+const _chevron = 'assets/figma/signup_chevron_down.svg';
 
+/// Server field names that are not this form's keys.
+///
+/// Only the password confirmation differs now — the phone, the location and the
+/// three geographic pickers that used to need aliases have moved to Edit
+/// Profile, and they can no longer fail here because they are no longer sent.
+/// `confirm` is the controller key and `confirm_password` the wire name; without
+/// this an error the server raised on the pair would land on no input at all.
+const _serverFieldAliases = <String, String>{'confirm_password': 'confirm'};
+
+/// Step 2 of signup, instructor branch.
+///
+/// **Identity and credentials only — the same six fields as the student form.**
+/// This is the payoff of the request we made on 2026-10-01: `InstructorRegistration`
+/// used to require fifteen fields, so this screen had to ask for nine more than a
+/// student's, for no product reason. The backend made those nine optional, and
+/// they are now collected on Edit Profile behind the same completion gate.
+///
+/// The history is in `RegistrationRequest.instructor` — this screen has been
+/// trimmed, restored to fifteen, and trimmed again, so a future reader finding
+/// an old note claiming the instructor endpoint requires geography should trust
+/// the schema over the note.
+///
+/// The avatar is still collected here even though it is optional on the wire: it
+/// is the one field a user is asked for at signup in both roles, and the form is
+/// built around it.
+///
+/// There is no location popup here any more, unlike the student form. That screen
+/// runs the popup at signup and stores the fix for Edit Profile to show; an
+/// instructor has never been asked for a location at signup, and asking for
+/// permission to read someone's position on a screen with no location field is a
+/// prompt with no explanation attached.
 class SignupInstructorFormPage extends ConsumerStatefulWidget {
-  const SignupInstructorFormPage({
-    super.key,
-    this.locationService = const LocationService(),
-  });
+  const SignupInstructorFormPage({super.key, this.imagePicker});
 
-  /// Injectable so the popup flow can be driven from tests.
-  final LocationService locationService;
+  /// Injectable so the photo step can be driven from tests. Defaults to a real
+  /// [ImagePicker].
+  final ImagePicker? imagePicker;
 
   @override
   ConsumerState<SignupInstructorFormPage> createState() =>
@@ -74,36 +65,46 @@ class SignupInstructorFormPage extends ConsumerStatefulWidget {
 class _SignupInstructorFormPageState
     extends ConsumerState<SignupInstructorFormPage> {
   final _controllers = <String, TextEditingController>{};
+  final _formKey = GlobalKey<FormState>();
+
+  /// Errors stay hidden until the first submit attempt, then update live as the
+  /// user types. Validating on interaction from the start would flag a field as
+  /// invalid after its very first keystroke.
+  AutovalidateMode _autovalidateMode = AutovalidateMode.disabled;
+
   bool _obscurePassword = true;
 
-  /// True while the registration request is in flight. See the student form's
-  /// field of the same name — same reason: a slow request must not look frozen,
-  /// and the button must not be tappable twice.
+  /// True while the registration request is in flight.
+  ///
+  /// Guards the button as well as showing progress: without it a slow request
+  /// leaves the screen looking frozen and the button live, so an impatient
+  /// second tap registers twice.
   bool _isSubmitting = false;
 
-  Uint8List? _profilePhotoBytes;
+  /// Field messages the server sent, keyed the way this form's controllers are.
+  ///
+  /// Kept so a validator can show them: the alternative is a snack bar that says
+  /// "that email is taken" without pointing at the email box.
+  final _serverErrors = <String, String>{};
 
-  /// The picked photo's own filename, needed for the multipart content type.
-  String? _profilePhotoFileName;
+  late final ImagePicker _imagePicker = widget.imagePicker ?? ImagePicker();
 
-  PlatformFile? _cvFile;
-  PlatformFile? _certificatesFile;
+  TextEditingController _controller(String key) =>
+      _controllers.putIfAbsent(key, TextEditingController.new);
 
-  final _imagePicker = ImagePicker();
-
-  LocationService get _locationService => widget.locationService;
-
-  TextEditingController _controller(String key) {
-    return _controllers.putIfAbsent(key, TextEditingController.new);
-  }
-
-  @override
-  void initState() {
-    super.initState();
-    // Ask for the current location as soon as the form is on screen.
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) _promptForLocation();
-    });
+  /// Re-checks the form after a picker writes into a controller.
+  ///
+  /// A programmatic `controller.text` write does not fire `FormField.didChange`,
+  /// so the picker-driven fields (gender, date of birth) would otherwise keep
+  /// showing their old error until something else triggered a rebuild.
+  void _revalidate() {
+    if (_autovalidateMode == AutovalidateMode.disabled) return;
+    // Any edit invalidates what the server said about a field: the value it
+    // rejected is no longer the value in the box. Cleared wholesale rather than
+    // per field because a resubmit is needed either way, and a stale server
+    // message outliving the edit that fixed it is worse than clearing it.
+    _serverErrors.clear();
+    _formKey.currentState?.validate();
   }
 
   @override
@@ -114,273 +115,6 @@ class _SignupInstructorFormPageState
     super.dispose();
   }
 
-  /// Opens the location popup and, if the user confirms a fix, writes it into
-  /// the Location field.
-  ///
-  /// [skipIntro] `true` jumps straight to detection (the user explicitly asked
-  /// for it), `false` always shows the explainer, and `null` decides based on
-  /// whether permission was already granted — so returning visitors aren't
-  /// nagged every time the form opens.
-  Future<void> _promptForLocation({bool? skipIntro}) async {
-    final alreadyGranted = skipIntro == null
-        ? await _locationService.hasPermission()
-        : false;
-    if (!mounted) return;
-
-    final location = await showLocationPromptDialog(
-      context,
-      service: _locationService,
-      skipIntro: skipIntro ?? alreadyGranted,
-    );
-    if (location == null || !mounted) return;
-
-    // The field stays editable, so this only pre-fills it.
-    setState(() => _controller('location').text = location.label);
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: const Color(0xFFFAF9F6),
-      body: SafeArea(
-        child: Column(
-          children: [
-            _Header(onBack: () => context.pop()),
-            Expanded(
-              child: SingleChildScrollView(
-                padding: const EdgeInsets.only(bottom: 16),
-                child: Column(
-                  children: [
-                    Padding(
-                      padding: const EdgeInsets.fromLTRB(24, 12, 24, 40),
-                      child: Column(
-                        children: [
-                          ProfilePhotoPicker(
-                            photoBytes: _profilePhotoBytes,
-                            onTap: _pickProfilePhoto,
-                          ),
-                          const SizedBox(height: 24),
-
-                          _FormField(
-                            label: 'Full Name',
-                            requiredField: true,
-                            hint: 'e.g. Skill Sikka',
-                            controller: _controller('name'),
-                          ),
-                          const SizedBox(height: 16),
-                          Row(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Expanded(
-                                child: _FormField(
-                                  label: 'Gender',
-                                  requiredField: true,
-                                  hint: 'Select gender',
-                                  trailingAsset:
-                                      'assets/figma/signup_chevron_down.svg',
-                                  controller: _controller('gender'),
-                                  onTap: () => _selectGender(),
-                                ),
-                              ),
-                              const SizedBox(width: 15),
-                              Expanded(
-                                child: _FormField(
-                                  label: 'Date of Birth',
-                                  requiredField: true,
-                                  hint: 'DD / MM / YYYY',
-                                  controller: _controller('dob'),
-                                  onTap: () => _selectDateOfBirth(),
-                                ),
-                              ),
-                            ],
-                          ),
-                          const SizedBox(height: 16),
-                          _FormField(
-                            label: 'Email Address',
-                            hint: 'e.g. skill@email.com',
-                            requiredField: true,
-                            leadingAsset: 'assets/figma/signup_mail.svg',
-                            controller: _controller('email'),
-                          ),
-                          const SizedBox(height: 16),
-                          _PasswordField(
-                            label: 'Password',
-                            controller: _controller('password'),
-                            requiredField: true,
-                            obscure: _obscurePassword,
-                            onToggle: () => setState(
-                              () => _obscurePassword = !_obscurePassword,
-                            ),
-                          ),
-                          const SizedBox(height: 16),
-                          _PasswordField(
-                            label: 'Confirm Password',
-                            controller: _controller('confirmPassword'),
-                            requiredField: true,
-                            obscure: _obscurePassword,
-                            onToggle: () => setState(
-                              () => _obscurePassword = !_obscurePassword,
-                            ),
-                          ),
-                          const SizedBox(height: 16),
-                          _FormField(
-                            label: 'Phone Number',
-                            hint: '98XXXXXXXX',
-                            requiredField: true,
-                            controller: _controller('phone'),
-                            leadingText: '🇳🇵 +977',
-                          ),
-                          const SizedBox(height: 16),
-                          _FormField(
-                            label: 'Location',
-                            requiredField: true,
-                            hint: 'Enter your current location',
-                            leadingAsset: 'assets/figma/signup_location.svg',
-                            controller: _controller('location'),
-                            trailingWidget: CurrentLocationButton(
-                              onPressed: () =>
-                                  _promptForLocation(skipIntro: true),
-                            ),
-                          ),
-                          const LocationFieldHint(),
-                          const SizedBox(height: 16),
-                          _FormField(
-                            label: 'Highest Qualification / Degree',
-                            requiredField: true,
-                            hint: 'e.g. Master of Computer Applications',
-                            controller: _controller('degree'),
-                          ),
-                          const SizedBox(height: 16),
-                          _FormField(
-                            label: 'Subject Expertise',
-                            requiredField: true,
-                            hint: 'e.g. Physics, Fullstack Web Dev',
-                            controller: _controller('subject'),
-                          ),
-                          const SizedBox(height: 16),
-                          _FormField(
-                            label: 'Years of Experience',
-                            requiredField: true,
-                            hint: 'e.g. 5 Years',
-                            controller: _controller('experience'),
-                          ),
-                          const SizedBox(height: 20),
-
-                          _UploadCard(
-                            title: 'CV / Resume',
-                            formats: 'Supported formats: PDF, DOCX (Max 5MB)',
-                            asset: 'assets/figma/signup_file_text.svg',
-                            pickedFile: _cvFile,
-                            onTap: () => _pickDocument(isCv: true),
-                            onClear: () => _clearDocument(
-                              ProfileDocumentSlot.cvResume,
-                              () => setState(() => _cvFile = null),
-                            ),
-                          ),
-                          const SizedBox(height: 20),
-
-                          _UploadCard(
-                            title: 'Certificates & Recommendation Letters',
-                            formats:
-                                'Supported formats: PDF, JPG, PNG (Max 10MB)',
-                            asset: 'assets/figma/signup_file.svg',
-                            pickedFile: _certificatesFile,
-                            onTap: () => _pickDocument(isCv: false),
-                            onClear: () => _clearDocument(
-                              ProfileDocumentSlot.certificates,
-                              () => setState(() => _certificatesFile = null),
-                            ),
-                          ),
-                          const SizedBox(height: 20),
-
-                          Container(
-                            padding: const EdgeInsets.all(14),
-                            decoration: BoxDecoration(
-                              color: const Color(0xFFFFFBF0),
-                              borderRadius: BorderRadius.circular(12),
-                            ),
-                            child: Row(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                SvgPicture.asset(
-                                  'assets/figma/signup_info.svg',
-                                  width: 18,
-                                  height: 18,
-                                ),
-                                const SizedBox(width: 10),
-                                Expanded(
-                                  child: Text(
-                                    // "verified", not "approved": that is the
-                                    // status value the API actually sends, and
-                                    // the user should be looking for the word
-                                    // they will see.
-                                    'Our admin team reviews all verification '
-                                    'requests within 24-48 business hours. '
-                                    "You'll receive an email notification "
-                                    'once verified.',
-                                    style: GoogleFonts.manrope(
-                                      color: const Color(0xFF2F2600),
-                                      fontSize: 11,
-                                      height: 1.4,
-                                    ),
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                          const SizedBox(height: 20),
-                          SizedBox(
-                            width: double.infinity,
-                            height: 52,
-                            child: FilledButton(
-                              onPressed: _isSubmitting ? null : _submit,
-                              style: FilledButton.styleFrom(
-                                backgroundColor: const Color(0xFFE6B800),
-                                foregroundColor: const Color(0xFF111827),
-                                elevation: 4,
-                                shadowColor: const Color(0x40E6B800),
-                                shape: const StadiumBorder(),
-                                // Kept gold rather than greyed: the spinner is
-                                // the cue that it is working, and a grey button
-                                // on a slow connection reads as broken.
-                                disabledBackgroundColor: const Color(
-                                  0xFFE6B800,
-                                ),
-                                disabledForegroundColor: const Color(
-                                  0xFF111827,
-                                ),
-                              ),
-                              child: _isSubmitting
-                                  ? const SizedBox(
-                                      width: 22,
-                                      height: 22,
-                                      child: CircularProgressIndicator(
-                                        strokeWidth: 2.5,
-                                        color: Color(0xFF111827),
-                                      ),
-                                    )
-                                  : Text(
-                                      'Submit Verification',
-                                      style: GoogleFonts.manrope(
-                                        fontSize: 16,
-                                        fontWeight: FontWeight.w700,
-                                      ),
-                                    ),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
   Future<void> _pickProfilePhoto() async {
     final picked = await _imagePicker.pickImage(
       source: ImageSource.gallery,
@@ -389,7 +123,8 @@ class _SignupInstructorFormPageState
       imageQuality: 85,
     );
     if (picked == null) return;
-    // Bytes, not a path: `Image.file` is not supported on Flutter web.
+    // Bytes, not a path: `Image.file` asserts `!kIsWeb`, so a File-based avatar
+    // blanks the screen on Flutter web.
     final bytes = await picked.readAsBytes();
     if (!mounted) return;
     final rejection = profilePhotoRejection(
@@ -397,155 +132,63 @@ class _SignupInstructorFormPageState
       byteCount: bytes.length,
     );
     if (rejection != null) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text(rejection)));
+      _showSnack(rejection);
       return;
     }
-    setState(() {
-      _profilePhotoBytes = bytes;
-      // Kept so the multipart part carries the real extension — dio infers the
-      // content type from it.
-      _profilePhotoFileName = picked.name;
-    });
+    // The name travels with the bytes: the multipart part's content type is
+    // inferred from the extension.
+    ref.read(userProfileProvider.notifier).setPhoto(bytes, picked.name);
   }
 
-  Future<void> _pickDocument({required bool isCv}) async {
-    // CV: PDF + DOC/DOCX, max 5MB
-    // Certificates: PDF + JPG + PNG, max 10MB
-    final allowedExtensions = isCv
-        ? <String>['pdf', 'doc', 'docx']
-        : <String>['pdf', 'jpg', 'jpeg', 'png'];
-
-    // withData: true so the bytes come back in memory. The app targets Flutter
-    // web, where a picked file has no readable path, and the multipart upload
-    // needs bytes rather than a location anyway.
-    final result = await FilePicker.platform.pickFiles(
-      type: FileType.custom,
-      allowedExtensions: allowedExtensions,
-      withData: true,
-    );
-
-    if (result == null || result.files.isEmpty) return;
-    final file = result.files.single;
-
-    // Size guard
-    final maxBytes = isCv ? 5 * 1024 * 1024 : 10 * 1024 * 1024;
-    if (file.size > maxBytes) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            'File too large. Maximum allowed is '
-            '${isCv ? '5MB' : '10MB'}.',
-          ),
-        ),
-      );
-      return;
-    }
-
-    final bytes = file.bytes;
-    if (bytes == null) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('That file could not be read. Please pick another.'),
-        ),
-      );
-      return;
-    }
-
+  void _showSnack(String message) {
     if (!mounted) return;
-    setState(() {
-      if (isCv) {
-        _cvFile = file;
-      } else {
-        _certificatesFile = file;
-      }
-    });
-
-    // Stored here rather than at submit: these bytes are the only copy, and the
-    // register call needs them after two more screen transitions.
-    ref
-        .read(userProfileProvider.notifier)
-        .setDocument(
-          isCv
-              ? ProfileDocumentSlot.cvResume
-              : ProfileDocumentSlot.certificates,
-          PickedDocument(bytes: bytes, fileName: file.name),
-        );
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(message)));
   }
 
-  /// Removes a file from the screen *and* the store. The store took a copy of
-  /// the bytes when the file was picked, so clearing only the local state would
-  /// leave the deleted file queued for the register call.
-  void _clearDocument(String slot, VoidCallback clearLocal) {
-    clearLocal();
-    ref.read(userProfileProvider.notifier).clearDocument(slot);
-  }
-
-  void _submit() async {
+  Future<void> _submit() async {
     // A second tap while the first request is in flight would create two
     // accounts. The button is disabled too; this is the belt to that braces.
     if (_isSubmitting) return;
 
-    final missing = <String>[];
-    // Both, because they are set together and the upload needs both: the bytes
-    // for the body and the name for the content type.
-    if (_profilePhotoBytes == null || _profilePhotoFileName == null) {
-      missing.add('Profile Photo');
-    }
-    if (_controller('name').text.trim().isEmpty) missing.add('Full Name');
-    if (_controller('email').text.trim().isEmpty) missing.add('Email');
-    if (_cvFile == null) missing.add('CV / Resume');
-    if (_certificatesFile == null) missing.add('Certificates');
-
-    if (missing.isNotEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Please provide: ${missing.join(", ")}')),
-      );
+    final form = _formKey.currentState;
+    if (form == null || !form.validate()) {
+      // Every failing field is marked inline now. Switch on live re-validation
+      // and say so once: the summary is what tells the user to look at the form
+      // rather than wonder whether the tap registered.
+      setState(() => _autovalidateMode = AutovalidateMode.onUserInteraction);
+      _showSnack('Please check the highlighted fields.');
       return;
     }
 
-    // Recorded before navigating: these values used to live only in the
-    // controllers and were lost the moment this screen was popped, so the
-    // register call had nothing to send.
-    final profile = ref.read(userProfileProvider.notifier);
-    profile.setRole(ProfileRole.instructor);
-    profile.setPhoto(_profilePhotoBytes!, _profilePhotoFileName!);
+    final profile = ref.read(userProfileProvider);
+    final photo = profile.photoBytes;
+    final photoName = profile.photoFileName;
+    if (photo == null || photoName == null) {
+      // Not a server failure, so it does not go through showApiErrorSnack —
+      // this is something the user has to do to this screen.
+      _showSnack('Add a profile photo to continue.');
+      return;
+    }
 
-    // `degree` and `subject` are this form's controller keys; the profile store
-    // and Edit Profile call the same two fields `qualification` and `expertise`.
-    // Renaming at the boundary keeps one set of keys in the store instead of
-    // two spellings of the same field. The passwords are deliberately absent —
-    // they are only ever read inside this method.
-    profile.save({
+    // Recorded before navigating: these values live only in the controllers and
+    // are lost the moment this screen is popped, so the register call would have
+    // nothing to send. Only the six this screen owns are written — a stale value
+    // for a deferred field would look filled to the completeness gate and the
+    // user would never be asked for it.
+    final profileStore = ref.read(userProfileProvider.notifier);
+    // The role step already recorded this, so for the normal flow the call is
+    // redundant. It stays because a deep link straight to `/signup/instructor`
+    // never passes through that step, and the role is what decides which field
+    // set the profile screens show once the account exists.
+    profileStore.setRole(ProfileRole.instructor);
+    profileStore.save({
       'name': _controller('name').text.trim(),
       'email': _controller('email').text.trim(),
       'gender': _controller('gender').text,
       'dob': _controller('dob').text,
-      'phone': _controller('phone').text.trim(),
-      'location': _controller('location').text.trim(),
-      'qualification': _controller('degree').text.trim(),
-      'expertise': _controller('subject').text.trim(),
-      'experience': _controller('experience').text.trim(),
     });
-
-    final cv = _cvFile!;
-    final certificates = _certificatesFile!;
-    final cvBytes = cv.bytes;
-    final certificateBytes = certificates.bytes;
-    if (cvBytes == null || certificateBytes == null) {
-      // The pickers ask for bytes, so this should not happen — but sending a
-      // document with no content would create an account with a broken upload,
-      // which is worse than asking again.
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('A document could not be read. Please pick it again.'),
-        ),
-      );
-      return;
-    }
 
     setState(() => _isSubmitting = true);
     try {
@@ -560,55 +203,288 @@ class _SignupInstructorFormPageState
               password: _controller('password').text,
               // The backend requires this on the wire and validates the pair
               // itself; the client-side check above is not a substitute.
-              confirmPassword: _controller('confirmPassword').text,
+              confirmPassword: _controller('confirm').text,
               // The picker stores the label the user saw; the API wants the
               // lowercase wire value. Mapped here, at the boundary.
               gender: Gender.wireValueOf(_controller('gender').text),
-              // The form holds DD / MM / YYYY for display; the API wants ISO.
+              // The form holds DD / MM / YYYY because that is what the user
+              // picks and reads; the API wants ISO, and the backend explicitly
+              // allows the UI to keep displaying the other format.
               dob: isoDateOf(_controller('dob').text) ?? '',
-              phone: _controller('phone').text.trim(),
-              location: _controller('location').text.trim(),
-              qualification: _controller('degree').text.trim(),
-              expertise: _controller('subject').text.trim(),
-              experience: _controller('experience').text.trim(),
-              photo: PickedDocument(
-                bytes: _profilePhotoBytes!,
-                fileName: _profilePhotoFileName!,
-              ),
-              cv: PickedDocument(bytes: cvBytes, fileName: cv.name),
-              certificates: PickedDocument(
-                bytes: certificateBytes,
-                fileName: certificates.name,
-              ),
+              photo: PickedDocument(bytes: photo, fileName: photoName),
             ),
           );
       if (!mounted) return;
       // Cleared before navigating, not after: this screen stays on the stack
-      // behind the OTP step, so coming back would otherwise find the button
+      // behind the next step, so coming back would otherwise find the button
       // still disabled.
       setState(() => _isSubmitting = false);
       context.push('/signup/verify');
     } on ApiException catch (error) {
       if (!mounted) return;
       setState(() => _isSubmitting = false);
-      // No inline validation on this screen, so the server's per-field messages
-      // are listed in the snack bar rather than dropped. A duplicate email also
-      // gets a "Log In" action.
+      _applyServerFieldErrors(error);
       showSignupErrorSnack(
         context,
         error,
+        // True only when something actually landed on an input. The server may
+        // name fields this screen does not have, and those must still be said.
+        fieldErrorsAreShown: _serverErrors.isNotEmpty,
+        // Offered only when the server says this email already has an account —
+        // then signing in is the one thing worth doing next.
         onLogIn: () => context.go('/login-screen'),
       );
     }
   }
 
-  Future<void> _selectGender() async {
-    final value = await _pickInstructorOption(
-      context,
-      'Select gender',
-      Gender.labels,
+  /// Puts the server's per-field messages onto the matching inputs.
+  ///
+  /// Only fields this screen owns are mapped, and the wire names are translated
+  /// first (see [_serverFieldAliases]) because the password confirmation is two
+  /// names for one input here. Anything else the server names — `qualification`,
+  /// `subject_expertise`, `province_id` — has no input to attach to and no
+  /// business being rejected at signup any more, so it still reaches the user
+  /// through the summary message the snack bar shows.
+  void _applyServerFieldErrors(ApiException error) {
+    if (!error.hasFieldErrors) return;
+
+    for (final entry in error.fieldErrors.entries) {
+      final key = _serverFieldAliases[entry.key] ?? entry.key;
+      if (_controllers.containsKey(key)) {
+        _serverErrors[key] = entry.value;
+      }
+    }
+    if (_serverErrors.isEmpty) return;
+
+    // Switch on live validation so the messages appear now, and survive until
+    // the user edits something.
+    setState(() => _autovalidateMode = AutovalidateMode.onUserInteraction);
+    _formKey.currentState?.validate();
+  }
+
+  /// Wraps a client-side [validator] so a message from the server for the same
+  /// field is shown instead, until the field is edited.
+  FormFieldValidator<String> _serverAware(
+    String key,
+    FormFieldValidator<String> validator,
+  ) {
+    return (value) => _serverErrors[key] ?? validator(value);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final profile = ref.watch(userProfileProvider);
+
+    return Scaffold(
+      backgroundColor: const Color(0xFFFAF9F6),
+      body: SafeArea(
+        child: Column(
+          children: [
+            _Header(onBack: () => context.pop()),
+            Expanded(
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.only(bottom: 16),
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(24, 12, 24, 40),
+                  child: Form(
+                    key: _formKey,
+                    autovalidateMode: _autovalidateMode,
+                    child: Column(
+                      children: [
+                        ProfilePhotoPicker(
+                          photoBytes: profile.photoBytes,
+                          onTap: _pickProfilePhoto,
+                        ),
+                        const SizedBox(height: 24),
+                        LabeledTextField(
+                          label: 'Full Name',
+                          hint: 'e.g. Skill Sikka',
+                          requiredField: true,
+                          controller: _controller('name'),
+                          keyboardType: TextInputType.name,
+                          textInputAction: TextInputAction.next,
+                          // Re-checks on edit so a message the server sent about
+                          // this field does not outlive the correction.
+                          onChanged: (_) => _revalidate(),
+                          validator: _serverAware('name', validateFullName),
+                        ),
+                        const SizedBox(height: 16),
+                        LabeledTextField(
+                          label: 'Email Address',
+                          hint: 'e.g. skill@email.com',
+                          requiredField: true,
+                          leading: 'assets/figma/signup_mail.svg',
+                          controller: _controller('email'),
+                          keyboardType: TextInputType.emailAddress,
+                          textInputAction: TextInputAction.next,
+                          // The likeliest server error of all: "already
+                          // registered". It has to clear when the user changes
+                          // the address.
+                          onChanged: (_) => _revalidate(),
+                          validator: _serverAware('email', validateEmail),
+                        ),
+                        const SizedBox(height: 16),
+                        _passwordField(label: 'Password', key: 'password'),
+                        const SizedBox(height: 16),
+                        _passwordField(
+                          label: 'Confirm Password',
+                          key: 'confirm',
+                          // Wrapped so the `confirm_password` alias above is
+                          // actually reachable — without it a server error on
+                          // the confirmation would be stored under `confirm` and
+                          // never shown.
+                          validator: _serverAware(
+                            'confirm',
+                            (value) => validateConfirmPassword(
+                              value,
+                              _controller('password').text,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 16),
+                        Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Expanded(
+                              child: LabeledTextField(
+                                label: 'Gender',
+                                hint: 'Select gender',
+                                hintFontSize: 12,
+                                requiredField: true,
+                                trailing: _chevron,
+                                controller: _controller('gender'),
+                                onTap: _selectGender,
+                                validator: _serverAware(
+                                  'gender',
+                                  (value) => validateChoice(value, 'gender'),
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: LabeledTextField(
+                                label: 'Date of Birth',
+                                hint: 'DD / MM / YYYY',
+                                requiredField: true,
+                                controller: _controller('dob'),
+                                onTap: _selectDateOfBirth,
+                                validator: _serverAware(
+                                  'dob',
+                                  validateDateOfBirth,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 20),
+                        SizedBox(
+                          width: double.infinity,
+                          height: 52,
+                          child: FilledButton(
+                            // Null while in flight: a second tap would register
+                            // a second account.
+                            onPressed: _isSubmitting ? null : _submit,
+                            style: FilledButton.styleFrom(
+                              backgroundColor: const Color(0xFFE6B800),
+                              foregroundColor: const Color(0xFF111827),
+                              elevation: 4,
+                              shadowColor: const Color(0x40E6B800),
+                              shape: const StadiumBorder(),
+                              // Kept gold rather than greyed: the spinner is the
+                              // cue that it is working, and a grey button on a
+                              // slow connection reads as broken.
+                              disabledBackgroundColor: const Color(0xFFE6B800),
+                              disabledForegroundColor: const Color(0xFF111827),
+                            ),
+                            child: _isSubmitting
+                                ? const SizedBox(
+                                    width: 22,
+                                    height: 22,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2.5,
+                                      color: Color(0xFF111827),
+                                    ),
+                                  )
+                                : Text(
+                                    'Create Account',
+                                    style: GoogleFonts.manrope(
+                                      fontSize: 16,
+                                      fontWeight: FontWeight.w700,
+                                    ),
+                                  ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
     );
-    if (value != null) setState(() => _controller('gender').text = value);
+  }
+
+  /// A password box with the show/hide toggle.
+  ///
+  /// [validator] defaults to the password policy; the confirmation passes its
+  /// own, because its rule depends on the other field.
+  Widget _passwordField({
+    required String label,
+    required String key,
+    FormFieldValidator<String>? validator,
+  }) {
+    return LabeledTextField(
+      label: label,
+      requiredField: true,
+      hint: '••••••••••••',
+      controller: _controller(key),
+      leading: 'assets/figma/signup_lock.svg',
+      validator: validator ?? _serverAware('password', validatePassword),
+      // The confirmation rule depends on the password value, so editing either
+      // has to re-check the pair.
+      onChanged: (_) => _revalidate(),
+      obscureText: _obscurePassword,
+      trailingWidget: IconButton(
+        onPressed: _togglePassword,
+        tooltip: _obscurePassword ? 'Show password' : 'Hide password',
+        icon: AnimatedSwitcher(
+          duration: const Duration(milliseconds: 180),
+          transitionBuilder: (child, animation) => FadeTransition(
+            opacity: animation,
+            child: ScaleTransition(scale: animation, child: child),
+          ),
+          child: _obscurePassword
+              ? const Icon(
+                  Icons.visibility_off_outlined,
+                  key: ValueKey('password-hidden'),
+                  color: Color(0xFF4B5462),
+                  size: 20,
+                )
+              : SvgPicture.asset(
+                  'assets/figma/signup_eye.svg',
+                  key: const ValueKey('password-visible'),
+                  width: 16,
+                  height: 16,
+                ),
+        ),
+      ),
+    );
+  }
+
+  void _togglePassword() =>
+      setState(() => _obscurePassword = !_obscurePassword);
+
+  Future<void> _selectGender() async {
+    final value = await showOptionPickerSheet(
+      context,
+      title: 'Select gender',
+      options: Gender.labels,
+    );
+    if (value == null) return;
+    setState(() => _controller('gender').text = value);
+    _revalidate();
   }
 
   Future<void> _selectDateOfBirth() async {
@@ -618,11 +494,11 @@ class _SignupInstructorFormPageState
       firstDate: DateTime(1950),
       lastDate: DateTime.now(),
     );
-    if (date != null) {
-      final day = date.day.toString().padLeft(2, '0');
-      final month = date.month.toString().padLeft(2, '0');
-      setState(() => _controller('dob').text = '$day / $month / ${date.year}');
-    }
+    if (date == null) return;
+    final day = date.day.toString().padLeft(2, '0');
+    final month = date.month.toString().padLeft(2, '0');
+    setState(() => _controller('dob').text = '$day / $month / ${date.year}');
+    _revalidate();
   }
 }
 
@@ -671,322 +547,5 @@ class _Header extends StatelessWidget {
         ],
       ),
     );
-  }
-}
-
-class _FormField extends StatelessWidget {
-  const _FormField({
-    required this.label,
-    required this.hint,
-    required this.controller,
-    this.requiredField = false,
-    this.leadingAsset,
-    this.trailingAsset,
-    this.trailingWidget,
-    this.onTap,
-    this.obscureText = false,
-    this.leadingText,
-  });
-
-  final String label;
-  final String hint;
-  final TextEditingController controller;
-  final bool requiredField;
-  final String? leadingAsset;
-  final String? trailingAsset;
-  final Widget? trailingWidget;
-  final VoidCallback? onTap;
-  final String? leadingText;
-  final bool obscureText;
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        _Label(label: label, requiredField: requiredField),
-        const SizedBox(height: 6),
-        TextField(
-          controller: controller,
-          readOnly: onTap != null,
-          onTap: onTap,
-          obscureText: obscureText,
-          style: GoogleFonts.manrope(
-            color: const Color(0xFF111827),
-            fontSize: 14,
-          ),
-          decoration: InputDecoration(
-            hintText: hint,
-            hintStyle: GoogleFonts.manrope(
-              color: const Color(0xFF9CA3AF),
-              fontSize: 14,
-            ),
-            prefixText: leadingText,
-            prefixIcon: leadingAsset == null
-                ? null
-                : Padding(
-                    padding: const EdgeInsets.all(14),
-                    child: SvgPicture.asset(
-                      leadingAsset!,
-                      width: 16,
-                      height: 16,
-                    ),
-                  ),
-            suffixIcon:
-                trailingWidget ??
-                (trailingAsset == null
-                    ? null
-                    : IconButton(
-                        onPressed: onTap,
-                        icon: SvgPicture.asset(
-                          trailingAsset!,
-                          width: 16,
-                          height: 16,
-                        ),
-                      )),
-            filled: true,
-            fillColor: Colors.white,
-            contentPadding: const EdgeInsets.symmetric(
-              horizontal: 16,
-              vertical: 12,
-            ),
-            border: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(12),
-              borderSide: const BorderSide(color: Color(0xFFE5E7EB)),
-            ),
-            enabledBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(12),
-              borderSide: const BorderSide(color: Color(0xFFE5E7EB)),
-            ),
-            focusedBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(12),
-              borderSide: const BorderSide(color: Color(0xFFE6B800)),
-            ),
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-class _PasswordField extends StatelessWidget {
-  const _PasswordField({
-    required this.label,
-    required this.controller,
-    required this.requiredField,
-    required this.obscure,
-    required this.onToggle,
-  });
-
-  final String label;
-  final TextEditingController controller;
-  final bool requiredField;
-  final bool obscure;
-  final VoidCallback onToggle;
-
-  @override
-  Widget build(BuildContext context) {
-    return _FormField(
-      label: label,
-      requiredField: requiredField,
-      hint: '••••••••••••',
-      controller: controller,
-      leadingAsset: 'assets/figma/signup_lock.svg',
-      trailingWidget: IconButton(
-        onPressed: onToggle,
-        tooltip: obscure ? 'Show password' : 'Hide password',
-        icon: AnimatedSwitcher(
-          duration: const Duration(milliseconds: 180),
-          transitionBuilder: (child, animation) => FadeTransition(
-            opacity: animation,
-            child: ScaleTransition(scale: animation, child: child),
-          ),
-          child: obscure
-              ? const Icon(
-                  Icons.visibility_off_outlined,
-                  key: ValueKey('password-hidden'),
-                  color: Color(0xFF4B5462),
-                  size: 20,
-                )
-              : const Icon(
-                  Icons.visibility_outlined,
-                  key: ValueKey('password-visible'),
-                  color: Color(0xFF4B5462),
-                  size: 20,
-                ),
-        ),
-      ),
-      obscureText: obscure,
-    );
-  }
-}
-
-class _Label extends StatelessWidget {
-  const _Label({required this.label, required this.requiredField});
-
-  final String label;
-  final bool requiredField;
-
-  @override
-  Widget build(BuildContext context) {
-    return RichText(
-      text: TextSpan(
-        style: GoogleFonts.manrope(
-          color: const Color(0xFF111827),
-          fontSize: 14,
-          fontWeight: FontWeight.w700,
-        ),
-        children: [
-          TextSpan(text: label),
-          if (requiredField)
-            const TextSpan(
-              text: ' *',
-              style: TextStyle(color: Color(0xFFEF4444)),
-            ),
-        ],
-      ),
-    );
-  }
-}
-
-class _UploadCard extends StatelessWidget {
-  const _UploadCard({
-    required this.title,
-    required this.formats,
-    required this.asset,
-    required this.pickedFile,
-    required this.onTap,
-    required this.onClear,
-  });
-
-  final String title;
-  final String formats;
-  final String asset;
-  final PlatformFile? pickedFile;
-  final VoidCallback onTap;
-  final VoidCallback onClear;
-
-  @override
-  Widget build(BuildContext context) {
-    final hasFile = pickedFile != null;
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        _Label(label: title, requiredField: false),
-        const SizedBox(height: 8),
-        GestureDetector(
-          behavior: HitTestBehavior.opaque,
-          onTap: onTap,
-          child: Container(
-            width: double.infinity,
-            padding: const EdgeInsets.all(20),
-            decoration: BoxDecoration(
-              color: const Color(0xFFFFFBF0),
-              border: Border.all(
-                color: const Color(0xFFE6B800),
-                style: BorderStyle.solid,
-              ),
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: hasFile ? _buildPickedState(context) : _buildEmptyState(),
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildEmptyState() {
-    return Column(
-      children: [
-        Container(
-          width: 40,
-          height: 40,
-          padding: const EdgeInsets.all(10),
-          decoration: const BoxDecoration(
-            color: Color(0xFFE6B800),
-            shape: BoxShape.circle,
-          ),
-          child: SvgPicture.asset(asset),
-        ),
-        const SizedBox(height: 12),
-        Text(
-          'Upload Document',
-          style: GoogleFonts.manrope(
-            color: const Color(0xFF2F2600),
-            fontSize: 14,
-            fontWeight: FontWeight.w700,
-          ),
-        ),
-        Text(
-          formats,
-          textAlign: TextAlign.center,
-          style: GoogleFonts.manrope(
-            color: const Color(0xFF4B5563),
-            fontSize: 11,
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildPickedState(BuildContext context) {
-    final name = pickedFile!.name;
-    final sizeLabel = _formatBytes(pickedFile!.size);
-
-    return Row(
-      children: [
-        Container(
-          width: 40,
-          height: 40,
-          padding: const EdgeInsets.all(10),
-          decoration: const BoxDecoration(
-            color: Color(0xFFE6B800),
-            shape: BoxShape.circle,
-          ),
-          child: SvgPicture.asset(asset),
-        ),
-        const SizedBox(width: 12),
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                name,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: GoogleFonts.manrope(
-                  color: const Color(0xFF2F2600),
-                  fontSize: 13,
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
-              const SizedBox(height: 2),
-              Text(
-                sizeLabel,
-                style: GoogleFonts.manrope(
-                  color: const Color(0xFF4B5563),
-                  fontSize: 11,
-                ),
-              ),
-            ],
-          ),
-        ),
-        GestureDetector(
-          behavior: HitTestBehavior.opaque,
-          onTap: onClear,
-          child: const Padding(
-            padding: EdgeInsets.all(6),
-            child: Icon(Icons.close, size: 18, color: Color(0xFF4B5563)),
-          ),
-        ),
-      ],
-    );
-  }
-
-  String _formatBytes(int bytes) {
-    if (bytes < 1024) return '$bytes B';
-    if (bytes < 1024 * 1024) return '${(bytes / 1024).toStringAsFixed(1)} KB';
-    return '${(bytes / (1024 * 1024)).toStringAsFixed(1)} MB';
   }
 }

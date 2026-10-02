@@ -1,5 +1,6 @@
 import 'package:flutter/foundation.dart';
 
+import '../../../core/validation/validators.dart';
 import '../../profile/data/profile_role.dart';
 import '../../profile/data/user_profile.dart';
 
@@ -54,14 +55,37 @@ class RegistrationRequest {
     );
   }
 
-  /// An instructor's registration: everything is collected up front, so this is
-  /// a single request rather than the student's two phases.
+  /// An instructor's registration — **the same six fields as a student's**.
   ///
-  /// The wire keys here are **still wrong** against the confirmed contract —
-  /// `phone` should be `phone_country_code` + `phone_number`, `expertise`
-  /// should be `subject_expertise`, and `experience` should be
-  /// `experience_years`. That is instructor-path work and deliberately not done
-  /// in the student-signup pass; see `student-signup-backend-spec.md` §D.
+  /// **Granted 2026-10-01.** This is the third state of this constructor, and the
+  /// history is worth keeping because each version was wrong for a different
+  /// reason:
+  ///
+  /// 1. Trimmed to eight fields, assuming the instructor endpoint deferred what
+  ///    the student one defers. It did not.
+  /// 2. Restored to all fifteen after a probe POST answered `400` naming exactly
+  ///    the seven that were missing — `location`, `province_id`, `district_id`,
+  ///    `municipality_id`, `qualification`, `subject_expertise`,
+  ///    `experience_years` — which is the seven repeated "This field is
+  ///    required." lines the signup screen showed.
+  /// 3. **This one.** We asked for the instructor endpoint to be brought in line
+  ///    with the student one and the backend did it. Exception; the seven above
+  ///    plus `phone_country_code` and `phone_number` are now optional.
+  ///
+  /// So the deferred set is the nine the request named, and it is collected on
+  /// Edit Profile behind the same completion gate the student uses. The send path
+  /// for it is [InstructorCompletionRequest] — a field that is here but has no
+  /// route to the server is worse than one the form never asked for.
+  ///
+  /// Every deferred argument is optional and **omitted when blank** rather than
+  /// sent as an empty string: the endpoint accepts an absent `province_id`, but a
+  /// blank one still has to parse as an integer, so sending `''` would turn a
+  /// skipped field into a `400`. Signup passes none of them.
+  ///
+  /// Wire keys follow the schema: `subject_expertise`, `experience_years`,
+  /// `province_id` / `district_id` / `municipality_id`, and the phone split. The
+  /// CV and certificates remain optional here and are collected on Edit Profile
+  /// with the rest.
   factory RegistrationRequest.instructor({
     required String name,
     required String email,
@@ -69,14 +93,17 @@ class RegistrationRequest {
     required String confirmPassword,
     required String gender,
     required String dob,
-    required String phone,
-    required String location,
-    required String qualification,
-    required String expertise,
-    required String experience,
     required PickedDocument photo,
-    required PickedDocument cv,
-    required PickedDocument certificates,
+    String? phone,
+    String? location,
+    String? qualification,
+    String? expertise,
+    String? experience,
+    String? provinceId,
+    String? districtId,
+    String? municipalityId,
+    PickedDocument? cv,
+    PickedDocument? certificates,
   }) {
     return RegistrationRequest(
       role: ProfileRole.instructor,
@@ -87,16 +114,27 @@ class RegistrationRequest {
         'confirm_password': confirmPassword,
         'gender': gender,
         'dob': dob,
-        'phone': phone,
-        'location': location,
-        'qualification': qualification,
-        'expertise': expertise,
-        'experience': experience,
+        // One input on the form, two fields on the wire, null-aware so both
+        // keys are **absent** when the number did not parse rather than sent as
+        // blanks. An absent optional field registers; a blank `province_id` is a
+        // parse error.
+        'phone_country_code': ?splitPhoneNumber(phone)?.countryCode,
+        'phone_number': ?splitPhoneNumber(phone)?.number,
+        'location': ?_nonBlank(location),
+        'qualification': ?_nonBlank(qualification),
+        'subject_expertise': ?_nonBlank(expertise),
+        // The field invites `5 Years`; the backend's decimal pattern does not.
+        // Normalised here rather than at the call site so no future caller can
+        // send the display form by accident.
+        'experience_years': ?experienceYearsValue(experience),
+        'province_id': ?_nonBlank(provinceId),
+        'district_id': ?_nonBlank(districtId),
+        'municipality_id': ?_nonBlank(municipalityId),
       },
       photo: photo,
       documents: {
-        ProfileDocumentSlot.cvResume: cv,
-        ProfileDocumentSlot.certificates: certificates,
+        ProfileDocumentSlot.cvResume: ?cv,
+        ProfileDocumentSlot.certificates: ?certificates,
       },
     );
   }
@@ -118,4 +156,15 @@ class RegistrationRequest {
   /// Upload slots other than the avatar, keyed by [ProfileDocumentSlot] — whose
   /// values are already the multipart field names the doc proposes.
   final Map<String, PickedDocument> documents;
+}
+
+/// A value worth sending, or null.
+///
+/// The distinction that matters: the backend's optional geographic fields are
+/// integers, so an empty string is a *parse* error rather than a missing value.
+/// Trimming here also stops a field the user typed a space into from looking
+/// filled to the completeness check and going out as `" "`.
+String? _nonBlank(String? value) {
+  final trimmed = (value ?? '').trim();
+  return trimmed.isEmpty ? null : trimmed;
 }

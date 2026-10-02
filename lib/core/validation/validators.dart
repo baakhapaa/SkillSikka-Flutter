@@ -222,18 +222,45 @@ int _ageInYears(DateTime birthDate, DateTime today) {
 /// Accepts the `+977` country code and any spacing, dashes or brackets, so
 /// `+977 98-1234-5678` and `9812345678` are treated the same.
 String? validatePhoneNumber(String? value) {
-  final raw = (value ?? '').trim();
-  if (raw.isEmpty) return 'Please enter your phone number.';
-
-  final digits = raw.replaceAll(RegExp(r'\D'), '');
-  final national = digits.startsWith('977') && digits.length > 10
-      ? digits.substring(3)
-      : digits;
-
-  if (!_nepaliMobilePattern.hasMatch(national)) {
+  if ((value ?? '').trim().isEmpty) return 'Please enter your phone number.';
+  if (nationalMobileNumber(value) == null) {
     return 'Enter a 10-digit mobile number, e.g. 9812345678.';
   }
   return null;
+}
+
+/// The national part of a Nepali mobile number, or null when [value] is not one.
+///
+/// Extracted so [validatePhoneNumber] and [splitPhoneNumber] share one rule. If
+/// they each normalised the input themselves, a value the validator accepted
+/// could be one the splitter then rejected — the form would pass and the request
+/// would silently carry no phone number at all.
+String? nationalMobileNumber(String? value) {
+  final digits = (value ?? '').replaceAll(RegExp(r'\D'), '');
+  final national = digits.startsWith('977') && digits.length > 10
+      ? digits.substring(3)
+      : digits;
+  return _nepaliMobilePattern.hasMatch(national) ? national : null;
+}
+
+/// The country code every phone number is sent with.
+///
+/// Nepal-only, matching the validator and the form's `+977` prefix. The backend
+/// was asked whether the bare `977` is also accepted and whether there is a
+/// fixed list of codes (spec §C6); until that is answered we send the `+977`
+/// form its own example uses.
+const String kNepaliCountryCode = '+977';
+
+/// Splits a typed phone number into the two fields the backend expects.
+///
+/// `POST /register/instructor/` takes `phone_country_code` + `phone_number`
+/// rather than one `phone` field (spec §D), so the form's single input has to be
+/// taken apart at the boundary. Returns null for anything the validator would
+/// reject, so the caller sends no phone fields rather than a malformed pair.
+({String countryCode, String number})? splitPhoneNumber(String? value) {
+  final national = nationalMobileNumber(value);
+  if (national == null) return null;
+  return (countryCode: kNepaliCountryCode, number: national);
 }
 
 String? validateLocation(String? value) {
@@ -263,6 +290,16 @@ String? validateYearsOfExperience(String? value) {
   }
   return null;
 }
+
+/// The wire form of the experience field: the bare number, or null.
+///
+/// The field invites `5 Years` and the validator accepts it, but the backend's
+/// `experience_years` is a decimal with the pattern `^-?\d{0,3}(\.\d{0,2})?$`
+/// (live schema, 2026-10-01) — so the spelled-out form has to be reduced before
+/// it is sent. Returns null for anything the validator would reject, so a caller
+/// sends nothing rather than a value the backend will 400 on.
+String? experienceYearsValue(String? formValue) =>
+    _experiencePattern.firstMatch((formValue ?? '').trim())?.group(1);
 
 /// Free text with length bounds — qualifications, subject expertise and the
 /// like, where there is no shape to check beyond "something was typed".

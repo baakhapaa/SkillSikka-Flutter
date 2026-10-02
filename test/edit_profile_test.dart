@@ -4,7 +4,9 @@ import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:skillsikka/core/network/api_error.dart';
 import 'package:skillsikka/core/widgets/profile_photo_picker.dart';
+import 'package:skillsikka/features/auth/data/auth_repository.dart';
 import 'package:skillsikka/features/profile/data/profile_role.dart';
 import 'package:skillsikka/features/profile/presentation/edit_profile_page.dart';
 import 'package:skillsikka/features/profile/presentation/profile_page.dart';
@@ -384,5 +386,222 @@ void main() {
       ),
       findsOneWidget,
     );
+  });
+
+  /// What the save confirmation says, per outcome.
+  ///
+  /// The message is the only thing the user sees about whether their answers
+  /// reached a server, so it has to match what actually happened. The bug these
+  /// cover: a `bool?` collapsed "nothing to send" and "sent, route missing" into
+  /// one `false`, so a student — for whom no server call exists at all — was told
+  /// their edit was "stored on this device", which invents a limitation and reads
+  /// as a warning.
+  group('the save confirmation', () {
+    /// Opens the editor, taps Save, and returns what the snack bar said.
+    ///
+    /// [seed] is written to the profile store before the screen opens — the
+    /// instructor message only differs from the student one when there is
+    /// something for the completion request to carry.
+    Future<String> savedMessage(
+      WidgetTester tester, {
+      required ProfileRole role,
+      Map<String, String> seed = const {},
+      bool? completionResult,
+      ApiException? completionFailure,
+    }) async {
+      await tester.binding.setSurfaceSize(const Size(360, 800));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+
+      final auth = FakeAuthRepository()
+        ..completionResult = completionResult
+        ..completionFailure = completionFailure;
+      final container = ProviderContainer(
+        overrides: [authRepositoryProvider.overrideWithValue(auth)],
+      );
+      addTearDown(container.dispose);
+      container.read(userProfileProvider.notifier).save({
+        // Save requires a name and a valid email, so both are always seeded.
+        'name': 'Real User',
+        'email': 'real@user.test',
+        ...seed,
+      });
+
+      // **Pushed, not the root.** Both real call sites (`ProfilePage`,
+      // `complete_profile_gate`) push this screen onto a Navigator, and the
+      // save confirmation depends on that: `_save` pops the route and *then*
+      // shows the snack bar on a messenger captured before the pop. Pumping the
+      // page as `MaterialApp.home` instead makes it the route being popped, so
+      // its own messenger unmounts with it and the snack bar is never rendered.
+      //
+      // The host below is the route that survives the pop, which is what the
+      // snack bar is actually attached to in the app.
+      await tester.pumpWidget(
+        UncontrolledProviderScope(
+          container: container,
+          child: MaterialApp(
+            home: Builder(
+              builder: (context) => Scaffold(
+                body: Center(
+                  child: TextButton(
+                    onPressed: () => Navigator.of(context).push(
+                      MaterialPageRoute(
+                        builder: (_) => EditProfilePage(role: role),
+                      ),
+                    ),
+                    child: const Text('open editor'),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+      await tester.tap(find.text('open editor'));
+      await tester.pumpAndSettle();
+      drainUnrelatedOverflows(tester);
+
+      // The form is taller than the viewport, so the button starts below the
+      // fold and a bare tap would miss it.
+      final save = find.widgetWithText(FilledButton, 'Save Changes');
+      await tester.ensureVisible(save);
+      await tester.pumpAndSettle();
+      await tester.tap(save);
+      await tester.pumpAndSettle();
+      drainUnrelatedOverflows(tester);
+
+      // Exactly one snack bar, and it must be the confirmation rather than
+      // validation's "Please check the highlighted fields." — a test that read
+      // whichever snack bar happened to be on screen would report the wrong
+      // message for a save that never ran.
+      expect(
+        find.byType(SnackBar),
+        findsOneWidget,
+        reason:
+            'no snack bar after Save: the tap missed, or the form refused to '
+            'validate (which shows its own snack bar, so this also fires if the '
+            'seed stopped satisfying the name/email rules)',
+      );
+      final snackBar = tester.widget<SnackBar>(find.byType(SnackBar));
+      final message = (snackBar.content as Text).data!;
+
+      // **Let the first snack bar fully clear, then check nothing queued behind
+      // it.** `ScaffoldMessenger` shows queued bars one at a time, so a second
+      // message is invisible until the first times out — which is exactly how
+      // two snack bars (an error and a confirmation) went unnoticed.
+      //
+      // `pumpAndSettle` is the wrong tool here: it would also sit through a
+      // *queued* bar's own four-second wait and its exit, so the run would end
+      // with an empty screen either way and the assertion could never fail.
+      // Pumping in small steps instead reaches the moment between the last
+      // message leaving and the next one arriving — the only instant where a
+      // queued message is visible as a failure.
+      //
+      // The default duration is 4000 ms (`_snackBarDisplayDuration`), plus a
+      // short exit animation for the queue to advance.
+      await tester.pump(const Duration(milliseconds: 4000));
+      await tester.pump(const Duration(milliseconds: 750));
+      expect(
+        find.byType(SnackBar),
+        findsNothing,
+        reason:
+            'a second snack bar was queued and appeared after the first: only '
+            'one message may be shown per save (see `_save`)',
+      );
+
+      // Nothing left to time, so no timer can outlive the test.
+      await tester.pumpWidget(const SizedBox.shrink());
+      await tester.pump();
+      return message;
+    }
+
+    testWidgets(
+      'says "Profile updated." for a student, who has no server call',
+      (tester) async {
+        final message = await savedMessage(tester, role: ProfileRole.student);
+
+        // Not a hedge, and not an error: the store *is* the store for a student
+        // until their own completion contract is known.
+        //
+        // This overlaps with the `'Profile updated.'` assertion in the
+        // full-flow test above, and is kept on purpose: it is the case that
+        // proves the *helper* works. Without it, a broken harness would make
+        // every instructor case below fail for a reason the failure text does
+        // not name.
+        expect(message, 'Profile updated.');
+      },
+    );
+
+    testWidgets(
+      'says "Profile updated." for an instructor with nothing to send',
+      (tester) async {
+        // No instructor fields seeded, so `InstructorCompletionRequest` is empty
+        // and no request is made — the same "nothing to do, nothing wrong" case
+        // as the student above.
+        final message = await savedMessage(
+          tester,
+          role: ProfileRole.instructor,
+          completionResult: false,
+        );
+
+        expect(message, 'Profile updated.');
+      },
+    );
+
+    testWidgets('hedges only when the fields existed and the route 404s', (
+      tester,
+    ) async {
+      final message = await savedMessage(
+        tester,
+        role: ProfileRole.instructor,
+        seed: {'qualification': 'MCA'},
+        // What `DioAuthRepository.completeProfile` returns for a 404.
+        completionResult: false,
+      );
+
+      expect(
+        message,
+        'Profile saved on this device.',
+        reason: 'the user typed this, and it genuinely did not reach a server',
+      );
+    });
+
+    testWidgets('reports a rejected request without claiming success', (
+      tester,
+    ) async {
+      final message = await savedMessage(
+        tester,
+        role: ProfileRole.instructor,
+        seed: {'qualification': 'MCA'},
+        completionFailure: ApiException(
+          kind: ApiErrorKind.badRequest,
+          statusCode: 400,
+          message: 'Bad request',
+        ),
+      );
+
+      // **The error, and only the error.** This used to assert the confirmation
+      // `'Saved on this device — the server rejected the update.'`, which was
+      // wrong twice over: `_sendCompletion` showed the error *before* the pop
+      // and the confirmation *after*, so both were queued on the same
+      // `ScaffoldMessenger` and the confirmation surfaced four seconds later,
+      // over a screen the user had already left. The helper reads whichever
+      // snack bar is on screen first, so it read the error — and the error is
+      // what the user actually sees. One message, not two.
+      expect(message, 'Bad request');
+    });
+
+    testWidgets('says "Profile updated." when the server accepted it', (
+      tester,
+    ) async {
+      final message = await savedMessage(
+        tester,
+        role: ProfileRole.instructor,
+        seed: {'qualification': 'MCA'},
+        completionResult: true,
+      );
+
+      expect(message, 'Profile updated.');
+    });
   });
 }

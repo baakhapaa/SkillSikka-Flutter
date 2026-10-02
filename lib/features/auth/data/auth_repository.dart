@@ -4,6 +4,7 @@ import '../../../core/network/api_client.dart';
 import '../../../core/network/api_error.dart';
 import '../../../core/network/session.dart';
 import '../../profile/data/profile_role.dart';
+import '../../profile/data/user_profile.dart';
 import 'auth_api.dart';
 import 'me_profile.dart';
 import 'registered_account.dart';
@@ -67,6 +68,32 @@ abstract interface class AuthRepository {
 
   /// **Does not exist** — see [verifyOtp].
   Future<void> resendOtp({required String email});
+
+  /// Sends the deferred half of the profile to the completion endpoint, when
+  /// there is anything to send.
+  ///
+  /// This is what makes the signup trim real. Both roles now register with
+  /// identity only and collect the rest on Edit Profile — but until this method
+  /// exists those answers never leave the device, so the user fills in a form
+  /// that changes nothing. Half the change is worse than none of it.
+  ///
+  /// **Best effort, by design.** Returns whether anything was sent:
+  ///
+  /// - An empty [fields] map is a no-op that resolves `false`. The user opened
+  ///   Edit Profile and changed nothing; there is no request to make and nothing
+  ///   went wrong.
+  /// - A `404` is also a no-op. The endpoint is a **granted request, not a
+  ///   confirmed contract** — see [AuthApi.completeProfile] — so "not built yet"
+  ///   must not read to the user as a failure of their edit.
+  ///
+  /// Throws [ApiException] for everything else. A `400` on a body the server
+  /// rejected is a real bug in our payload and has to be visible, which is why
+  /// the swallow is narrowed to the missing route rather than applied to the
+  /// whole call.
+  Future<bool> completeProfile({
+    required ProfileRole role,
+    required Map<String, String> fields,
+  });
 }
 
 /// The real one. Talks HTTP and adopts a session when the backend offers one.
@@ -74,11 +101,21 @@ class DioAuthRepository implements AuthRepository {
   DioAuthRepository({
     required ApiClient client,
     required StateController<Session?> session,
+    UserProfileNotifier? profile,
   }) : _api = AuthApi(client),
-       _session = session;
+       _session = session,
+       _profile = profile;
 
   final AuthApi _api;
   final StateController<Session?> _session;
+
+  /// Where the role is written when an auth response carries one.
+  ///
+  /// Optional only so a unit test can build this repository without standing up
+  /// a profile store; the app always supplies it. Null therefore means "adopt
+  /// the session but forget the role", which is the old broken behaviour — see
+  /// [_adopt] for why that matters.
+  final UserProfileNotifier? _profile;
 
   @override
   Future<RegisteredAccount> register(RegistrationRequest request) async {
@@ -131,10 +168,49 @@ class DioAuthRepository implements AuthRepository {
       _api.resendOtp(email: email);
 
   @override
+  Future<bool> completeProfile({
+    required ProfileRole role,
+    required Map<String, String> fields,
+  }) async {
+    // Nothing to say, so nothing to send — and no way to fail either.
+    if (fields.isEmpty) return false;
+
+    try {
+      await _api.completeProfile(role: role, fields: fields);
+      return true;
+    } on ApiException catch (error) {
+      // The route is a request we made, not a contract we have. See
+      // [AuthApi.completeProfile]: a 404 means the backend has not built it yet,
+      // and the user's edit must still be saved locally without an error they
+      // cannot act on. Every other status is ours to report.
+      //
+      // **This is the only place that decides it.** `AuthApi` deliberately lets
+      // the 404 throw rather than swallowing it; when it swallowed it too, this
+      // clause was unreachable and the method reported success for a request
+      // that never happened.
+      if (error.statusCode == 404) return false;
+      rethrow;
+    }
+  }
+
+  @override
   Future<MeProfile?> fetchMe() => _api.fetchMe();
 
-  /// Stores the session the response carried, and does nothing when it carried
-  /// none.
+  /// Stores the session the response carried, and the role that came with it.
+  ///
+  /// **The role is written here, and that is the fix for a real bug.** `/login/`
+  /// and `/register/` both return the user's role; it was parsed and then
+  /// dropped. That left `GET /me/` as the *only* source of the role, so the
+  /// profile tab depended on a second request for data the first one had already
+  /// handed us — and the fetch fails silently by design (see `SessionBootstrap`),
+  /// so an instructor whose `/me/` was slow, 404ing or rejected was rendered as a
+  /// student with nothing logged anywhere. Writing it here means the role is in
+  /// the store before the screen that reads it is built, with no network in the
+  /// path.
+  ///
+  /// Written **before** the token check, deliberately: the role is known whether
+  /// or not the response carried a session, and registration with no token is a
+  /// supported shape (`tokenOnRegister: false` in the double).
   ///
   /// Both tokens are kept. The access token lasts 30 minutes (backend handoff
   /// §10), so a session holding only that is signed out half an hour in with no
@@ -144,6 +220,9 @@ class DioAuthRepository implements AuthRepository {
   /// Persisting this across launches is separate work, and wants a platform
   /// decision this layer should not make on its own.
   void _adopt(RegisteredAccount account) {
+    final role = account.role;
+    if (role != null) _profile?.setRole(role);
+
     final access = account.accessToken;
     if (access == null || access.isEmpty) return;
     _session.state = Session(access: access, refresh: account.refreshToken);
@@ -174,11 +253,19 @@ class FakeAuthRepository implements AuthRepository {
     this.latency = Duration.zero,
     this.tokenOnRegister = false,
     StateController<Session?>? session,
-  }) : _session = session;
+    UserProfileNotifier? profile,
+  }) : _session = session,
+       _profile = profile;
 
   /// Where an adopted session is written. Null means "record the call, adopt
   /// nothing" — see the class doc.
   final StateController<Session?>? _session;
+
+  /// Where an adopted role is written. Null means the role is dropped, which is
+  /// the real repository's old bug — see [DioAuthRepository._adopt]. Pass
+  /// `ref.read(userProfileProvider.notifier)` when a test asserts on the role a
+  /// screen ends up rendering.
+  final UserProfileNotifier? _profile;
 
   /// How long each call takes, so a test can observe the submitting state.
   Duration latency;
@@ -279,6 +366,35 @@ class FakeAuthRepository implements AuthRepository {
     resends.add(email);
   }
 
+  /// Every completion body the screens sent, so a test can assert on it.
+  ///
+  /// Records the **role and fields as handed over**, not the wire body: the
+  /// encoding lives in `AuthApi.completeProfile`, and a fake that re-implemented
+  /// it could agree with itself while disagreeing with the real client.
+  final List<({ProfileRole role, Map<String, String> fields})> completions = [];
+
+  /// What [completeProfile] answers. Defaults to "sent" when the fields were
+  /// non-empty, matching `DioAuthRepository` — a fake that invented a different
+  /// answer would make the "profile saved" path untested.
+  bool? completionResult;
+
+  /// Thrown by [completeProfile] when set, so a test can exercise the failure
+  /// path that must **not** be swallowed (anything except a 404).
+  ApiException? completionFailure;
+
+  @override
+  Future<bool> completeProfile({
+    required ProfileRole role,
+    required Map<String, String> fields,
+  }) async {
+    await _wait();
+    if (fields.isEmpty) return false;
+    final error = completionFailure;
+    if (error != null) throw error;
+    completions.add((role: role, fields: fields));
+    return completionResult ?? true;
+  }
+
   /// What [fetchMe] answers with, and how many times it was asked.
   ///
   /// Null by default rather than a hardcoded profile: a test that does not care
@@ -303,13 +419,16 @@ class FakeAuthRepository implements AuthRepository {
     return me;
   }
 
-  /// Stores the session the account carried, and does nothing when it carried
-  /// none — the same rule as `DioAuthRepository._adopt`, so the two cannot
-  /// disagree about when a session exists.
+  /// Stores the session the account carried, and the role alongside it — the
+  /// same rule as `DioAuthRepository._adopt`, so the two cannot disagree about
+  /// what a sign-in leaves in the store.
   ///
   /// Silently does nothing when no [session] controller was supplied. That is
   /// the documented way to use this double for "what was sent" assertions only.
   void _adopt(RegisteredAccount account) {
+    final role = account.role;
+    if (role != null) _profile?.setRole(role);
+
     final access = account.accessToken;
     if (access == null || access.isEmpty) return;
     _session?.state = Session(access: access, refresh: account.refreshToken);
@@ -340,5 +459,9 @@ final authRepositoryProvider = Provider<AuthRepository>(
     // `.notifier` rather than the value: the repository writes the session, and
     // watching the notifier does not rebuild this provider when it changes.
     session: ref.watch(sessionProvider.notifier),
+    // Same reason: the repository writes the role on sign-in, so this is a
+    // handle to write through, not a value to read. See `_adopt` for why the
+    // role is written at sign-in instead of waiting for `GET /me/`.
+    profile: ref.watch(userProfileProvider.notifier),
   ),
 );

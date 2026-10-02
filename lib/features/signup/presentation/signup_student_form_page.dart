@@ -10,6 +10,7 @@ import '../../../core/network/api_error.dart';
 import '../../../core/validation/validators.dart';
 import '../../../core/widgets/api_error_snack.dart';
 import '../../../core/widgets/location_prompt_dialog.dart';
+import '../../../core/widgets/option_picker_sheet.dart';
 import '../../../core/widgets/profile_photo_picker.dart';
 import '../../auth/data/auth_repository.dart';
 import '../../auth/data/registration_request.dart';
@@ -21,36 +22,12 @@ Future<String?> _pickOption(
   String title,
   List<String> options,
 ) {
-  return showModalBottomSheet<String>(
-    context: context,
-    backgroundColor: Colors.white,
-    builder: (context) => SafeArea(
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(24, 20, 24, 8),
-            child: Text(
-              title,
-              style: GoogleFonts.manrope(
-                fontSize: 18,
-                fontWeight: FontWeight.w800,
-                color: const Color(0xFF111827),
-              ),
-            ),
-          ),
-          ...options.map(
-            (option) => ListTile(
-              title: Text(option),
-              onTap: () => Navigator.pop(context, option),
-            ),
-          ),
-          const SizedBox(height: 8),
-        ],
-      ),
-    ),
-  );
+  // Was a private copy of this sheet — same header, same `ListTile` list, and
+  // the same non-scrolling `Column` that overflows on a long list (see
+  // `showOptionPickerSheet`). Gender is this screen's only picker and has three
+  // options, so it never showed here, but there is no reason to keep a second
+  // copy of the layout to go wrong later.
+  return showOptionPickerSheet(context, title: title, options: options);
 }
 
 /// Step 2 of signup: identity and credentials only.

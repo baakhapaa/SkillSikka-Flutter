@@ -47,8 +47,14 @@ class _CourseDetailsPageState extends ConsumerState<CourseDetailsPage> {
   ///
   /// `ensureProfileComplete` re-reads the profile after the user comes back, so
   /// finishing it lands them straight in the course without a second tap.
+  ///
+  /// The gate takes a container rather than this widget's `ref`: it only reads,
+  /// and its other call site is a plain `StatefulWidget` that has no ref to give.
   Future<void> _enrol() async {
-    final allowed = await ensureProfileComplete(context, ref);
+    final allowed = await ensureProfileComplete(
+      context,
+      ProviderScope.containerOf(context, listen: false),
+    );
     if (!allowed || !mounted) return;
 
     ScaffoldMessenger.of(context).showSnackBar(

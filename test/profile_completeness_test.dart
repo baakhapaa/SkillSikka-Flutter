@@ -1,4 +1,5 @@
 import 'package:flutter/foundation.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:skillsikka/features/profile/data/profile_completeness.dart';
 import 'package:skillsikka/features/profile/data/profile_role.dart';
@@ -78,6 +79,98 @@ void main() {
     expect(result.fraction, 1);
   });
 
+  group('the instructor course-creation gate', () {
+    test(
+      'an instructor is checked against instructor fields, not student ones',
+      () {
+        final result = checkProfileCompleteness(
+          const UserProfile(role: ProfileRole.instructor),
+          fields: completionFieldsFor(ProfileRole.instructor),
+        );
+
+        expect(result.missing.map((field) => field.key).toList(), [
+          'phone',
+          'location',
+          'qualification',
+          'expertise',
+          'experience',
+        ]);
+        // An instructor has no class and no school. Demanding them is the bug this
+        // split fixes — the gate used to check the student list while opening the
+        // instructor form, so it could never be satisfied.
+        expect(
+          result.missing.map((field) => field.key),
+          isNot(contains('grade')),
+        );
+        expect(
+          result.missing.map((field) => field.key),
+          isNot(contains('school')),
+        );
+      },
+    );
+
+    test('a filled instructor profile is complete', () {
+      final profile = UserProfile(
+        role: ProfileRole.instructor,
+        values: {
+          for (final field in instructorCourseCreationFields) field.key: 'x',
+        },
+      );
+
+      final result = checkProfileCompleteness(
+        profile,
+        fields: completionFieldsFor(ProfileRole.instructor),
+      );
+
+      expect(result.isComplete, isTrue);
+      expect(result.fraction, 1);
+    });
+
+    test('the CV and certificates do not gate course creation', () {
+      // Same reasoning as the student ID card: they gate verification, which a
+      // human reviews over 24-48 business hours, so blocking the action on them
+      // would stop an instructor working while an admin reads their CV.
+      final keys = instructorCourseCreationFields.map((field) => field.key);
+      expect(keys, isNot(contains(ProfileDocumentSlot.cvResume)));
+      expect(keys, isNot(contains(ProfileDocumentSlot.certificates)));
+    });
+
+    test('the student role still gets the enrolment fields', () {
+      expect(completionFieldsFor(ProfileRole.student), studentEnrolmentFields);
+    });
+
+    test('the provider follows the signed-in role', () {
+      // Pins the role-awareness of `profileCompletenessProvider` directly: a
+      // filled instructor profile must read as complete even though it has none
+      // of the student fields.
+      final container = ProviderContainer();
+      addTearDown(container.dispose);
+
+      final notifier = container.read(userProfileProvider.notifier);
+      notifier.setRole(ProfileRole.instructor);
+      notifier.save({
+        for (final field in instructorCourseCreationFields) field.key: 'x',
+      });
+
+      expect(container.read(profileCompletenessProvider).isComplete, isTrue);
+    });
+
+    test('the provider still checks the student fields for a student', () {
+      final container = ProviderContainer();
+      addTearDown(container.dispose);
+
+      final notifier = container.read(userProfileProvider.notifier);
+      notifier.setRole(ProfileRole.student);
+      notifier.save({
+        for (final field in instructorCourseCreationFields) field.key: 'x',
+      });
+
+      // Instructor fields only: a student is still missing class, province,
+      // district and school.
+      expect(container.read(profileCompletenessProvider).isComplete, isFalse);
+    });
+  });
+
   group('UserProfile', () {
     test('merges values instead of replacing the whole map', () {
       const profile = UserProfile(
@@ -124,7 +217,10 @@ void main() {
         'document removed': withPhoto
             .withDocument(
               ProfileDocumentSlot.cvResume,
-              PickedDocument(bytes: Uint8List.fromList([9]), fileName: 'cv.pdf'),
+              PickedDocument(
+                bytes: Uint8List.fromList([9]),
+                fileName: 'cv.pdf',
+              ),
             )
             .withoutDocument(ProfileDocumentSlot.cvResume),
       };

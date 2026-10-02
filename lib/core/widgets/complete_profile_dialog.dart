@@ -4,14 +4,21 @@ import 'package:google_fonts/google_fonts.dart';
 import '../../features/profile/data/profile_completeness.dart';
 import 'location_prompt_dialog.dart';
 
-/// Shows the "finish your profile before you enrol" popup.
+/// Shows the "finish your profile first" popup.
+///
+/// [action] completes "You need to finish your profile before you can …", so the
+/// same popup can serve enrolment and course creation without either of them
+/// reading as the other. The caller also supplies the field list, via the
+/// completeness it passes in, so an instructor is never shown a student's
+/// requirements.
 ///
 /// Returns `true` only when the user chose to complete their profile now.
-/// Dismissal and "Not Now" both return `false`, and the caller must not enrol
+/// Dismissal and "Not Now" both return `false`, and the caller must not proceed
 /// in either case.
 Future<bool> showCompleteProfileDialog(
   BuildContext context, {
   required ProfileCompleteness completeness,
+  String action = 'enrol in this course',
 }) async {
   final result = await showGeneralDialog<bool>(
     context: context,
@@ -20,7 +27,7 @@ Future<bool> showCompleteProfileDialog(
     barrierColor: const Color(0x66101828),
     transitionDuration: const Duration(milliseconds: 220),
     pageBuilder: (_, _, _) =>
-        _CompleteProfileDialog(completeness: completeness),
+        _CompleteProfileDialog(completeness: completeness, action: action),
     transitionBuilder: (context, animation, _, child) {
       final curved = CurvedAnimation(
         parent: animation,
@@ -40,9 +47,15 @@ Future<bool> showCompleteProfileDialog(
 }
 
 class _CompleteProfileDialog extends StatelessWidget {
-  const _CompleteProfileDialog({required this.completeness});
+  const _CompleteProfileDialog({
+    required this.completeness,
+    required this.action,
+  });
 
   final ProfileCompleteness completeness;
+
+  /// What the user was trying to do when the gate stopped them.
+  final String action;
 
   @override
   Widget build(BuildContext context) {
@@ -83,8 +96,7 @@ class _CompleteProfileDialog extends StatelessWidget {
                 ),
                 const SizedBox(height: 8),
                 Text(
-                  'You need to finish your profile before you can enrol in '
-                  'this course.',
+                  'You need to finish your profile before you can $action.',
                   textAlign: TextAlign.center,
                   style: GoogleFonts.manrope(
                     color: AppPalette.inkSoft,

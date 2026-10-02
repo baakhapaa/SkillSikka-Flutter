@@ -1,8 +1,11 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:skillsikka/features/navigation/presentation/app_shell.dart';
+import 'package:skillsikka/features/profile/data/profile_role.dart';
+import 'package:skillsikka/features/profile/data/user_profile.dart';
 import 'package:skillsikka/features/profile/presentation/profile_page.dart';
 
 /// Rewritten 2026-09-24. Every assertion that used to fail here was asserting
@@ -91,25 +94,124 @@ void main() {
     }
   });
 
-  testWidgets('profile course tabs are present', (WidgetTester tester) async {
-    await tester.pumpWidget(
-      const MaterialApp(home: Scaffold(body: ProfilePage())),
-    );
+  testWidgets('profile course tabs switch content', (
+    WidgetTester tester,
+  ) async {
+    // The My Courses grid and its dashed "Add New Course" tile are the
+    // **instructor** profile, so the role has to be set for them to render at
+    // all — a student's grid has a course card in that slot instead, because a
+    // student cannot author a course (see `_buildCourseGrid`).
+    final container = ProviderContainer();
+    addTearDown(container.dispose);
+    container
+        .read(userProfileProvider.notifier)
+        .setRole(ProfileRole.instructor);
 
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: Scaffold(body: ProfilePage())),
+      ),
+    );
+    await tester.pump();
+
+    // Tab 0 is the default, matching the design: the My Courses grid, with the
+    // dashed "Add New Course" tile in the first slot.
+    expect(find.text('My Courses'), findsOneWidget);
+    expect(find.text('Add New Course'), findsOneWidget);
+    expect(find.text('Saved Shorts'), findsNothing);
+    expect(find.text('Saved Courses'), findsNothing);
+
+    // The tabs are icon-only now — the design has no labels — so they are
+    // addressed by glyph. `find.bySemanticsLabel` would need
+    // `tester.ensureSemantics()`, which is why the old version of this test
+    // could never resolve; the labels are still attached for a11y.
+    //
+    // Each section renders once now instead of twice: previously the tab bar
+    // also drew the names as text and both panels were always mounted, so
+    // 'Saved Shorts' matched twice. One panel at a time is the point of the
+    // change.
+    await tester.tap(find.byIcon(Icons.play_circle_outline));
+    await tester.pump();
+    expect(find.text('Saved Shorts'), findsOneWidget);
+    expect(find.text('My Courses'), findsNothing);
+
+    await tester.tap(find.byIcon(Icons.bookmark_border));
+    await tester.pump();
+    expect(find.text('Saved Courses'), findsOneWidget);
+    expect(find.text('Saved Shorts'), findsNothing);
+
+    await tester.tap(find.byIcon(Icons.menu_book_outlined));
+    await tester.pump();
+    expect(find.text('My Courses'), findsOneWidget);
+    expect(find.text('Add New Course'), findsOneWidget);
+  });
+
+  testWidgets('a student profile is not the instructor one', (
+    WidgetTester tester,
+  ) async {
+    final container = ProviderContainer();
+    addTearDown(container.dispose);
+    container.read(userProfileProvider.notifier).setRole(ProfileRole.student);
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: Scaffold(body: ProfilePage())),
+      ),
+    );
+    await tester.pump();
+
+    // A student cannot author a course, so the tile must not be offered — and
+    // the slot holds a course card instead, so the grid keeps its shape.
+    expect(find.text('Add New Course'), findsNothing);
+    expect(find.text('Design Systems Fundamentals'), findsOneWidget);
     expect(find.text('My Courses'), findsOneWidget);
 
-    // This test used to be called "profile course tabs switch content" and tapped
-    // the tabs via `find.bySemanticsLabel`, which needs `tester.ensureSemantics()`
-    // and so could never resolve. But the deeper problem is that there is nothing
-    // to switch: `_buildCourseTab` is
-    // `Semantics(child: GestureDetector(onTap: () {}))` — an empty callback — and
-    // both sections below the tabs are rendered unconditionally. Tapping a tab
-    // changes nothing, so no assertion about switching can pass today.
-    //
-    // What is true, and what this now asserts: the three tabs exist and both
-    // saved-content sections render. Extend this test when the tabs get real
-    // behaviour — the labels are already there for `find.text`.
-    expect(find.text('Saved Shorts'), findsNWidgets(2));
-    expect(find.text('Saved Courses'), findsNWidgets(2));
+    // The header counts learner things, not teacher things.
+    expect(find.text('Badges'), findsOneWidget);
+    expect(find.text('Challenge'), findsOneWidget);
+    expect(find.text('Students'), findsNothing);
+    expect(find.text('Rating'), findsNothing);
+  });
+
+  testWidgets('a role that arrives after the first build still switches the '
+      'profile', (WidgetTester tester) async {
+    // Regression. The page read the store with `.read` and never subscribed, so
+    // it worked out its role once, at first build, and kept that answer forever.
+    // That is right when the role is already known — signup writes it before the
+    // tab is ever built — and wrong after a sign-in, where the role lands a
+    // moment later. The page then computed `effectiveRole` from a null role, got
+    // the `student` fallback, and never rebuilt: an instructor saw the student
+    // profile for the rest of the session.
+    final container = ProviderContainer();
+    addTearDown(container.dispose);
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: Scaffold(body: ProfilePage())),
+      ),
+    );
+    await tester.pump();
+
+    // First build with no role yet: the fallback draws the student layout.
+    expect(find.text('Add New Course'), findsNothing);
+    expect(find.text('Badges'), findsOneWidget);
+    expect(find.text('Students'), findsNothing);
+
+    // The role arrives, exactly as it does when a sign-in response is adopted.
+    container
+        .read(userProfileProvider.notifier)
+        .setRole(ProfileRole.instructor);
+    await tester.pump();
+
+    // Without a subscription nothing above would have rebuilt and every
+    // assertion below would fail — which is the bug this test exists for.
+    expect(find.text('Add New Course'), findsOneWidget);
+    expect(find.text('Students'), findsOneWidget);
+    expect(find.text('Rating'), findsOneWidget);
+    expect(find.text('Badges'), findsNothing);
+    expect(find.text('Challenge'), findsNothing);
   });
 }

@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import 'profile_role.dart';
 import 'user_profile.dart';
 
 /// A profile field that has to be filled before the user can enrol.
@@ -35,6 +36,42 @@ const studentEnrolmentFields = <ProfileField>[
   ProfileField('school', 'School / College'),
 ];
 
+/// Everything an instructor must supply before they can publish a course.
+///
+/// The counterpart to [studentEnrolmentFields], and deliberately the *deferred*
+/// set: signup now stops at the phone number, so location, qualification,
+/// expertise and experience are the fields it never asks for. Phone is included
+/// even though signup does collect it — it is the contact number a course
+/// listing carries, and a profile without one is not usable for the action.
+///
+/// **The CV and certificates are deliberately absent**, for exactly the reason
+/// the student ID card is: they gate *verification*, which a human reviews over
+/// 24-48 business hours. Blocking course creation on that would stop an
+/// instructor working on a course while an admin reads their CV. There is also a
+/// mechanical limit — [checkProfileCompleteness] reads text values only, and the
+/// uploads live in `documents`, not in `values`.
+///
+/// Gender and date of birth are absent because both roles supply them at signup;
+/// they are not what this gate is about.
+const instructorCourseCreationFields = <ProfileField>[
+  ProfileField('phone', 'Phone number'),
+  ProfileField('location', 'Location'),
+  ProfileField('qualification', 'Highest qualification'),
+  ProfileField('expertise', 'Subject expertise'),
+  ProfileField('experience', 'Years of experience'),
+];
+
+/// The fields a profile has to have before [role] can take its gated action.
+///
+/// Students are gated on enrolment, instructors on publishing a course. Without
+/// this split an instructor was checked against the student list — asked for a
+/// class and a school on a form that shows them qualification and expertise, so
+/// the check could never pass.
+List<ProfileField> completionFieldsFor(ProfileRole role) => switch (role) {
+  ProfileRole.student => studentEnrolmentFields,
+  ProfileRole.instructor => instructorCourseCreationFields,
+};
+
 @immutable
 class ProfileCompleteness {
   const ProfileCompleteness({required this.fields, required this.missing});
@@ -66,8 +103,17 @@ ProfileCompleteness checkProfileCompleteness(
   return ProfileCompleteness(fields: fields, missing: missing);
 }
 
-/// Recomputed whenever the profile changes, so the enrol button can never act
+/// Recomputed whenever the profile changes, so the gated action can never act
 /// on a stale answer.
-final profileCompletenessProvider = Provider<ProfileCompleteness>(
-  (ref) => checkProfileCompleteness(ref.watch(userProfileProvider)),
-);
+///
+/// **Role-aware since 2026-10-01.** It used to check [studentEnrolmentFields]
+/// regardless of role while the gate opened `EditProfilePage` with the real one,
+/// so an instructor was asked to fill in a class and a school on a form that
+/// showed them qualification and expertise — and could never satisfy the check.
+final profileCompletenessProvider = Provider<ProfileCompleteness>((ref) {
+  final profile = ref.watch(userProfileProvider);
+  return checkProfileCompleteness(
+    profile,
+    fields: completionFieldsFor(profile.effectiveRole),
+  );
+});

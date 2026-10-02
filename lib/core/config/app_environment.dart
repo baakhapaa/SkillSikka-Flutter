@@ -107,10 +107,25 @@ class AppConfig {
   /// `ALLOWED_HOSTS`.
   ///
   /// Reachability can be checked without Flutter: the URL in a browser, or a
-  /// raw TCP probe. A **timeout, connection refused, or `HTTP 000`** means
-  /// nothing is listening (the server is down, or still bound to loopback) —
-  /// that is a host problem, not a client bug. Any HTTP response at all, even
-  /// `400`, means the request got through.
+  /// raw TCP probe. Any HTTP response at all, even `400`, means the request got
+  /// through.
+  ///
+  /// A **timeout** and a **connection refused** are both "the request did not
+  /// arrive", but they are different faults and the fix is not the same:
+  ///
+  /// * **Refused** — the host answered with a reset. Routing and the firewall
+  ///   are fine and nothing is bound to that port: the server is down, or still
+  ///   on loopback. Fix on the host's `runserver` line.
+  /// * **Timeout** — the packets were dropped with no reply. That may be the
+  ///   server being absent, but it is also exactly what a firewall rule that
+  ///   denies inbound 8000 looks like, so it must not be read as proof that
+  ///   Django is not running.
+  ///
+  /// To tell the two apart, probe a port Django does not own (see
+  /// `dev-backend-and-guard.md`). Measured 2026-10-01: `192.168.1.84` timed out
+  /// on **both** 8000 and 80 while its ARP entry was present, and
+  /// `127.0.0.1:8000` refused — a host firewall, with the backend possibly
+  /// running the whole time.
   static const _defaultUrls = <AppEnvironment, String>{
     AppEnvironment.development: 'http://192.168.1.84:8000/api/v1',
     AppEnvironment.staging: 'https://staging-api.skillsikka.com/api/v1',

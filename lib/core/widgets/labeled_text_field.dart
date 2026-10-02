@@ -31,6 +31,7 @@ class LabeledTextField extends StatelessWidget {
     this.enabled = true,
     this.obscureText = false,
     this.hintFontSize = 14,
+    this.hintMaxLines = 1,
     this.maxLines = 1,
   });
 
@@ -71,6 +72,23 @@ class LabeledTextField extends StatelessWidget {
 
   /// Smaller hints for the two-up rows, where space is tight.
   final double hintFontSize;
+
+  /// How many lines the hint may occupy. Defaults to a single ellipsized line.
+  ///
+  /// **Do not raise this without a reason.** `InputDecoration` only applies
+  /// `TextOverflow.ellipsis` when `hintMaxLines` is set
+  /// (`input_decorator.dart:2340-2342`); left unset, the hint is a plain
+  /// wrapping `Text`, so a hint wider than the text slot wraps onto a second
+  /// line and — because `InputDecorator` sizes the field to
+  /// `max(hintHeight, inputHeight)` — silently makes that one field taller than
+  /// its neighbours.
+  ///
+  /// That is exactly what the two-up rows hit. The suffix `IconButton` costs a
+  /// 48pt touch target, plus 16pt content padding and two 4pt gaps, leaving
+  /// **80pt** of text slot in a 152pt field: `Select province` needs 82.9pt at
+  /// 12pt and `Select province first` 97.6pt at 11pt, so both wrapped and
+  /// inflated their fields on the student Edit Profile screen.
+  final int hintMaxLines;
 
   /// Use > 1 for free text such as a biography.
   final int maxLines;
@@ -118,6 +136,9 @@ class LabeledTextField extends StatelessWidget {
             color: const Color(0xFF9CA3AF),
             fontSize: hintFontSize,
           ),
+          // Keeps the hint to one ellipsized line instead of letting it wrap
+          // and stretch the field. See [hintMaxLines].
+          hintMaxLines: hintMaxLines,
           errorStyle: GoogleFonts.manrope(
             color: const Color(0xFFEF4444),
             fontSize: 12,

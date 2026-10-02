@@ -87,6 +87,15 @@ const _districtsBody = [
   {'id': 12, 'name': 'Kaski', 'province_id': 2},
 ];
 
+/// Municipalities carry `district_id` instead — the live shape, confirmed
+/// 2026-10-01. Only the instructor registration needs these; the student
+/// hierarchy stops at the school.
+const _municipalitiesBody = [
+  {'id': 100, 'name': 'Kathmandu', 'district_id': 10},
+  {'id': 101, 'name': 'Budhanilkantha', 'district_id': 10},
+  {'id': 102, 'name': 'Pokhara', 'district_id': 12},
+];
+
 void main() {
   group('ReferenceItem.tryParse', () {
     test('reads the live row shape, stringifying a numeric id', () {
@@ -119,6 +128,21 @@ void main() {
     test('leaves provinceId null when absent, rather than inventing one', () {
       final item = ReferenceItem.tryParse({'id': 1, 'name': 'Bagmati'});
       expect(item!.provinceId, isNull);
+    });
+
+    test('reads districtId off a municipality row', () {
+      final item = ReferenceItem.tryParse({
+        'id': 100,
+        'name': 'Kathmandu',
+        'district_id': 10,
+      });
+
+      expect(item!.districtId, '10');
+      expect(
+        item.provinceId,
+        isNull,
+        reason: 'a municipality carries district_id, not province_id',
+      );
     });
   });
 
@@ -211,6 +235,61 @@ void main() {
         adapter.requests,
         isEmpty,
         reason: 'a blank province must not cost a request',
+      );
+    });
+  });
+
+  group('municipalitiesForDistrictProvider', () {
+    test('filters to the chosen district by resolving name to id', () async {
+      final adapter = _serving({
+        '/locations/districts/': _districtsBody,
+        '/locations/municipalities/': _municipalitiesBody,
+      });
+      final scope = _scopeFor(adapter);
+      addTearDown(scope.dispose);
+
+      final municipalities = await scope.read(
+        municipalitiesForDistrictProvider('Kathmandu').future,
+      );
+
+      expect(municipalities.map((m) => m.name), [
+        'Kathmandu',
+        'Budhanilkantha',
+      ], reason: 'Pokhara belongs to Kaski and must not appear');
+    });
+
+    test('returns nothing for a district the backend does not have', () async {
+      final adapter = _serving({
+        '/locations/districts/': _districtsBody,
+        '/locations/municipalities/': _municipalitiesBody,
+      });
+      final scope = _scopeFor(adapter);
+      addTearDown(scope.dispose);
+
+      final municipalities = await scope.read(
+        municipalitiesForDistrictProvider('Atlantis').future,
+      );
+
+      expect(municipalities, isEmpty);
+    });
+
+    test('returns nothing before a district is picked', () async {
+      final adapter = _serving({
+        '/locations/districts/': _districtsBody,
+        '/locations/municipalities/': _municipalitiesBody,
+      });
+      final scope = _scopeFor(adapter);
+      addTearDown(scope.dispose);
+
+      final municipalities = await scope.read(
+        municipalitiesForDistrictProvider('  ').future,
+      );
+
+      expect(municipalities, isEmpty);
+      expect(
+        adapter.requests,
+        isEmpty,
+        reason: 'a blank district must not cost a request',
       );
     });
   });

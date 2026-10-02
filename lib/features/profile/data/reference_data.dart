@@ -3,21 +3,35 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/network/api_client.dart';
 
-/// A province, district or school as the backend holds it.
+/// A province, district, municipality or school as the backend holds it.
 ///
-/// One type for all three because they are structurally identical — an id and a
+/// One type for all four because they are structurally identical — an id and a
 /// name — and because the pickers only ever need those two things. The extra
-/// field each carries is kept where it matters: [provinceId] on a district is
-/// what makes the district list filterable by the chosen province.
+/// field each carries is kept where it matters: [provinceId] on a district and
+/// [districtId] on a municipality are what make each list filterable by its
+/// parent.
+///
+/// Confirmed against the live endpoints 2026-10-01:
+/// `/locations/provinces/` → `{id, name}`,
+/// `/locations/districts/` → `{id, name, province_id}`,
+/// `/locations/municipalities/` → `{id, name, district_id}`.
 @immutable
 class ReferenceItem {
-  const ReferenceItem({required this.id, required this.name, this.provinceId});
+  const ReferenceItem({
+    required this.id,
+    required this.name,
+    this.provinceId,
+    this.districtId,
+  });
 
   final String id;
   final String name;
 
   /// Set on districts only; the province they belong to.
   final String? provinceId;
+
+  /// Set on municipalities only; the district they belong to.
+  final String? districtId;
 
   /// Parses one entry, or null when it has no usable name.
   ///
@@ -32,6 +46,7 @@ class ReferenceItem {
       id: _string(json['id']) ?? '',
       name: name.trim(),
       provinceId: _string(json['province_id']),
+      districtId: _string(json['district_id']),
     );
   }
 
@@ -68,6 +83,9 @@ class ReferenceDataApi {
   Future<List<ReferenceItem>> provinces() => _list('/locations/provinces/');
 
   Future<List<ReferenceItem>> districts() => _list('/locations/districts/');
+
+  Future<List<ReferenceItem>> municipalities() =>
+      _list('/locations/municipalities/');
 
   Future<List<ReferenceItem>> schools() => _list('/locations/schools/');
 
@@ -134,6 +152,35 @@ final districtsForProvinceProvider =
       final districts = await ref.watch(referenceDataApiProvider).districts();
       return districts
           .where((district) => district.provinceId == province.id)
+          .toList(growable: false);
+    });
+
+/// The municipality list for a district.
+///
+/// Keyed on the district *name*, because that is what the form holds, and the id
+/// is resolved back out of the district list the same way
+/// [districtsForProvinceProvider] resolves a province. Needed because the
+/// instructor registration requires `municipality_id` (live schema,
+/// 2026-10-01) — the student hierarchy stops at the school instead.
+final municipalitiesForDistrictProvider =
+    FutureProvider.family<List<ReferenceItem>, String>((
+      ref,
+      districtName,
+    ) async {
+      final trimmed = districtName.trim();
+      if (trimmed.isEmpty) return const [];
+
+      final districts = await ref.watch(referenceDataApiProvider).districts();
+      final district = _byName(districts, trimmed);
+      // An unresolved district means nothing can be attributed to it. Returning
+      // every municipality would offer ones from other districts.
+      if (district == null) return const [];
+
+      final municipalities = await ref
+          .watch(referenceDataApiProvider)
+          .municipalities();
+      return municipalities
+          .where((municipality) => municipality.districtId == district.id)
           .toList(growable: false);
     });
 

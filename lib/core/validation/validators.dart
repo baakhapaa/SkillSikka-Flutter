@@ -188,6 +188,43 @@ String? isoDate(DateTime? date) {
 /// date is sent as absent instead of as nonsense the backend has to reject.
 String? isoDateOf(String? formValue) => isoDate(parseDateOfBirth(formValue));
 
+/// The `DD / MM / YYYY` form value for a wire date, or null when [wireValue] is
+/// not a date in either format the backend sends.
+///
+/// **The inverse of [isoDateOf], and needed because `/me/` answers with ISO.**
+/// Every date the app holds lives in the form's `DD / MM / YYYY` shape — that is
+/// what the picker writes and what [parseDateOfBirth] reads — so a date arriving
+/// from the server has to be converted back before it can go into the profile
+/// store, or the edit form opens showing `2001-05-14` in a field that validates
+/// as malformed and cannot be re-saved unchanged.
+///
+/// Accepts both wire formats the backend uses: it sends `YYYY-MM-DD` from
+/// `/me/` and accepts `DD/MM/YYYY` on the way in, so a value from either
+/// direction round-trips through this one function.
+String? formDateOf(String? wireValue) {
+  final raw = (wireValue ?? '').trim();
+  if (raw.isEmpty) return null;
+
+  // What `/me/` sends. Tried first because it is the only form that is
+  // unambiguous without a format to declare it.
+  final iso = DateTime.tryParse(raw);
+  if (iso != null) return _spacedDate(iso);
+
+  // `DD/MM/YYYY`, the backend's other accepted format, with or without the
+  // spaces the picker writes. Normalised into the spaced shape and handed to the
+  // form parser, so there is one definition of what a real calendar date is and
+  // a nonsense value is rejected rather than reformatted into a plausible lie.
+  return _spacedDate(parseDateOfBirth(raw.replaceAll('/', ' / ')));
+}
+
+/// `DD / MM / YYYY`, zero-padded. The one place that shape is written.
+String? _spacedDate(DateTime? date) {
+  if (date == null) return null;
+  final day = date.day.toString().padLeft(2, '0');
+  final month = date.month.toString().padLeft(2, '0');
+  return '$day / $month / ${date.year}';
+}
+
 /// [today] is injectable so tests do not drift with the wall clock.
 String? validateDateOfBirth(String? value, {DateTime? today}) {
   final raw = (value ?? '').trim();
@@ -263,6 +300,31 @@ const String kNepaliCountryCode = '+977';
   return (countryCode: kNepaliCountryCode, number: national);
 }
 
+/// Rejoins the two wire phone fields into the single value the form's input
+/// holds, or null when there is no number to show.
+///
+/// **The inverse of [splitPhoneNumber], needed because `/me/` sends the pair
+/// separately.** The form has one `phone` field and the store keeps what the user
+/// typed, so a number arriving as `phone_country_code` + `phone_number` has to be
+/// put back together before it can go in — otherwise Edit Profile opens showing
+/// a bare `9800000000` with no country code, which [nationalMobileNumber] still
+/// accepts but which reads as a different number than the user registered.
+///
+/// The national number is validated rather than trusted: `/me/` sends the pair
+/// unvalidated, and a value that would not survive [splitPhoneNumber] is not
+/// something to put back into an editable field.
+///
+/// The code is omitted when it is the one we always send, so the common case
+/// round-trips to exactly what the user typed rather than gaining a `+977` they
+/// did not.
+String? joinPhoneNumber(String? countryCode, String? number) {
+  final national = nationalMobileNumber(number);
+  if (national == null) return null;
+  final code = (countryCode ?? '').trim();
+  if (code.isEmpty || code == kNepaliCountryCode) return national;
+  return '$code $national';
+}
+
 String? validateLocation(String? value) {
   final location = (value ?? '').trim();
   if (location.isEmpty) return 'Please enter your location.';
@@ -293,13 +355,38 @@ String? validateYearsOfExperience(String? value) {
 
 /// The wire form of the experience field: the bare number, or null.
 ///
-/// The field invites `5 Years` and the validator accepts it, but the backend's
-/// `experience_years` is a decimal with the pattern `^-?\d{0,3}(\.\d{0,2})?$`
-/// (live schema, 2026-10-01) — so the spelled-out form has to be reduced before
-/// it is sent. Returns null for anything the validator would reject, so a caller
-/// sends nothing rather than a value the backend will 400 on.
+/// The field invites `5 Years` and the validator accepts it, but `experience_years`
+/// is a plain integer — **confirmed in the live schema on 2026-10-05** as
+/// `{"type": "integer", "maximum": 100}` on every read and write path — so the
+/// spelled-out form has to be reduced before it is sent. Returns null for anything
+/// the validator would reject, so a caller sends nothing rather than a value the
+/// backend will 400 on.
+///
+/// **This was a decimal until 2026-10-05**, with the pattern
+/// `^-?\d{0,3}(\.\d{0,2})?$`, and the app's own validator has always rejected
+/// fractions (`validators_test.dart` pins `5.5` as invalid). The two disagreed and
+/// the disagreement is now gone — see
+/// `backend-ask-profile-completion-fields-2026-10-05.md` §A1.3, which asked for
+/// exactly this.
 String? experienceYearsValue(String? formValue) =>
     _experiencePattern.firstMatch((formValue ?? '').trim())?.group(1);
+
+/// The form's display form of an experience value the server sent back.
+///
+/// The inverse of [experienceYearsValue]: `/me/` returns the bare number, and
+/// the field the user reads shows `5 Years`. Needed once the server started
+/// echoing `experience_years` on read (2026-10-05) — without it the form would
+/// fill with `5`, which is not what the hint beside the field shows and reads
+/// like a different kind of value from the one the field describes.
+///
+/// **The server's 0–100 range is enforced by [validateYearsOfExperience]**, which
+/// caps at [kMaxExperienceYears] and is now the only place the bound is written
+/// down. A value outside it would have been rejected here anyway.
+String experienceDisplayValue(String? wireValue) {
+  final raw = (wireValue ?? '').trim();
+  if (raw.isEmpty) return '';
+  return '$raw Years';
+}
 
 /// Free text with length bounds — qualifications, subject expertise and the
 /// like, where there is no shape to check beyond "something was typed".

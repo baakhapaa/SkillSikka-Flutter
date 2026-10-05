@@ -5,10 +5,12 @@ import 'package:go_router/go_router.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:image_picker/image_picker.dart';
 
+import '../../../core/location/location_service.dart';
 import '../../../core/network/api_error.dart';
 import '../../../core/validation/validators.dart';
 import '../../../core/widgets/api_error_snack.dart';
 import '../../../core/widgets/labeled_text_field.dart';
+import '../../../core/widgets/location_prompt_dialog.dart';
 import '../../../core/widgets/option_picker_sheet.dart';
 import '../../../core/widgets/profile_photo_picker.dart';
 import '../../auth/data/auth_repository.dart';
@@ -45,13 +47,27 @@ const _serverFieldAliases = <String, String>{'confirm_password': 'confirm'};
 /// is the one field a user is asked for at signup in both roles, and the form is
 /// built around it.
 ///
-/// There is no location popup here any more, unlike the student form. That screen
-/// runs the popup at signup and stores the fix for Edit Profile to show; an
-/// instructor has never been asked for a location at signup, and asking for
-/// permission to read someone's position on a screen with no location field is a
-/// prompt with no explanation attached.
+/// **The location popup runs here too, exactly as it does on the student form.**
+/// It opens as soon as the form is on screen and, when the user confirms a fix,
+/// writes the label into the [UserProfile] — there is no Location input on this
+/// screen either, so Edit Profile is where it becomes visible.
+///
+/// It was dropped in `a605a12` while trimming the fifteen-field form down to
+/// six, on a note claiming an instructor "has never been asked for a location at
+/// signup". That note was wrong: the pre-trim form had a Location input with the
+/// same crosshair the Edit Profile field has. And location is not a student-only
+/// concern — it is one of `instructorCourseCreationFields`, so an instructor is
+/// asked for it too, just later. Capturing the fix here is one GPS read instead
+/// of a typed address on a screen the user may never reach.
 class SignupInstructorFormPage extends ConsumerStatefulWidget {
-  const SignupInstructorFormPage({super.key, this.imagePicker});
+  const SignupInstructorFormPage({
+    super.key,
+    this.locationService = const LocationService(),
+    this.imagePicker,
+  });
+
+  /// Injectable so the popup flow can be driven from tests.
+  final LocationService locationService;
 
   /// Injectable so the photo step can be driven from tests. Defaults to a real
   /// [ImagePicker].
@@ -89,6 +105,8 @@ class _SignupInstructorFormPageState
 
   late final ImagePicker _imagePicker = widget.imagePicker ?? ImagePicker();
 
+  LocationService get _locationService => widget.locationService;
+
   TextEditingController _controller(String key) =>
       _controllers.putIfAbsent(key, TextEditingController.new);
 
@@ -108,11 +126,47 @@ class _SignupInstructorFormPageState
   }
 
   @override
+  void initState() {
+    super.initState();
+    // Ask for the current location as soon as the form is on screen — the same
+    // moment the student form asks, so neither role is treated differently.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _promptForLocation();
+    });
+  }
+
+  @override
   void dispose() {
     for (final controller in _controllers.values) {
       controller.dispose();
     }
     super.dispose();
+  }
+
+  /// Opens the location popup and stores the confirmed fix on the draft.
+  ///
+  /// There is no Location field on this screen, so the value is kept for the
+  /// profile and the user gets a snack bar as the receipt.
+  ///
+  /// [skipIntro] `true` jumps straight to detection (the user explicitly asked
+  /// for it), `false` always shows the explainer, and `null` decides based on
+  /// whether permission was already granted — so returning visitors aren't
+  /// nagged every time the form opens.
+  Future<void> _promptForLocation({bool? skipIntro}) async {
+    final alreadyGranted = skipIntro == null
+        ? await _locationService.hasPermission()
+        : false;
+    if (!mounted) return;
+
+    final location = await showLocationPromptDialog(
+      context,
+      service: _locationService,
+      skipIntro: skipIntro ?? alreadyGranted,
+    );
+    if (location == null || !mounted) return;
+
+    ref.read(userProfileProvider.notifier).setLocation(location.label);
+    _showSnack('Location saved: ${location.label}');
   }
 
   Future<void> _pickProfilePhoto() async {

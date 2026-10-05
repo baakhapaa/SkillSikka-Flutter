@@ -14,7 +14,10 @@ import 'package:skillsikka/core/session_bootstrap.dart';
 import 'package:skillsikka/features/auth/data/auth_repository.dart';
 import 'package:skillsikka/features/auth/data/me_profile.dart';
 import 'package:skillsikka/features/profile/data/profile_role.dart';
+import 'package:skillsikka/features/profile/data/reference_data.dart';
 import 'package:skillsikka/features/profile/data/user_profile.dart';
+
+import 'support/fake_reference_data.dart';
 
 /// A stand-in for the transport, copied in spirit from `api_client_test.dart`.
 ///
@@ -368,5 +371,234 @@ void main() {
         reason: 'the previous user\'s profile must not outlive their session',
       );
     });
+  });
+
+  /// The geographic fields, once `/me/` starts sending the ids.
+  ///
+  /// Requested in `backend-ask-profile-completion-fields-2026-10-05.md` §A1 —
+  /// until it does, every id is null and this whole group is inert, which is
+  /// what the second test pins.
+  group('SessionBootstrap with the geographic ids', () {
+    test('fills the store with names, not the ids the server sent', () async {
+      final fake = FakeAuthRepository()
+        ..me = const MeProfile(
+          name: 'Real User',
+          email: 'real@user.test',
+          role: ProfileRole.instructor,
+          provinceId: '3',
+          districtId: '27',
+          municipalityId: '316',
+          gradeId: '11',
+        );
+      final reference = FakeReferenceData();
+      final scope = ProviderContainer(
+        overrides: [
+          authRepositoryProvider.overrideWithValue(fake),
+          referenceDataApiProvider.overrideWithValue(reference),
+        ],
+      );
+      addTearDown(scope.dispose);
+      scope.read(sessionProvider.notifier).state = const Session(access: 'a');
+
+      await scope.read(sessionBootstrapProvider).loadProfile();
+
+      final profile = scope.read(userProfileProvider);
+      expect(profile.valueFor('province'), 'Bagmati');
+      expect(profile.valueFor('district'), 'Kathmandu');
+      expect(profile.valueFor('municipality'), 'Kathmandu Metropolitan City');
+      expect(
+        profile.valueFor('grade'),
+        'Grade 11',
+        reason: 'the label on screen is "class"; the store key is "grade"',
+      );
+    });
+
+    test('makes no reference calls when the server sent no ids', () async {
+      // What keeps this change free: today every id is null, so a login must not
+      // pay for five reference endpoints to learn nothing.
+      final fake = FakeAuthRepository()
+        ..me = const MeProfile(name: 'Real User', email: 'real@user.test');
+      final reference = FakeReferenceData();
+      final scope = ProviderContainer(
+        overrides: [
+          authRepositoryProvider.overrideWithValue(fake),
+          referenceDataApiProvider.overrideWithValue(reference),
+        ],
+      );
+      addTearDown(scope.dispose);
+      scope.read(sessionProvider.notifier).state = const Session(access: 'a');
+
+      await scope.read(sessionBootstrapProvider).loadProfile();
+
+      expect(
+        reference.calls,
+        0,
+        reason: 'no ids means nothing to resolve, so nothing should be fetched',
+      );
+      expect(scope.read(userProfileProvider).valueFor('name'), 'Real User');
+    });
+
+    test(
+      'a reference-data failure still applies the rest of the profile',
+      () async {
+        // Five of twenty-odd fields are not worth losing the whole `/me/` result
+        // over one endpoint being down.
+        final fake = FakeAuthRepository()
+          ..me = const MeProfile(
+            name: 'Real User',
+            email: 'real@user.test',
+            provinceId: '3',
+            qualification: 'PhD',
+          );
+        final reference = FakeReferenceData()..failure = 'locations are down';
+        final scope = ProviderContainer(
+          overrides: [
+            authRepositoryProvider.overrideWithValue(fake),
+            referenceDataApiProvider.overrideWithValue(reference),
+          ],
+        );
+        addTearDown(scope.dispose);
+        scope.read(sessionProvider.notifier).state = const Session(access: 'a');
+
+        final loaded = await scope.read(sessionBootstrapProvider).loadProfile();
+
+        expect(loaded, isTrue, reason: 'the profile itself did load');
+        final profile = scope.read(userProfileProvider);
+        expect(
+          profile.valueFor('name'),
+          'Real User',
+          reason:
+              'the free text needs no resolution and must not be lost with it',
+        );
+        expect(profile.valueFor('qualification'), 'PhD');
+        expect(
+          profile.valueFor('province'),
+          '',
+          reason:
+              'unresolvable, so no name — a raw "3" in a province field is worse',
+        );
+      },
+    );
+
+    test(
+      'an id the reference data does not have leaves the field blank',
+      () async {
+        final fake = FakeAuthRepository()
+          ..me = const MeProfile(
+            name: 'Real User',
+            email: 'real@user.test',
+            provinceId: '9999',
+          );
+        final reference = FakeReferenceData();
+        final scope = ProviderContainer(
+          overrides: [
+            authRepositoryProvider.overrideWithValue(fake),
+            referenceDataApiProvider.overrideWithValue(reference),
+          ],
+        );
+        addTearDown(scope.dispose);
+        scope.read(sessionProvider.notifier).state = const Session(access: 'a');
+
+        await scope.read(sessionBootstrapProvider).loadProfile();
+
+        expect(scope.read(userProfileProvider).valueFor('province'), '');
+      },
+    );
+  });
+
+  /// The avatar, which `/me/` gained on 2026-10-05.
+  ///
+  /// Before it, [UserProfile.photoBytes] was filled only by the signup that set
+  /// it, so **every login after the first showed the placeholder** — the user
+  /// uploaded a photo and it was gone.
+  group('SessionBootstrap with the avatar', () {
+    test('downloads the photo and puts the bytes in the store', () async {
+      final fake = FakeAuthRepository()
+        ..me = const MeProfile(
+          name: 'Real User',
+          email: 'real@user.test',
+          profilePhotoUrl: 'http://127.0.0.1:8000/api/v1/me/documents/12/',
+        )
+        ..photo = (
+          bytes: Uint8List.fromList([1, 2, 3, 4]),
+          fileName: 'profile_photo.jpg',
+        );
+      final scope = ProviderContainer(
+        overrides: [authRepositoryProvider.overrideWithValue(fake)],
+      );
+      addTearDown(scope.dispose);
+      scope.read(sessionProvider.notifier).state = const Session(access: 'a');
+
+      await scope.read(sessionBootstrapProvider).loadProfile();
+
+      final profile = scope.read(userProfileProvider);
+      expect(profile.photoBytes, Uint8List.fromList([1, 2, 3, 4]));
+      expect(
+        profile.photoFileName,
+        'profile_photo.jpg',
+        reason:
+            'the name travels with the bytes, because dio infers the '
+            'content type from the extension',
+      );
+    });
+
+    test('makes no download when the user has no photo', () async {
+      // The guard that keeps a login from making a pointless request.
+      final fake = FakeAuthRepository()
+        ..me = const MeProfile(name: 'Real User', email: 'real@user.test');
+      final scope = ProviderContainer(
+        overrides: [authRepositoryProvider.overrideWithValue(fake)],
+      );
+      addTearDown(scope.dispose);
+      scope.read(sessionProvider.notifier).state = const Session(access: 'a');
+
+      await scope.read(sessionBootstrapProvider).loadProfile();
+
+      expect(fake.photoFetches, 0);
+      expect(scope.read(userProfileProvider).photoBytes, isNull);
+    });
+
+    test(
+      'a failed download leaves the photo alone and keeps the profile',
+      () async {
+        // The repository answers null rather than throwing; this is the second
+        // half — a photo already in the store must not be cleared by a failed
+        // image fetch, which would be worse than a stale avatar.
+        final fake = FakeAuthRepository()
+          ..me = const MeProfile(
+            name: 'Real User',
+            email: 'real@user.test',
+            profilePhotoUrl: 'http://127.0.0.1:8000/api/v1/me/documents/12/',
+          );
+        final scope = ProviderContainer(
+          overrides: [authRepositoryProvider.overrideWithValue(fake)],
+        );
+        addTearDown(scope.dispose);
+        scope.read(sessionProvider.notifier).state = const Session(access: 'a');
+        scope
+            .read(userProfileProvider.notifier)
+            .setPhoto(Uint8List.fromList([9, 9]), 'existing.png');
+
+        final loaded = await scope.read(sessionBootstrapProvider).loadProfile();
+
+        expect(loaded, isTrue);
+        expect(
+          fake.photoFetches,
+          1,
+          reason: 'the URL was present, so it tried',
+        );
+        expect(
+          scope.read(userProfileProvider).photoBytes,
+          Uint8List.fromList([9, 9]),
+          reason:
+              'a failed image fetch must not blank a photo already on screen',
+        );
+        expect(
+          scope.read(userProfileProvider).valueFor('name'),
+          'Real User',
+          reason: 'and the name must survive it',
+        );
+      },
+    );
   });
 }

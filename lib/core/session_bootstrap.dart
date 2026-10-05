@@ -2,6 +2,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../features/auth/data/auth_repository.dart';
 import '../features/auth/data/me_profile.dart';
+import '../features/profile/data/reference_data.dart';
 import '../features/profile/data/user_profile.dart';
 import 'network/session.dart';
 
@@ -53,12 +54,107 @@ class SessionBootstrap {
       final profile = await _ref.read(authRepositoryProvider).fetchMe();
       if (profile == null) return false;
       _loadedFor = key;
-      _apply(profile);
+      // Resolved **before** `_apply`, and separately from it, so a reference-data
+      // failure can cost the geographic fields alone. Applying first and
+      // resolving after would mean the merge happened before the names existed.
+      final locationNames = await _resolveLocationNames(profile);
+      _apply(profile, locationNames);
+      // After `_apply`, and separately from it: the avatar is a second request
+      // that can fail on its own, and it must not be able to undo the fields
+      // already merged above.
+      await _applyPhoto(profile);
       return true;
     } on Object {
       // Swallowed on purpose — see the class doc. Logged nowhere because the app
       // has no logger and this is not actionable for the user.
       return false;
+    }
+  }
+
+  /// Downloads the avatar `/me/` points at and writes it into the store.
+  ///
+  /// **This is what makes a photo survive a re-login.** Until 2026-10-05
+  /// `/me/` returned no photo field, so [UserProfile.photoBytes] was only ever
+  /// filled by the signup that set it — every later session showed the
+  /// placeholder, and the user's uploaded photo simply vanished.
+  ///
+  /// **Costs nothing when there is no photo.** [MeProfile.profilePhotoUrl] is
+  /// null unless the user uploaded one, so a user without an avatar makes no
+  /// request — the same guard as the geographic resolution, for the same reason.
+  ///
+  /// **A failed download is not fatal and is not even logged.** The repository
+  /// already answers null rather than throwing; this adds the second half, which
+  /// is to leave whatever the store already holds alone. Overwriting a photo
+  /// that is on screen with nothing because one image request failed would be a
+  /// worse outcome than a stale avatar.
+  Future<void> _applyPhoto(MeProfile profile) async {
+    final url = profile.profilePhotoUrl;
+    if (url == null || url.trim().isEmpty) return;
+
+    final photo = await _ref
+        .read(authRepositoryProvider)
+        .fetchProfilePhoto(url);
+    if (photo == null) return;
+
+    // `photoFileName` is stored alongside the bytes because dio infers an
+    // upload's content type from the extension. It is empty when the response
+    // carried no usable content type, which is better than a wrong guess.
+    _ref
+        .read(userProfileProvider.notifier)
+        .setPhoto(photo.bytes, photo.fileName);
+  }
+
+  /// Turns the geographic and grade **ids** `/me/` returns into the **names** the
+  /// profile store is keyed by, or an empty map.
+  ///
+  /// **Costs nothing today.** Every id is null until the backend ships the
+  /// completion fields — requested in
+  /// `backend-ask-profile-completion-fields-2026-10-05.md` §A1 — so this returns
+  /// immediately and makes no requests. That check is the whole reason it is
+  /// written as a guard rather than left to fail: an unconditional fetch would
+  /// add five round trips to every cold boot to learn nothing.
+  ///
+  /// **A failure here costs the geographic fields and nothing else.** They are
+  /// five of twenty-odd profile fields, and losing the whole `/me/` result
+  /// because one lookup endpoint was down would be a far worse outcome than a
+  /// province that is briefly blank.
+  Future<Map<String, String>> _resolveLocationNames(MeProfile profile) async {
+    final hasAnyId = {
+      profile.gradeId,
+      profile.provinceId,
+      profile.districtId,
+      profile.municipalityId,
+      profile.schoolId,
+    }.any((id) => id != null && id.trim().isNotEmpty);
+    if (!hasAnyId) return const {};
+
+    try {
+      final api = _ref.read(referenceDataApiProvider);
+      final resolved = resolveLocationNames(
+        grades: await api.grades(),
+        provinces: await api.provinces(),
+        districts: await api.districts(),
+        municipalities: await api.municipalities(),
+        schools: await api.schools(),
+        gradeId: profile.gradeId,
+        provinceId: profile.provinceId,
+        districtId: profile.districtId,
+        municipalityId: profile.municipalityId,
+        schoolId: profile.schoolId,
+      );
+      final locations = resolved.locations;
+      return {
+        if ((resolved.gradeName ?? '').isNotEmpty) 'grade': resolved.gradeName!,
+        if ((locations.province ?? '').isNotEmpty)
+          'province': locations.province!,
+        if ((locations.district ?? '').isNotEmpty)
+          'district': locations.district!,
+        if ((locations.municipality ?? '').isNotEmpty)
+          'municipality': locations.municipality!,
+        if ((locations.school ?? '').isNotEmpty) 'school': locations.school!,
+      };
+    } on Object {
+      return const {};
     }
   }
 
@@ -68,12 +164,20 @@ class SessionBootstrap {
   /// the location detected at signup, and overwriting it would throw those away
   /// to set a name.
   ///
-  /// Only non-blank values are written. `MeProfile.profileValues` omits the
+  /// Only non-blank values are written. [MeProfile.profileValues] omits the
   /// blanks, so a server that sends `name: ""` cannot erase a name the user
-  /// typed.
-  void _apply(MeProfile profile) {
+  /// typed. [locationNames] is the resolved form of the geographic ids and
+  /// follows the same rule.
+  ///
+  /// One save rather than two, so a field present in both cannot be half
+  /// applied — the second call would win, and the ordering would then decide
+  /// which source was authoritative for no reason.
+  void _apply(
+    MeProfile profile, [
+    Map<String, String> locationNames = const {},
+  ]) {
     final notifier = _ref.read(userProfileProvider.notifier);
-    final values = profile.profileValues;
+    final values = {...profile.profileValues, ...locationNames};
     if (values.isNotEmpty) notifier.save(values);
     final role = profile.role;
     if (role != null) notifier.setRole(role);

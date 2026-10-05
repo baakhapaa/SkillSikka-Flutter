@@ -47,3 +47,5 @@ app.*.map.json
 # AI assistant tool data (never push)
 .workbuddy-ai/
 workbuddy-ai/
+.zcode/
+.zcodeignore

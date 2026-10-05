@@ -219,6 +219,53 @@ class ApiClient {
     CancelToken? cancelToken,
     void Function(int sent, int total)? onSendProgress,
   }) {
+    return _body(
+      () => _dio.post<dynamic>(
+        path,
+        data: _formData(fields, files, fileLists),
+        cancelToken: cancelToken,
+        onSendProgress: onSendProgress,
+      ),
+    );
+  }
+
+  /// `multipart/form-data` on a `PATCH` — `PATCH /me/`, which carries the user's
+  /// documents as well as their text fields.
+  ///
+  /// The body is assembled by the same [_formData] builder as [postMultipart],
+  /// deliberately: the two requests differ **only** in the verb, and a second
+  /// copy of this assembly would be a second place for the file-list flattening
+  /// to drift.
+  Future<T> patchMultipart<T>(
+    String path, {
+    required Map<String, String> fields,
+    Map<String, MultipartFile> files = const {},
+    Map<String, List<MultipartFile>> fileLists = const {},
+    CancelToken? cancelToken,
+    void Function(int sent, int total)? onSendProgress,
+  }) {
+    return _body(
+      () => _dio.patch<dynamic>(
+        path,
+        data: _formData(fields, files, fileLists),
+        cancelToken: cancelToken,
+        onSendProgress: onSendProgress,
+      ),
+    );
+  }
+
+  /// One `FormData` for every multipart call, so the shape is defined once.
+  ///
+  /// [fileLists] exists because one slot on the wire takes **several** files
+  /// under a repeated field name — `certificates_and_recommendations` is the
+  /// only one, and DRF reads a repeated name as a list. Flattening it into
+  /// [files] would not be possible: a `Map` holds one value per key, so a second
+  /// certificate would silently replace the first.
+  static FormData _formData(
+    Map<String, String> fields,
+    Map<String, MultipartFile> files,
+    Map<String, List<MultipartFile>> fileLists,
+  ) {
     final form = FormData();
     form.fields.addAll(fields.entries);
     files.forEach((name, file) => form.files.add(MapEntry(name, file)));
@@ -227,15 +274,50 @@ class ApiClient {
         form.files.add(MapEntry(name, file));
       }
     });
+    return form;
+  }
 
-    return _body(
-      () => _dio.post<dynamic>(
-        path,
-        data: form,
-        cancelToken: cancelToken,
-        onSendProgress: onSendProgress,
-      ),
-    );
+  /// Raw bytes from an authenticated URL — a document the server streams back.
+  ///
+  /// **The only method here that sets `responseType`.** Every other one goes
+  /// through [_body], which throws when the body is not what the caller asked
+  /// for — and an image is not JSON, so the default decoder would fail on
+  /// perfectly good bytes. `_tolerantTransformer` only rescues a body that
+  /// *claims* to be JSON; a PNG never does.
+  ///
+  /// [url] is absolute. `/me/` hands back full URLs, and re-joining one onto the
+  /// configured host would be a second place for the two to disagree. Being
+  /// absolute is also why this is safe to send the bearer token to: the backend
+  /// states these are same-origin, so no third-party host ever sees it. **That is
+  /// a property of the URLs, not of this method** — a caller handed a CDN link
+  /// would leak the token, so the same-origin answer is load-bearing.
+  Future<({Uint8List bytes, String? contentType})> getBytes(String url) async {
+    try {
+      final response = await _dio.get<List<int>>(
+        url,
+        options: Options(responseType: ResponseType.bytes),
+      );
+      final bytes = response.data;
+      if (bytes == null || bytes.isEmpty) {
+        throw ApiException(
+          kind: ApiErrorKind.unknown,
+          statusCode: response.statusCode,
+          message: 'The server returned an empty file.',
+        );
+      }
+      return (
+        bytes: Uint8List.fromList(bytes),
+        // Carried back so a caller can name the file. The store keeps a
+        // filename beside every photo, and it is load-bearing — dio infers a
+        // part's content type from the extension, so a JPEG stored as `.png`
+        // re-uploads labelled `image/png`. A document URL is
+        // `/me/documents/<id>/` and carries no extension of its own, so the
+        // response's own content type is the only honest source.
+        contentType: response.headers.value(Headers.contentTypeHeader),
+      );
+    } on DioException catch (error) {
+      throw ApiException.fromDio(error);
+    }
   }
 
   Future<Response<T>> _raw<T>(Future<Response<T>> Function() send) async {

@@ -7,10 +7,14 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:skillsikka/core/network/api_error.dart';
 import 'package:skillsikka/core/widgets/profile_photo_picker.dart';
 import 'package:skillsikka/features/auth/data/auth_repository.dart';
+import 'package:skillsikka/features/auth/data/me_profile.dart';
 import 'package:skillsikka/features/profile/data/profile_role.dart';
+import 'package:skillsikka/features/profile/data/reference_data.dart';
 import 'package:skillsikka/features/profile/presentation/edit_profile_page.dart';
 import 'package:skillsikka/features/profile/presentation/profile_page.dart';
 import 'package:skillsikka/features/profile/data/user_profile.dart';
+
+import 'support/fake_reference_data.dart';
 
 void main() {
   /// The profile page is long and its cards are laid out for Manrope, which
@@ -138,18 +142,30 @@ void main() {
       'name': 'Real User',
       'email': 'real@user.test',
     });
+
+    // **The repository has to be faked.** Save now really does call
+    // `PATCH /me/`, so the real repository would issue a live request — which
+    // under `flutter test` answers 400 for everything, and the save would
+    // correctly report a failure this step is not testing.
+    final fakeAuth = FakeAuthRepository();
+
     await tester.pumpWidget(
       UncontrolledProviderScope(
         container: saveContainer,
-        child: MaterialApp(
-          home: Builder(
-            builder: (context) => Scaffold(
-              body: Center(
-                child: TextButton(
-                  onPressed: () => Navigator.of(context).push(
-                    MaterialPageRoute(builder: (_) => const EditProfilePage()),
+        child: ProviderScope(
+          overrides: [authRepositoryProvider.overrideWithValue(fakeAuth)],
+          child: MaterialApp(
+            home: Builder(
+              builder: (context) => Scaffold(
+                body: Center(
+                  child: TextButton(
+                    onPressed: () => Navigator.of(context).push(
+                      MaterialPageRoute(
+                        builder: (_) => const EditProfilePage(),
+                      ),
+                    ),
+                    child: const Text('open editor'),
                   ),
-                  child: const Text('open editor'),
                 ),
               ),
             ),
@@ -177,6 +193,13 @@ void main() {
       reason: 'Save should close the edit screen',
     );
     expect(find.text('Profile updated.'), findsOneWidget);
+
+    // The shared fields must have gone to `PATCH /me/` under their wire keys,
+    // not just into the local store — that call is the whole reason an edit
+    // survives the next login.
+    expect(fakeAuth.updates, hasLength(1));
+    expect(fakeAuth.updates.single['name'], 'Real User');
+    expect(fakeAuth.updates.single['email'], 'real@user.test');
 
     // Let the snack bar expire so no timer outlives the test.
     await tester.pump(const Duration(seconds: 5));
@@ -393,9 +416,13 @@ void main() {
   /// The message is the only thing the user sees about whether their answers
   /// reached a server, so it has to match what actually happened. The bug these
   /// cover: a `bool?` collapsed "nothing to send" and "sent, route missing" into
-  /// one `false`, so a student — for whom no server call exists at all — was told
-  /// their edit was "stored on this device", which invents a limitation and reads
-  /// as a warning.
+  /// one `false`, so a user with nothing on the completion route was told their
+  /// edit was "stored on this device", which invents a limitation and reads as a
+  /// warning.
+  ///
+  /// Since `PATCH /me/` shipped (2026-10-02) **both** roles have a real server
+  /// call, so `storedLocally` now means only "the completion route had nothing
+  /// left to send" — the shared fields were already accepted.
   group('the save confirmation', () {
     /// Opens the editor, taps Save, and returns what the snack bar said.
     ///
@@ -408,6 +435,16 @@ void main() {
       Map<String, String> seed = const {},
       bool? completionResult,
       ApiException? completionFailure,
+
+      /// Reference data for a save that has to resolve geographic **names** into
+      /// ids. Left null the resolution fails and is swallowed, which is the real
+      /// app's behaviour when the location endpoints are unreachable — fine for
+      /// the message-only cases, useless for the ones that assert on the body.
+      ReferenceDataApi? referenceData,
+
+      /// Hands over the fake as soon as it is built, for tests that need to read
+      /// what was sent rather than what was said.
+      void Function(FakeAuthRepository auth)? onReady,
     }) async {
       await tester.binding.setSurfaceSize(const Size(360, 800));
       addTearDown(() => tester.binding.setSurfaceSize(null));
@@ -415,8 +452,13 @@ void main() {
       final auth = FakeAuthRepository()
         ..completionResult = completionResult
         ..completionFailure = completionFailure;
+      onReady?.call(auth);
       final container = ProviderContainer(
-        overrides: [authRepositoryProvider.overrideWithValue(auth)],
+        overrides: [
+          authRepositoryProvider.overrideWithValue(auth),
+          if (referenceData != null)
+            referenceDataApiProvider.overrideWithValue(referenceData),
+        ],
       );
       addTearDown(container.dispose);
       container.read(userProfileProvider.notifier).save({
@@ -516,12 +558,13 @@ void main() {
     }
 
     testWidgets(
-      'says "Profile updated." for a student, who has no server call',
+      'says "Profile updated." for a student once the shared fields are sent',
       (tester) async {
         final message = await savedMessage(tester, role: ProfileRole.student);
 
-        // Not a hedge, and not an error: the store *is* the store for a student
-        // until their own completion contract is known.
+        // Not a hedge, and not an error. Since 2026-10-02 a student's save does
+        // reach the server — `PATCH /me/` takes the seven shared fields — so
+        // this is a plain confirmation of a plain success.
         //
         // This overlaps with the `'Profile updated.'` assertion in the
         // full-flow test above, and is kept on purpose: it is the case that
@@ -602,6 +645,294 @@ void main() {
       );
 
       expect(message, 'Profile updated.');
+    });
+
+    /// **The live bug this whole change set started with.**
+    ///
+    /// `_instructorBody` used to read ids only from `_selectedIds`, which is
+    /// populated only while a picker sheet is open. So an instructor who opened
+    /// Edit Profile on a **prefilled** profile — which is every profile that
+    /// arrived from the server, and every profile after a re-login — and tapped
+    /// Save sent a body with **all three geographic ids missing**. All three are
+    /// required on `/instructor/complete-profile/`.
+    ///
+    /// The student never hit it because `_studentBody` already resolved from the
+    /// names, which is why this went unnoticed for as long as it did: the
+    /// equivalent student save had worked all along.
+    testWidgets('sends the geographic ids resolved from the names alone', (
+      tester,
+    ) async {
+      late FakeAuthRepository auth;
+      await savedMessage(
+        tester,
+        role: ProfileRole.instructor,
+        // Names only — no picker was ever opened, which is the whole scenario.
+        seed: {
+          'province': 'Bagmati',
+          'district': 'Kathmandu',
+          'municipality': 'Kathmandu Metropolitan City',
+          'qualification': 'MCA',
+        },
+        referenceData: FakeReferenceData(),
+        onReady: (fake) => auth = fake,
+      );
+
+      expect(
+        auth.completions,
+        hasLength(1),
+        reason: 'the instructor had fields to send, so a request was made',
+      );
+      final body = auth.completions.single.fields;
+      expect(
+        body['province_id'],
+        '3',
+        reason: 'resolved from the name "Bagmati", not from a picker tap',
+      );
+      expect(body['district_id'], '27');
+      expect(
+        body['municipality_id'],
+        '316',
+        reason:
+            'the instructor has no school, so the municipality name is the '
+            'only source for this required id',
+      );
+      expect(body['qualification'], 'MCA');
+    });
+
+    testWidgets('a picker tap still wins over the resolved name', (
+      tester,
+    ) async {
+      // The picker id is what the user just chose, so it cannot have gone stale
+      // against reference data. Without a picker open the two paths cannot
+      // disagree, so this asserts the precedence rather than a live race.
+      late FakeAuthRepository auth;
+      await savedMessage(
+        tester,
+        role: ProfileRole.instructor,
+        seed: {'province': 'Bagmati', 'qualification': 'MCA'},
+        referenceData: FakeReferenceData(),
+        onReady: (fake) => auth = fake,
+      );
+
+      expect(auth.completions.single.fields['province_id'], '3');
+    });
+  });
+
+  /// That Save really writes the seven shared fields to `PATCH /me/`.
+  ///
+  /// The bug these cover: an edit to the name, gender or date of birth had
+  /// nowhere to go. No endpoint accepted those keys, so the save reported
+  /// success having changed nothing, and the change was gone by the next login.
+  group('saving the shared profile fields', () {
+    /// Opens the editor with [seed] in the store, taps Save, and returns the
+    /// fake repository so the test can read what was sent.
+    Future<FakeAuthRepository> saveWith(
+      WidgetTester tester,
+      Map<String, String> seed,
+    ) async {
+      await tester.binding.setSurfaceSize(const Size(360, 800));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+
+      final auth = FakeAuthRepository();
+      final container = ProviderContainer(
+        overrides: [authRepositoryProvider.overrideWithValue(auth)],
+      );
+      addTearDown(container.dispose);
+      container.read(userProfileProvider.notifier).save({
+        'name': 'Real User',
+        'email': 'real@user.test',
+        ...seed,
+      });
+
+      // Pushed, not the root — see the note in the group above: the snack bar
+      // has to land on a messenger that survives the pop.
+      await tester.pumpWidget(
+        UncontrolledProviderScope(
+          container: container,
+          child: MaterialApp(
+            home: Builder(
+              builder: (context) => Scaffold(
+                body: Center(
+                  child: TextButton(
+                    onPressed: () => Navigator.of(context).push(
+                      MaterialPageRoute(
+                        builder: (_) => const EditProfilePage(),
+                      ),
+                    ),
+                    child: const Text('open editor'),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+      await tester.tap(find.text('open editor'));
+      await tester.pumpAndSettle();
+      drainUnrelatedOverflows(tester);
+
+      final save = find.widgetWithText(FilledButton, 'Save Changes');
+      await tester.ensureVisible(save);
+      await tester.pumpAndSettle();
+      await tester.tap(save);
+      await tester.pumpAndSettle();
+      drainUnrelatedOverflows(tester);
+      return auth;
+    }
+
+    testWidgets('sends gender and date of birth under their wire keys', (
+      tester,
+    ) async {
+      final auth = await saveWith(tester, {
+        'gender': 'Female',
+        'dob': '14 / 05 / 2001',
+      });
+
+      // This is the assertion the original bug would have failed: before
+      // `PATCH /me/` there was no request at all for a student's save.
+      expect(auth.updates, hasLength(1));
+      expect(auth.updates.single['gender'], 'female');
+      expect(auth.updates.single['dob'], '2001-05-14');
+    });
+
+    testWidgets('omits a gender the user cleared instead of erroring', (
+      tester,
+    ) async {
+      // `{"gender": ""}` is a 400 on the live backend, so sending it would fail
+      // the whole save over a field the user deliberately emptied.
+      final auth = await saveWith(tester, {'gender': '', 'dob': ''});
+
+      expect(auth.updates, hasLength(1));
+      expect(auth.updates.single.containsKey('gender'), isFalse);
+      expect(auth.updates.single.containsKey('dob'), isFalse);
+    });
+
+    testWidgets('applies the server\'s answer back into the store', (
+      tester,
+    ) async {
+      await tester.binding.setSurfaceSize(const Size(360, 800));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+
+      final auth = FakeAuthRepository()
+        // The server is the authority on what it stored — it may normalise a
+        // date or drop a field it does not recognise.
+        ..updateResult = MeProfile.tryParse(const {
+          'id': '23',
+          'email': 'real@user.test',
+          'name': 'Renamed By Server',
+          'role': 'student',
+          'gender': 'other',
+          'dob': '2001-05-14',
+          'location': 'Pokhara',
+        });
+      final container = ProviderContainer(
+        overrides: [authRepositoryProvider.overrideWithValue(auth)],
+      );
+      addTearDown(container.dispose);
+      container.read(userProfileProvider.notifier).save({
+        'name': 'Real User',
+        'email': 'real@user.test',
+      });
+
+      await tester.pumpWidget(
+        UncontrolledProviderScope(
+          container: container,
+          child: MaterialApp(
+            home: Builder(
+              builder: (context) => Scaffold(
+                body: Center(
+                  child: TextButton(
+                    onPressed: () => Navigator.of(context).push(
+                      MaterialPageRoute(
+                        builder: (_) => const EditProfilePage(),
+                      ),
+                    ),
+                    child: const Text('open editor'),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+      await tester.tap(find.text('open editor'));
+      await tester.pumpAndSettle();
+      drainUnrelatedOverflows(tester);
+      final save = find.widgetWithText(FilledButton, 'Save Changes');
+      await tester.ensureVisible(save);
+      await tester.pumpAndSettle();
+      await tester.tap(save);
+      await tester.pumpAndSettle();
+
+      final profile = container.read(userProfileProvider);
+      expect(profile.valueFor('name'), 'Renamed By Server');
+      // And converted on the way in, so the form can show them next time.
+      expect(profile.valueFor('gender'), 'Other');
+      expect(profile.valueFor('dob'), '14 / 05 / 2001');
+      expect(profile.valueFor('location'), 'Pokhara');
+    });
+
+    testWidgets('reports a rejected save instead of claiming success', (
+      tester,
+    ) async {
+      await tester.binding.setSurfaceSize(const Size(360, 800));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+
+      // A 400 naming the offending field — the real shape of a rejected PATCH.
+      final auth = FakeAuthRepository()
+        ..updateFailure = const ApiException(
+          kind: ApiErrorKind.badRequest,
+          statusCode: 400,
+          message: 'Bad request',
+        );
+      final container = ProviderContainer(
+        overrides: [authRepositoryProvider.overrideWithValue(auth)],
+      );
+      addTearDown(container.dispose);
+      container.read(userProfileProvider.notifier).save({
+        'name': 'Real User',
+        'email': 'real@user.test',
+      });
+
+      await tester.pumpWidget(
+        UncontrolledProviderScope(
+          container: container,
+          child: MaterialApp(
+            home: Builder(
+              builder: (context) => Scaffold(
+                body: Center(
+                  child: TextButton(
+                    onPressed: () => Navigator.of(context).push(
+                      MaterialPageRoute(
+                        builder: (_) => const EditProfilePage(),
+                      ),
+                    ),
+                    child: const Text('open editor'),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+      await tester.tap(find.text('open editor'));
+      await tester.pumpAndSettle();
+      drainUnrelatedOverflows(tester);
+      final save = find.widgetWithText(FilledButton, 'Save Changes');
+      await tester.ensureVisible(save);
+      await tester.pumpAndSettle();
+      await tester.tap(save);
+      await tester.pumpAndSettle();
+      drainUnrelatedOverflows(tester);
+
+      // The error replaces the confirmation, and the completion route is not
+      // attempted: a rejected shared save must not go on to report success.
+      final snackBar = tester.widget<SnackBar>(find.byType(SnackBar));
+      expect((snackBar.content as Text).data, isNot('Profile updated.'));
+      expect(auth.completions, isEmpty);
     });
   });
 }

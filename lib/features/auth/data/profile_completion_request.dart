@@ -4,7 +4,13 @@ import '../../../core/validation/validators.dart';
 import '../../profile/data/profile_role.dart';
 
 /// The deferred half of an instructor's profile, shaped for
-/// `POST /me/complete-profile/`.
+/// `POST /instructor/complete-profile/`.
+///
+/// **Not `/me/complete-profile/`** — that route answers `403 "Only students can
+/// complete this profile step."` for an instructor token (verified live
+/// 2026-10-02). `AuthApi.completeProfile` now picks the route by role; this
+/// class only decides the body, and the nine keys below are exactly the nine the
+/// instructor route requires.
 ///
 /// The counterpart to [RegistrationRequest]: registration now asks for identity
 /// only, and these nine fields are collected on Edit Profile and sent here.

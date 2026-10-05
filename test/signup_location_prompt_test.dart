@@ -8,6 +8,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:skillsikka/core/location/location_service.dart';
 import 'package:skillsikka/core/widgets/location_prompt_dialog.dart';
 import 'package:skillsikka/features/profile/data/user_profile.dart';
+import 'package:skillsikka/features/signup/presentation/signup_instructor_form_page.dart';
 import 'package:skillsikka/features/signup/presentation/signup_student_form_page.dart';
 
 /// Same channel `geolocator` uses; stubbing it keeps the real service
@@ -299,6 +300,74 @@ void main() {
     expect(find.textContaining('Location saved'), findsOneWidget);
 
     // Let the snack bar expire so no timer outlives the test.
+    await tester.pump(const Duration(seconds: 5));
+    await tester.pumpAndSettle();
+  });
+
+  // The two tests below exist because the popup was dropped from the instructor
+  // form in a605a12 and restored: the asymmetry was invisible until someone
+  // signed up as an instructor and was never asked.
+  testWidgets(
+    'instructor signup opens the location popup on load, like the student form',
+    (tester) async {
+      _mockGeolocatorPermission(0);
+
+      await tester.pumpWidget(
+        const ProviderScope(
+          child: MaterialApp(home: SignupInstructorFormPage()),
+        ),
+      );
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 100));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Use your current location?'), findsOneWidget);
+      expect(find.text('Allow Location'), findsOneWidget);
+
+      // Tapping the scrim dismisses and leaves the form usable.
+      await tester.tapAt(const Offset(8, 8));
+      await tester.pumpAndSettle();
+      expect(find.text('Use your current location?'), findsNothing);
+
+      // Same six identity fields as the student, no Location input added back.
+      expect(find.byType(TextField), findsNWidgets(6));
+      expect(find.text('Create Account'), findsOneWidget);
+      expect(find.text('Enter your current location'), findsNothing);
+    },
+  );
+
+  testWidgets('the instructor draft keeps the detected location too', (
+    tester,
+  ) async {
+    final service = _FakeLocationService(result: _kathmandu);
+    final container = ProviderContainer();
+    addTearDown(container.dispose);
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: MaterialApp(
+          home: SignupInstructorFormPage(locationService: service),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Use your current location?'), findsOneWidget);
+
+    await tester.tap(find.text('Allow Location'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Use This Location'));
+    await tester.pumpAndSettle();
+
+    // Location is one of `instructorCourseCreationFields`, so this value is
+    // what the profile-completion gate will later find already filled.
+    expect(
+      container.read(userProfileProvider).valueFor('location'),
+      'Baneshwor, Kathmandu',
+    );
+    expect(find.textContaining('Location saved'), findsOneWidget);
+
     await tester.pump(const Duration(seconds: 5));
     await tester.pumpAndSettle();
   });

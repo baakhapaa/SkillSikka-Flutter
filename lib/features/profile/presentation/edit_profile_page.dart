@@ -1,3 +1,4 @@
+import 'package:dio/dio.dart';
 import 'package:file_picker/file_picker.dart';
 
 import 'dart:typed_data';
@@ -9,6 +10,7 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:image_picker/image_picker.dart';
 
 import '../../../core/location/location_service.dart';
+import '../../../core/network/api_client.dart';
 import '../../../core/network/api_error.dart';
 import '../../../core/validation/validators.dart';
 import '../../../core/widgets/api_error_snack.dart';
@@ -17,8 +19,11 @@ import '../../../core/widgets/location_prompt_dialog.dart';
 import '../../../core/widgets/option_picker_sheet.dart';
 import '../../../core/widgets/profile_photo_picker.dart';
 import '../../../core/widgets/upload_card.dart';
+import '../../auth/data/auth_api.dart';
 import '../../auth/data/auth_repository.dart';
 import '../../auth/data/profile_completion_request.dart';
+import '../../auth/data/profile_update_request.dart';
+import '../../auth/data/student_completion_request.dart';
 import '../data/gender.dart';
 import '../data/profile_role.dart';
 import '../data/reference_data.dart';
@@ -40,9 +45,10 @@ enum SaveOutcome {
   /// The server accepted the deferred fields.
   sentToServer,
 
-  /// Nothing was sent because nothing needed sending — the ordinary student
-  /// save, or an instructor whose deferred section is still empty. Not a
-  /// failure, and the message must not read like one.
+  /// Nothing beyond the shared fields was sent because nothing needed sending —
+  /// an ordinary save, where `PATCH /me/` took the common fields and the role's
+  /// deferred half had nothing in it. Not a failure, and the message must not
+  /// read like one.
   storedLocally,
 
   /// The deferred fields exist but the completion route answered 404, so they
@@ -85,6 +91,7 @@ class EditProfilePage extends ConsumerStatefulWidget {
     super.key,
     this.role = ProfileRole.student,
     this.locationService = const LocationService(),
+    this.imagePicker = const PlatformImagePicker(),
     this.requireCompletion = false,
   });
 
@@ -92,6 +99,11 @@ class EditProfilePage extends ConsumerStatefulWidget {
 
   /// Injectable so the location popup can be driven from tests.
   final LocationService locationService;
+
+  /// Injectable for the same reason as [locationService] — and more importantly,
+  /// because the photo is **state this screen has to hand back to the store**, a
+  /// bug that is invisible until a test drives a pick through a save.
+  final PhotoPicker imagePicker;
 
   /// When true this is the "complete your profile" step reached from the enrol
   /// gate: every field is mandatory, so the user cannot come back still
@@ -103,9 +115,47 @@ class EditProfilePage extends ConsumerStatefulWidget {
   ConsumerState<EditProfilePage> createState() => _EditProfilePageState();
 }
 
+/// The one method this screen needs from a photo picker.
+///
+/// Narrower than `ImagePicker` on purpose: a test only has to answer "what did
+/// the user pick", and every other method of the real picker is irrelevant here.
+abstract interface class PhotoPicker {
+  Future<PickedPhoto?> pickImage();
+}
+
+/// A real image, as the picker hands it over.
+///
+/// **Bytes, not a path.** `Image.file` asserts `!kIsWeb` and crashes the moment a
+/// photo is chosen on Flutter web, where a picked file's path is a blob URL
+/// nothing else can read. The name travels with the bytes because dio infers an
+/// upload's content type from the extension.
+class PickedPhoto {
+  const PickedPhoto({required this.bytes, required this.name});
+
+  final Uint8List bytes;
+  final String name;
+}
+
+/// The production picker, wrapped so the widget does not depend on
+/// `image_picker` at all.
+class PlatformImagePicker implements PhotoPicker {
+  const PlatformImagePicker();
+
+  @override
+  Future<PickedPhoto?> pickImage() async {
+    final picked = await ImagePicker().pickImage(
+      source: ImageSource.gallery,
+      maxWidth: 800,
+      maxHeight: 800,
+      imageQuality: 85,
+    );
+    if (picked == null) return null;
+    return PickedPhoto(bytes: await picked.readAsBytes(), name: picked.name);
+  }
+}
+
 class _EditProfilePageState extends ConsumerState<EditProfilePage> {
   final _controllers = <String, TextEditingController>{};
-  final _imagePicker = ImagePicker();
   final _formKey = GlobalKey<FormState>();
 
   /// Errors stay hidden until the first save attempt, then update live as the
@@ -116,6 +166,24 @@ class _EditProfilePageState extends ConsumerState<EditProfilePage> {
   bool _isSaving = false;
 
   Uint8List? _photoBytes;
+
+  /// The picked photo's own name, carried alongside the bytes.
+  ///
+  /// **Load-bearing, not cosmetic.** dio infers a part's content type from the
+  /// filename extension, so a JPEG sent as `avatar.png` goes up labelled
+  /// `image/png`. It is recorded at the same moment as the bytes because a photo
+  /// whose name is the *previous* one is worse than no upload at all.
+  String? _photoFileName;
+
+  /// True once the user picks a **new** photo on this screen.
+  ///
+  /// [_photoBytes] cannot answer that on its own: it is seeded from the store in
+  /// [initState] so the signup photo shows without being picked twice, which
+  /// makes "there is a photo" and "the user just changed the photo" the same
+  /// value. Without this flag every save would re-upload the photo already sent
+  /// at signup — and, for a 5 MB image, on every single save.
+  bool _photoDirty = false;
+
   PlatformFile? _studentIdCard;
   PlatformFile? _cvFile;
   PlatformFile? _certificatesFile;
@@ -225,15 +293,9 @@ class _EditProfilePageState extends ConsumerState<EditProfilePage> {
   }
 
   Future<void> _pickProfilePhoto() async {
-    final picked = await _imagePicker.pickImage(
-      source: ImageSource.gallery,
-      maxWidth: 800,
-      maxHeight: 800,
-      imageQuality: 85,
-    );
+    final picked = await widget.imagePicker.pickImage();
     if (picked == null) return;
-    // Bytes, not a path: `Image.file` is not supported on Flutter web.
-    final bytes = await picked.readAsBytes();
+    final bytes = picked.bytes;
     if (!mounted) return;
     final rejection = profilePhotoRejection(
       fileName: picked.name,
@@ -243,7 +305,11 @@ class _EditProfilePageState extends ConsumerState<EditProfilePage> {
       _showUploadError(rejection);
       return;
     }
-    setState(() => _photoBytes = bytes);
+    setState(() {
+      _photoBytes = bytes;
+      _photoFileName = picked.name;
+      _photoDirty = true;
+    });
   }
 
   /// Opens the location popup and, if the user confirms a fix, writes it into
@@ -487,19 +553,37 @@ class _EditProfilePageState extends ConsumerState<EditProfilePage> {
     final navigator = Navigator.of(context);
     setState(() => _isSaving = true);
 
-    // No backend yet, so the profile store is the store — write back every key
-    // this screen owns, or re-opening it would silently discard the edit.
-    //
     // Written **before** the network call, not after: an edit the user made is
-    // theirs whether or not the server accepted it, and a failed completion
-    // request must not also lose their typing.
+    // theirs whether or not the server accepted it, and a rejected save must not
+    // also lose their typing.
+    //
+    // The server's own answer then overwrites these values where it has one —
+    // see [_sendSharedFields] — so the store ends up agreeing with what was
+    // actually stored rather than with what was typed.
     ref.read(userProfileProvider.notifier).save({
       for (final key in _editableKeys) key: _controller(key).text.trim(),
     });
 
-    // The deferred half of the profile, for the role that has one. Until this
-    // call existed the instructor's nine fields were captured here and never
-    // left the device — a form that changed nothing.
+    // **The photo too, and for the same reason — it was missing, and it was the
+    // one change with no visible effect at all.** The bytes live in widget state
+    // (see [_photoDirty]); nothing wrote them to the store here, so the profile
+    // tab behind this screen kept rendering the *old* avatar until a relogin
+    // re-downloaded it from `/me/`. A user who changed their picture and saw it
+    // snap back had no way to tell the upload had worked.
+    //
+    // Written at the same moment as the text, before the network call, so a
+    // rejected save still shows them what they chose. The server's copy wins on
+    // the next login, which is the correct order of authority.
+    if (_photoDirty) {
+      final bytes = _photoBytes;
+      final fileName = _photoFileName;
+      if (bytes != null && fileName != null) {
+        ref.read(userProfileProvider.notifier).setPhoto(bytes, fileName);
+      }
+    }
+
+    // Everything the role's endpoints can accept: the seven shared fields for
+    // both roles, then the deferred half for the role that has one.
     final result = await _sendCompletion();
 
     if (!mounted) return;
@@ -530,7 +614,12 @@ class _EditProfilePageState extends ConsumerState<EditProfilePage> {
     );
   }
 
-  /// Hands the role's deferred fields to the completion endpoint.
+  /// Hands the profile to whichever endpoints the signed-in role has.
+  ///
+  /// **Two calls, in order.** The seven shared fields go to `PATCH /me/` for
+  /// both roles; the instructor's nine deferred fields go to the completion
+  /// route. The shared call runs first and a failure there ends the save — see
+  /// [_sendSharedFields].
   ///
   /// Returns the [SaveResult] — what happened, and the error when something did
   /// — **without showing anything**. The caller decides how to present it,
@@ -538,39 +627,278 @@ class _EditProfilePageState extends ConsumerState<EditProfilePage> {
   /// error has to replace the confirmation rather than queue behind it. Showing
   /// a snack bar from here is what queued two of them.
   ///
-  /// A student sends nothing. Their completion endpoint wants `grade_id` and
-  /// `school_id`; this screen holds names from a different field set, and
-  /// guessing at that encoding is a separate job from the instructor trim this
-  /// belongs to. A student's edit stays local-only, exactly as before.
+  /// A student's **completion** half goes to `POST /me/complete-profile/`, which
+  /// takes `grade_id`, `province_id`, `district_id`, `municipality_id` and
+  /// `school_id` — a hierarchy of ids where this screen holds names, so the ids
+  /// are resolved from the reference data at save time. See [_studentRequest].
   Future<SaveResult> _sendCompletion() async {
-    if (!_isInstructor) {
-      // Not this screen's job to await anything, so the caller's `await` still
-      // resolves a frame later — hence the immediate return rather than a
-      // Future.value, which would make the method async for no reason.
-      return const SaveResult(SaveOutcome.storedLocally);
-    }
+    // The shared half first, for **both** roles. `PATCH /me/` took the seven
+    // common fields on 2026-10-02; before it existed this method returned
+    // immediately for a student and sent only the instructor's nine, so an edit
+    // to the name, gender or date of birth had nowhere to go and was gone by
+    // the next login.
+    final shared = await _sendSharedFields();
+    if (shared != null) return shared;
 
-    final request = InstructorCompletionRequest.forInstructor(
-      {for (final key in _editableKeys) key: _controller(key).text.trim()},
-      provinceId: _selectedIds['province'],
-      districtId: _selectedIds['district'],
-      municipalityId: _selectedIds['municipality'],
-    );
-    if (request.isEmpty) return const SaveResult(SaveOutcome.storedLocally);
+    final body = await (_isInstructor ? _instructorBody() : _studentBody());
+    if (body == null) return const SaveResult(SaveOutcome.storedLocally);
 
     try {
       final accepted = await ref
           .read(authRepositoryProvider)
-          .completeProfile(
-            role: widget.role,
-            fields: request.toWireBody(widget.role),
-          );
+          .completeProfile(role: widget.role, fields: body);
       // `false` here means the route answered 404 — the one case where the user
       // typed something that genuinely did not reach a server. Everything else
       // that did not go is `storedLocally`, which needs no apology.
       return SaveResult(
         accepted ? SaveOutcome.sentToServer : SaveOutcome.deferred,
       );
+    } on ApiException catch (error) {
+      return SaveResult(SaveOutcome.failed, error: error);
+    }
+  }
+
+  /// The instructor's nine deferred fields as a wire body, or null when there is
+  /// nothing to send.
+  ///
+  /// **Awaited, for the same reason the student's is.** The geographic ids are
+  /// read from the pickers when they are there and resolved from the stored
+  /// names when they are not — see [_resolveIds]. A picker id is authoritative
+  /// when present: it is what the user just tapped, so it cannot have gone stale
+  /// against reference data.
+  ///
+  /// **This resolution used to be missing here**, and the doc comment above
+  /// claimed otherwise. `_selectedIds` is populated only while a picker sheet is
+  /// open, so an instructor who opened Edit Profile and saved without reopening
+  /// all three pickers sent a body with **all three geographic ids missing** —
+  /// which are required fields on this route. That is now fixed, and the test
+  /// *'sends the geographic ids resolved from the names alone'* pins it.
+  Future<Map<String, String>?> _instructorBody() async {
+    final values = {
+      for (final key in _editableKeys) key: _controller(key).text.trim(),
+    };
+    final ids = await _resolveIds(values);
+
+    final request = InstructorCompletionRequest.forInstructor(
+      values,
+      provinceId: _selectedIds['province'] ?? ids.locations.provinceId,
+      districtId: _selectedIds['district'] ?? ids.locations.districtId,
+      municipalityId:
+          _selectedIds['municipality'] ?? ids.locations.municipalityId,
+    );
+    if (request.isEmpty) return null;
+    return request.toWireBody(widget.role);
+  }
+
+  /// The student's seven deferred fields as a wire body, or null when there is
+  /// nothing worth sending.
+  ///
+  /// **Awaited, like [_instructorBody].** Resolving the geographic ids means
+  /// fetching the reference lists, which is why these cannot be a synchronous
+  /// build.
+  ///
+  /// Null when the seven required fields cannot all be assembled. This route has
+  /// no partial mode — it names every missing field in one 400 — so a student who
+  /// has filled in a class but not a school is better served by leaving their
+  /// profile alone than by an error they cannot resolve. See
+  /// [StudentCompletionRequest.isComplete].
+  Future<Map<String, String>?> _studentBody() async {
+    final values = {
+      for (final key in _editableKeys) key: _controller(key).text.trim(),
+    };
+    final ids = await _resolveIds(values);
+
+    final request = StudentCompletionRequest.fromValues(
+      values,
+      gradeId: ids.gradeId,
+      provinceId: _selectedIds['province'] ?? ids.locations.provinceId,
+      districtId: _selectedIds['district'] ?? ids.locations.districtId,
+      // No municipality picker on the student's form, so this can only ever come
+      // from the school. See [ReferenceItem.municipalityId].
+      municipalityId: ids.locations.municipalityId,
+      schoolId: _selectedIds['school'] ?? ids.locations.schoolId,
+    );
+
+    // Incomplete means the route would reject the whole body, so nothing is sent
+    // and nothing is claimed. `isComplete` covers `municipality_id` too — the
+    // route 500s without it rather than answering a 400.
+    if (!request.isComplete) return null;
+    return request.toWireBody(widget.role);
+  }
+
+  /// Looks the geographic and grade ids up from the names the store holds.
+  ///
+  /// **The fallback for a profile that arrived from the server.** The pickers
+  /// record ids in [_selectedIds] only while a sheet is open, so they are gone
+  /// for any profile that was prefilled rather than re-picked. That is not
+  /// acceptable for a user who signs in, finds their class and school already
+  /// filled in, and taps Save expecting them to stick — so the names are
+  /// resolved back to ids here.
+  ///
+  /// **Both roles need this, which they did not before.** It was written for the
+  /// student path and the instructor path never called it, so an instructor
+  /// saving a prefilled profile sent no geographic ids at all.
+  ///
+  /// The municipality list is fetched **only when the form has a municipality
+  /// field** — that is, only for an instructor. A student's form has no
+  /// municipality picker (their id comes from the school), so the request would
+  /// be a fifth round trip on every save for a value they cannot supply.
+  ///
+  /// Returns nulls rather than throwing when the reference data cannot be
+  /// fetched: a save that cannot resolve its ids should leave those fields local
+  /// and report the rest, not fail outright over a lookup.
+  Future<({String? gradeId, LocationIds locations})> _resolveIds(
+    Map<String, String> values,
+  ) async {
+    final needsMunicipality = values.containsKey('municipality');
+    try {
+      final api = ref.read(referenceDataApiProvider);
+      final resolved = resolveLocationIds(
+        grades: await api.grades(),
+        provinces: await api.provinces(),
+        districts: await api.districts(),
+        schools: await api.schools(),
+        municipalities: needsMunicipality
+            ? await api.municipalities()
+            : const [],
+        gradeName: values['grade'] ?? '',
+        provinceName: values['province'] ?? '',
+        districtName: values['district'] ?? '',
+        schoolName: values['school'] ?? '',
+        municipalityName: values['municipality'] ?? '',
+      );
+      return resolved;
+    } on Object {
+      // Reference data unavailable. The shared fields have already been sent by
+      // this point, so the save is partly real; dropping the deferred half is
+      // better than failing the whole thing over a lookup.
+      return (gradeId: null, locations: const LocationIds());
+    }
+  }
+
+  /// The documents picked **on this screen**, shaped the way `PATCH /me/` wants
+  /// them.
+  ///
+  /// **Only newly-picked files travel, and that is deliberate.** The profile
+  /// store holds every document the user has ever picked this session, so
+  /// sending "what the store has" would re-upload the same megabytes on every
+  /// save. For `certificates_and_recommendations` it would be worse than
+  /// wasteful: that slot is **additive** server-side, so a second save would add
+  /// a duplicate copy every time. The widget fields are the honest "changed
+  /// since this screen opened" signal, and they start empty.
+  ///
+  /// **Filtered by role**, because the route answers **400 naming the field**
+  /// when a role sends a slot it may not — not a silent ignore. `profile_photo`
+  /// is the only slot both roles may send; `student_id_card` belongs to a
+  /// student and `cv_resume` / `certificates_and_recommendations` to an
+  /// instructor. Verified against the live schema 2026-10-05.
+  ///
+  /// **Certificates go in [MultipartFile] lists, not the single-file map.** A
+  /// `Map` holds one value per key, so a second certificate sent that way would
+  /// replace the first instead of adding to it.
+  ///
+  /// A photo with no remembered filename is **skipped rather than given a
+  /// guessed one**, because the extension is what picks the content type and a
+  /// wrong guess uploads a real PNG labelled `image/jpeg`. `_photoDirty` is only
+  /// set by the picker, which always supplies a name, so this is belt-and-braces.
+  ({
+    Map<String, MultipartFile> files,
+    Map<String, List<MultipartFile>> fileLists,
+  })
+  _pendingUploads() {
+    final files = <String, MultipartFile>{};
+    final fileLists = <String, List<MultipartFile>>{};
+
+    final bytes = _photoBytes;
+    final photoName = _photoFileName;
+    if (_photoDirty && bytes != null && photoName != null) {
+      files[AuthApi.photoField] = filePart(bytes: bytes, fileName: photoName);
+    }
+
+    // `bytes` is nullable on `PlatformFile`, and a file the picker could not read
+    // has none. The pickers already refuse those before storing them, so this is
+    // belt-and-braces — but a null slipping through would be a runtime crash on
+    // the save path rather than a missing upload, so it is skipped instead.
+    Uint8List? bytesOf(PlatformFile? file) => file?.bytes;
+
+    // The student's one slot.
+    final idCard = _studentIdCard;
+    if (!_isInstructor) {
+      final bytes = bytesOf(idCard);
+      if (idCard != null && bytes != null) {
+        files[ProfileDocumentSlot.studentIdCard] = filePart(
+          bytes: bytes,
+          fileName: idCard.name,
+        );
+      }
+    }
+
+    if (_isInstructor) {
+      final cv = _cvFile;
+      final cvBytes = bytesOf(cv);
+      if (cv != null && cvBytes != null) {
+        files[ProfileDocumentSlot.cvResume] = filePart(
+          bytes: cvBytes,
+          fileName: cv.name,
+        );
+      }
+      final certificates = _certificatesFile;
+      final certificateBytes = bytesOf(certificates);
+      if (certificates != null && certificateBytes != null) {
+        fileLists[ProfileDocumentSlot.certificates] = [
+          filePart(bytes: certificateBytes, fileName: certificates.name),
+        ];
+      }
+    }
+
+    return (files: files, fileLists: fileLists);
+  }
+
+  /// Sends the seven fields `PATCH /me/` accepts — for either role — plus any
+  /// document picked on this screen.
+  ///
+  /// Returns null when there was nothing to send or the call succeeded, so the
+  /// caller carries on to the role's deferred half; a [SaveResult] means the
+  /// save is finished, one way or the other.
+  ///
+  /// **A failure here stops the save.** That is a change in behaviour, and the
+  /// right one: before this route existed a 400 was impossible because no request
+  /// was made. Now that the user's edits genuinely go to a server, a rejected
+  /// body is a real rejection, and continuing to the completion route would
+  /// report success for a save that half-failed.
+  ///
+  /// The response is applied back into the store when there is one. The server
+  /// is the authority on what it stored — it may normalise a date or drop a
+  /// field it does not recognise — so the screen should end up agreeing with it
+  /// rather than with what was typed.
+  Future<SaveResult?> _sendSharedFields() async {
+    final request = ProfileUpdateRequest.fromValues({
+      for (final key in _editableKeys) key: _controller(key).text.trim(),
+    });
+    final uploads = _pendingUploads();
+    final hasUploads = uploads.files.isNotEmpty || uploads.fileLists.isNotEmpty;
+
+    // **Both halves count as something to do.** Someone who changed only their
+    // photo has no text at all, and returning early on empty fields alone would
+    // tell them "Profile updated." while their picture quietly went nowhere —
+    // which is the bug this route was added to fix.
+    if (request.isEmpty && !hasUploads) return null;
+
+    try {
+      final updated = await ref
+          .read(authRepositoryProvider)
+          .updateProfile(
+            request.fields,
+            files: uploads.files,
+            fileLists: uploads.fileLists,
+          );
+      if (updated != null) {
+        final values = updated.profileValues;
+        if (values.isNotEmpty) {
+          ref.read(userProfileProvider.notifier).save(values);
+        }
+      }
+      return null;
     } on ApiException catch (error) {
       return SaveResult(SaveOutcome.failed, error: error);
     }
@@ -590,8 +918,8 @@ class _EditProfilePageState extends ConsumerState<EditProfilePage> {
   String _savedMessage(SaveOutcome outcome) {
     switch (outcome) {
       case SaveOutcome.sentToServer:
-      // No server call exists for this role or there was nothing to send. The
-      // store is the store — this is the normal, successful path.
+      // Nothing on the completion route needed sending — the shared fields were
+      // already accepted by `PATCH /me/`. This is the normal, successful path.
       case SaveOutcome.storedLocally:
         return 'Profile updated.';
       case SaveOutcome.deferred:

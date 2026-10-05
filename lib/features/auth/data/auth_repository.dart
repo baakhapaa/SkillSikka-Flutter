@@ -1,3 +1,6 @@
+import 'dart:typed_data';
+
+import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/network/api_client.dart';
@@ -55,6 +58,43 @@ abstract interface class AuthRepository {
   /// expired access token. Callers are expected to treat failure as
   /// non-fatal — see `SessionBootstrap`.
   Future<MeProfile?> fetchMe();
+
+  /// Downloads the signed-in user's avatar, or null when there is none or the
+  /// fetch failed. See [AuthApi.fetchProfilePhoto] — the failure is deliberately
+  /// silent, so nothing here throws for a missing picture.
+  Future<({Uint8List bytes, String fileName})?> fetchProfilePhoto(String url);
+
+  /// Writes the fields every role shares — `name`, `email`, `gender`, `dob`,
+  /// `phone_country_code`, `phone_number`, `location` — and returns the profile
+  /// as the server now holds it, or null when nothing was sent.
+  ///
+  /// **This is what makes an edit to those seven persist.** Until 2026-10-02 no
+  /// endpoint accepted them, so Edit Profile could only write to its in-memory
+  /// store and every change was gone by the next login.
+  ///
+  /// The [fields] map is the **wire body**, already encoded: wire keys, the
+  /// lowercase gender, an ISO or `DD/MM/YYYY` date, the phone split in two. The
+  /// encoding lives at the call site that owns the form values — see
+  /// `ProfileUpdateRequest` — because the store is keyed by the form's keys, not
+  /// the wire's.
+  ///
+  /// A blank `gender` or `dob` must be **omitted** rather than sent empty: the
+  /// backend rejects `""` for both. See [AuthApi.updateProfile].
+  ///
+  /// Throws [ApiException] when the server rejects the body — a 400 naming the
+  /// offending field, which the edit screen surfaces through the shared error
+  /// helper. Unlike [completeProfile] there is no "route not built yet" case to
+  /// absorb: the route is live and a failure is real.
+  ///
+  /// **[files] and [fileLists] carry the user's documents** and may be empty.
+  /// Both may be empty while [fields] is empty too, in which case nothing is
+  /// sent — but a **file alone is a valid save**: someone who changed only their
+  /// photo sends no text at all, and that must not be mistaken for nothing to do.
+  Future<MeProfile?> updateProfile(
+    Map<String, String> fields, {
+    Map<String, MultipartFile> files = const {},
+    Map<String, List<MultipartFile>> fileLists = const {},
+  });
 
   /// Confirms the emailed code. Returns the account when verification
   /// established a session, and null when it did not.
@@ -195,6 +235,17 @@ class DioAuthRepository implements AuthRepository {
 
   @override
   Future<MeProfile?> fetchMe() => _api.fetchMe();
+
+  @override
+  Future<({Uint8List bytes, String fileName})?> fetchProfilePhoto(String url) =>
+      _api.fetchProfilePhoto(url);
+
+  @override
+  Future<MeProfile?> updateProfile(
+    Map<String, String> fields, {
+    Map<String, MultipartFile> files = const {},
+    Map<String, List<MultipartFile>> fileLists = const {},
+  }) => _api.updateProfile(fields, files: files, fileLists: fileLists);
 
   /// Stores the session the response carried, and the role that came with it.
   ///
@@ -410,6 +461,27 @@ class FakeAuthRepository implements AuthRepository {
   /// case the login screen has to survive.
   ApiException? meFailure;
 
+  /// What [fetchProfilePhoto] answers with. Null by default, matching a user who
+  /// has never uploaded a photo.
+  ({Uint8List bytes, String fileName})? photo;
+
+  /// How many times the avatar was actually fetched. Lets a test assert the
+  /// download is **skipped** when `/me/` carried no URL, which is the property
+  /// that keeps a login from making a pointless request.
+  int photoFetches = 0;
+
+  /// Mirrors the real method's contract, which is the point: it **never
+  /// throws**. A failed download is a null, so a test cannot accidentally pass
+  /// by asserting on an exception the real path would have swallowed.
+  @override
+  Future<({Uint8List bytes, String fileName})?> fetchProfilePhoto(
+    String url,
+  ) async {
+    await _wait();
+    photoFetches++;
+    return photo;
+  }
+
   @override
   Future<MeProfile?> fetchMe() async {
     await _wait();
@@ -417,6 +489,53 @@ class FakeAuthRepository implements AuthRepository {
     final error = meFailure;
     if (error != null) throw error;
     return me;
+  }
+
+  /// Every `PATCH /me/` body the screens sent, so a test can assert on the wire
+  /// keys rather than on the form values they were built from.
+  final List<Map<String, String>> updates = [];
+
+  /// The **slot names** of every file each `PATCH /me/` carried, flattened.
+  ///
+  /// Names rather than the `MultipartFile`s themselves: a test's real question is
+  /// "did the right slot go out, and did the wrong one stay behind", and that is
+  /// a question about keys. One entry per call, aligned with [updates] — so
+  /// `uploads[0]` is the files that rode along with `updates[0]`.
+  final List<List<String>> uploads = [];
+
+  /// Thrown by [updateProfile] when set. Separate from [failure] so a test can
+  /// have a healthy sign-in and a rejected save — which is the case the edit
+  /// screen has to survive.
+  ApiException? updateFailure;
+
+  /// What [updateProfile] answers with. Null by default, matching a body the
+  /// screen should treat as "nothing came back".
+  MeProfile? updateResult;
+
+  @override
+  Future<MeProfile?> updateProfile(
+    Map<String, String> fields, {
+    Map<String, MultipartFile> files = const {},
+    Map<String, List<MultipartFile>> fileLists = const {},
+  }) async {
+    await _wait();
+    // Empty fields **with** files is still a save — someone who changed only
+    // their photo sends no text. Matching the real repository's rule rather than
+    // the old one, so a fake cannot paper over a caller that sends nothing.
+    if (fields.isEmpty && files.isEmpty && fileLists.isEmpty) return null;
+    final error = updateFailure;
+    if (error != null) throw error;
+    updates.add(fields);
+    // Slot names only — a test's real question is "did the right slot go out,
+    // and did the wrong one stay behind". A slot in [fileLists] appears once per
+    // file, because that is what the wire looks like: two certificates are two
+    // parts under one repeated name.
+    uploads.add([
+      ...files.keys,
+      for (final entry in fileLists.entries)
+        ...List.filled(entry.value.length, entry.key),
+    ]);
+    return updateResult;
   }
 
   /// Stores the session the account carried, and the role alongside it — the

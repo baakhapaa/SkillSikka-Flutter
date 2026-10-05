@@ -466,7 +466,11 @@ void main() {
         expect(sent, isTrue);
         final request = adapter.requests.single;
         expect(request.method, 'POST');
-        expect(request.path, endsWith('/me/complete-profile/'));
+        // The instructor route, not the student one. `/me/complete-profile/`
+        // answers 403 `Only students can complete this profile step.` for an
+        // instructor token — verified live 2026-10-02 — so posting there meant
+        // every instructor save with anything to send was rejected.
+        expect(request.path, endsWith('/instructor/complete-profile/'));
 
         final body = request.data as Map;
         // `role` rides along so a role-discriminated endpoint can tell which
@@ -475,6 +479,22 @@ void main() {
         expect(body['role'], 'instructor');
         expect(body['qualification'], 'MCA');
         expect(body['phone_number'], '9812345678');
+      });
+    });
+
+    test('sends a student to the student completion route', () async {
+      await _withRepo((_) => ResponseBody.fromString('', 204), (
+        repository,
+        adapter,
+        _,
+      ) async {
+        final sent = await repository.completeProfile(
+          role: ProfileRole.student,
+          fields: {'grade_id': '3', 'school_id': '7'},
+        );
+
+        expect(sent, isTrue);
+        expect(adapter.requests.single.path, endsWith('/me/complete-profile/'));
       });
     });
 
@@ -502,17 +522,21 @@ void main() {
         adapter,
         _,
       ) async {
-        // The endpoint is a **granted request, not a confirmed contract** — see
-        // `AuthApi.completeProfile`. Until it exists, every instructor save
-        // would otherwise end in an error the user can do nothing about, for a
-        // feature that is working as far as they can tell.
+        // A missing route is not a failure of the user's edit — see
+        // `AuthApi.completeProfile`. The route is live today, so this is
+        // defensive rather than load-bearing, but an instructor save must never
+        // end in an error the user can do nothing about for a feature that is
+        // working as far as they can tell.
         final sent = await repository.completeProfile(
           role: ProfileRole.instructor,
           fields: {'qualification': 'MCA'},
         );
 
         expect(sent, isFalse);
-        expect(adapter.requests.single.path, endsWith('/me/complete-profile/'));
+        expect(
+          adapter.requests.single.path,
+          endsWith('/instructor/complete-profile/'),
+        );
       });
     });
 
@@ -1134,6 +1158,180 @@ void main() {
         expect(adapter.requests, isEmpty);
         expect(scope.read(sessionProvider), isNull);
       });
+    });
+  });
+
+  /// `PATCH /me/` grew a multipart mode on 2026-10-05, so a document picked on
+  /// Edit Profile actually reaches the server. Before it, the files were staged
+  /// in the store and **never sent anywhere** — the user saw "Profile updated."
+  /// and lost them.
+  group('DioAuthRepository.updateProfile — the document upload', () {
+    const ok = {
+      'user': {'id': 'u1', 'email': 'real@user.test'},
+    };
+
+    test('sends files as multipart on PATCH, not as a JSON body', () async {
+      await _withRepo((_) => _json(ok), (repository, adapter, _) async {
+        await repository.updateProfile(
+          {'name': 'Real User'},
+          files: {
+            'profile_photo': filePart(bytes: _photoBytes, fileName: 'me.png'),
+            'student_id_card': filePart(bytes: _cvBytes, fileName: 'id.pdf'),
+          },
+        );
+
+        final request = adapter.requests.single;
+        expect(request.method, 'PATCH');
+        expect(request.path, endsWith('/me/'));
+        expect(
+          request.data,
+          isA<FormData>(),
+          reason: 'a file cannot be represented in a JSON body at all',
+        );
+
+        final form = request.data as FormData;
+        final files = {for (final e in form.files) e.key: e.value};
+        final fields = {for (final e in form.fields) e.key: e.value};
+
+        // Text and files travel together in one request, which the backend
+        // explicitly allows.
+        expect(fields['name'], 'Real User');
+        expect(files['profile_photo']!.filename, 'me.png');
+        expect(files['student_id_card']!.filename, 'id.pdf');
+      });
+    });
+
+    test('sends the certificates slot as its own field name', () async {
+      await _withRepo((_) => _json(ok), (repository, adapter, _) async {
+        await repository.updateProfile(
+          const {},
+          fileLists: {
+            'certificates_and_recommendations': [
+              filePart(bytes: _certBytes, fileName: 'cert.png'),
+            ],
+          },
+        );
+
+        final form = adapter.requests.single.data as FormData;
+        final files = {for (final e in form.files) e.key: e.value};
+        expect(files.keys, ['certificates_and_recommendations']);
+        expect(files['certificates_and_recommendations']!.filename, 'cert.png');
+      });
+    });
+
+    test('two certificates arrive as two parts under one name', () async {
+      // The slot is **additive** server-side, and a `Map` holds one value per
+      // key — so a second certificate sent in `files` would replace the first.
+      // This is the assertion that the list path exists at all.
+      await _withRepo((_) => _json(ok), (repository, adapter, _) async {
+        await repository.updateProfile(
+          const {},
+          fileLists: {
+            'certificates_and_recommendations': [
+              filePart(bytes: _certBytes, fileName: 'one.png'),
+              filePart(bytes: _certBytes, fileName: 'two.png'),
+            ],
+          },
+        );
+
+        final form = adapter.requests.single.data as FormData;
+        final parts = form.files
+            .where((e) => e.key == 'certificates_and_recommendations')
+            .map((e) => e.value.filename)
+            .toList();
+
+        expect(parts, ['one.png', 'two.png']);
+      });
+    });
+
+    test('a photo alone is a real save, not an empty request', () async {
+      await _withRepo((_) => _json(ok), (repository, adapter, _) async {
+        // **The case an `isEmpty` check on the fields alone would swallow**: the
+        // user changed only their picture, so there is no text to send at all.
+        final updated = await repository.updateProfile(
+          const {},
+          files: {
+            'profile_photo': filePart(bytes: _photoBytes, fileName: 'me.png'),
+          },
+        );
+
+        expect(updated, isNotNull);
+        expect(
+          adapter.requests,
+          hasLength(1),
+          reason: 'no fields must not be read as "nothing to do"',
+        );
+      });
+    });
+
+    test('still sends plain JSON when there are no files', () async {
+      await _withRepo((_) => _json(ok), (repository, adapter, _) async {
+        await repository.updateProfile({'name': 'Real User'});
+
+        final request = adapter.requests.single;
+        expect(
+          request.data,
+          isA<Map<String, dynamic>>(),
+          reason: 'a text-only edit must not pay for a multipart encoding',
+        );
+      });
+    });
+
+    test('sends nothing when there are neither fields nor files', () async {
+      await _withRepo((_) => _json(ok), (repository, adapter, _) async {
+        expect(await repository.updateProfile(const {}), isNull);
+        expect(adapter.requests, isEmpty);
+      });
+    });
+
+    test('the content type follows the filename', () async {
+      // `package:mime` reads the extension, so a JPEG sent as `avatar.png` goes
+      // up labelled `image/png` — which is why the edit screen records the
+      // picked filename alongside the bytes.
+      await _withRepo((_) => _json(ok), (repository, adapter, _) async {
+        await repository.updateProfile(
+          const {},
+          files: {
+            'profile_photo': filePart(
+              bytes: _photoBytes,
+              fileName: 'photo.jpg',
+            ),
+          },
+        );
+
+        final form = adapter.requests.single.data as FormData;
+        final part = form.files
+            .firstWhere((e) => e.key == 'profile_photo')
+            .value;
+        expect(part.contentType, isNotNull);
+        expect(part.contentType!.mimeType, 'image/jpeg');
+      });
+    });
+
+    test('a 400 naming a field reaches the caller', () async {
+      // The route answers 400 on a slot the role may not send, rather than
+      // ignoring it — so this is the path that has to surface a real message
+      // instead of reporting a successful save.
+      final error = await _captureError(
+        (repository) => repository.updateProfile(
+          const {},
+          files: {
+            'student_id_card': filePart(bytes: _cvBytes, fileName: 'id.pdf'),
+          },
+        ),
+        handler: (_) => _json({
+          'student_id_card': ['Not allowed for this role.'],
+        }, status: 400),
+      );
+
+      expect(error.kind, ApiErrorKind.badRequest);
+      expect(
+        error.fieldErrors['student_id_card'],
+        contains('Not allowed'),
+        reason:
+            'the per-field message has to survive the multipart path, because '
+            'the edit screen shows it against the offending input',
+      );
     });
   });
 }

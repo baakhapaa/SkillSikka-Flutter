@@ -245,12 +245,19 @@ void main() {
       }
     });
 
-    testWidgets('is moved off the verify step, which has no endpoint', (
+    testWidgets('is left on the verify step, which is live again', (
       tester,
     ) async {
-      // Registration returns the session immediately, so the forms adopt one and
-      // then push here. The step's endpoint does not exist, so a signed-in user
-      // would be stranded on a dead screen.
+      // This used to assert the opposite. Registration handed back a session and
+      // the step's endpoint did not exist, so a signed-in user on it was sent
+      // home. Both halves are now wrong: the backend withholds the session until
+      // the emailed code is confirmed (2026-10-07), and the step posts to a real
+      // endpoint.
+      //
+      // Leaving it reachable is also what stops the interests step being
+      // skipped. The session appears *while the user is on this screen*, so a
+      // rule that redirected a signed-in user away would fire mid-verification
+      // and jump straight to home.
       final (:router, :container) = routerFor(
         session: signedIn,
         startAt: '/signup/verify',
@@ -258,7 +265,7 @@ void main() {
 
       await pumpRouter(tester, router, container);
 
-      expect(currentPath(router), '/');
+      expect(currentPath(router), '/signup/verify');
     });
   });
 

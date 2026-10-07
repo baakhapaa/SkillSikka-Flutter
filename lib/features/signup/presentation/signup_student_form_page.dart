@@ -15,6 +15,7 @@ import '../../../core/widgets/profile_photo_picker.dart';
 import '../../auth/data/auth_repository.dart';
 import '../../auth/data/registration_request.dart';
 import '../../profile/data/gender.dart';
+import '../../profile/data/profile_role.dart';
 import '../../profile/data/user_profile.dart';
 
 Future<String?> _pickOption(
@@ -202,7 +203,15 @@ class _SignupStudentFormPageState extends ConsumerState<SignupStudentFormPage> {
       return;
     }
 
-    ref.read(userProfileProvider.notifier).save({
+    final profileStore = ref.read(userProfileProvider.notifier);
+    // The role is recorded here as well as by the register response, and it is
+    // no longer redundant: the OTP screen that follows picks its endpoint from
+    // the stored role (`/register/student/verify-otp/` vs the instructor path),
+    // so a role that failed to parse off the response would strand the user on a
+    // screen that refuses to submit. Belt to the response's braces — the
+    // instructor form does the same, and for the same reason.
+    profileStore.setRole(ProfileRole.student);
+    profileStore.save({
       'name': _controller('name').text.trim(),
       'email': _controller('email').text.trim(),
       'gender': _controller('gender').text,
@@ -689,7 +698,7 @@ class _PasswordField extends StatelessWidget {
                 size: 20,
               )
             : SvgPicture.asset(
-                'assets/figma/signup_eye.svg',
+                'assets/figma/eye.svg',
                 key: const ValueKey('password-visible'),
                 width: 16,
                 height: 16,

@@ -141,8 +141,14 @@ class AppConfig {
   /// outstanding. Because the lease can still move, prefer a DHCP reservation or
   /// a hostname over editing this constant; `--dart-define=API_BASE_URL=...` is
   /// the override that needs no code edit.
+  /// **The address moved again on 2026-10-07 — it is `.68` now, not `.77`.**
+  /// Same dev PC (MAC `a8-41-f4-97-32-4c`), new DHCP lease; `.77` stopped
+  /// answering and the MAC turned up at `.68`. Every `.77` below is history, kept
+  /// because the reasoning still holds — only the number changed. Because this is
+  /// the second move in a week, prefer a DHCP reservation or a hostname over
+  /// editing this constant again.
   static const _defaultUrls = <AppEnvironment, String>{
-    AppEnvironment.development: 'http://192.168.1.77:8000/api/v1',
+    AppEnvironment.development: 'http://192.168.1.68:8000/api/v1',
     AppEnvironment.staging: 'https://staging-api.skillsikka.com/api/v1',
     AppEnvironment.production: 'https://api.skillsikka.com/api/v1',
   };

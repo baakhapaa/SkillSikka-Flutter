@@ -517,7 +517,7 @@ class _SignupInstructorFormPageState
                   size: 20,
                 )
               : SvgPicture.asset(
-                  'assets/figma/signup_eye.svg',
+                  'assets/figma/eye.svg',
                   key: const ValueKey('password-visible'),
                   width: 16,
                   height: 16,

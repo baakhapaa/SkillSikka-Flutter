@@ -4,6 +4,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:skillsikka/core/network/api_error.dart';
 import 'package:skillsikka/features/auth/data/auth_repository.dart';
+import 'package:skillsikka/features/profile/data/profile_role.dart';
 import 'package:skillsikka/features/profile/data/user_profile.dart';
 import 'package:skillsikka/features/signup/presentation/signup_verification_page.dart';
 
@@ -39,6 +40,11 @@ Future<FakeAuthRepository> _pumpVerify(
   if (email.isNotEmpty) {
     container.read(userProfileProvider.notifier).save({'email': email});
   }
+  // The screen reads the role to choose between the student and instructor OTP
+  // endpoints, and refuses to submit without one. Signup always writes it — see
+  // SignupStudentFormPage._submit — so a test that omitted it would be testing a
+  // state the app never produces.
+  container.read(userProfileProvider.notifier).setRole(ProfileRole.student);
 
   await tester.pumpWidget(
     UncontrolledProviderScope(
@@ -55,7 +61,7 @@ Future<FakeAuthRepository> _pumpVerify(
 /// Deliberately not [WidgetTester.pumpAndSettle]. The resend countdown schedules
 /// a frame every second, so "no frames scheduled" is not a state this screen
 /// reaches until the cooldown expires — pumpAndSettle would fast-forward the
-/// whole 45 seconds and quietly change the thing under test.
+/// whole 60 seconds and quietly change the thing under test.
 Future<void> _settleRequest(WidgetTester tester) async {
   for (var frame = 0; frame < 4; frame++) {
     await tester.pump(const Duration(milliseconds: 50));
@@ -74,10 +80,11 @@ Future<void> _enterCode(WidgetTester tester, String code) async {
 
 /// Lets the resend cooldown expire, one second per frame.
 ///
-/// One second at a time rather than a single 45-second pump so the tick is
-/// exercised the way it actually runs.
+/// One second at a time rather than a single 60-second pump so the tick is
+/// exercised the way it actually runs. The bound is the cooldown plus one, so it
+/// still works if the constant moves again.
 Future<void> _runOutCooldown(WidgetTester tester) async {
-  for (var second = 0; second < 46; second++) {
+  for (var second = 0; second < 61; second++) {
     await tester.pump(const Duration(seconds: 1));
   }
 }
@@ -128,6 +135,9 @@ void main() {
     expect(auth.verifications, hasLength(1));
     expect(auth.verifications.single.email, 'skill@email.com');
     expect(auth.verifications.single.code, '1234');
+    // The role decides the endpoint — `/register/student/verify-otp/` here — so
+    // a wrong one is a silent mis-route that only the server would notice.
+    expect(auth.verifications.single.role, ProfileRole.student);
     expect(navigated, ['/signup/interests']);
   });
 
@@ -180,15 +190,16 @@ void main() {
     await _pumpVerify(tester);
 
     // The label used to be a hardcoded "00:45" with nothing behind it: the
-    // number was decoration and the action did not exist at all.
-    expect(find.textContaining('Resend code in 00:45'), findsOneWidget);
+    // number was decoration and the action did not exist at all. It is now the
+    // backend's own 60 seconds, shown as `mm:ss` — hence `01:00`, not `00:60`.
+    expect(find.textContaining('Resend code in 01:00'), findsOneWidget);
     // No way to ask for another code while the first is still fresh. The guard
     // inside _resend is unreachable through the UI, so what is worth pinning is
     // that the screen offers no early resend at all.
     expect(find.text('Resend code'), findsNothing);
 
     await tester.pump(const Duration(seconds: 1));
-    expect(find.textContaining('Resend code in 00:44'), findsOneWidget);
+    expect(find.textContaining('Resend code in 00:59'), findsOneWidget);
     expect(find.text('Resend code'), findsNothing);
   });
 
@@ -205,8 +216,15 @@ void main() {
     await tester.tap(find.text('Resend code'));
     await _settleRequest(tester);
 
-    expect(auth.resends, ['skill@email.com']);
-    expect(find.textContaining('skill@email.com'), findsWidgets);
+    expect(auth.resends.single.email, 'skill@email.com');
+    expect(auth.resends.single.role, ProfileRole.student);
+    // Deliberately conditional wording. The backend answers 200 whether or not it
+    // actually sent anything — it silently skips inside the cooldown and past the
+    // 10-codes-per-day cap — so the client must not promise delivery.
+    expect(
+      find.text('If your account is eligible, a new code is on its way.'),
+      findsOneWidget,
+    );
 
     await tester.pump(const Duration(seconds: 5));
   });

@@ -22,6 +22,8 @@ class RegisteredAccount {
     this.status,
     this.accessToken,
     this.refreshToken,
+    this.emailVerificationRequired = false,
+    this.emailVerified,
   });
 
   /// The address the account was created for. The OTP screen needs it, and it
@@ -48,6 +50,48 @@ class RegisteredAccount {
   /// From `tokens.refresh`. Exchanged for a new access token when the 30-minute
   /// one expires (handoff §10); without it the session cannot be renewed.
   final String? refreshToken;
+
+  /// True when the server created the account but **withheld the session** until
+  /// the emailed code is confirmed.
+  ///
+  /// Shipped 2026-10-07. Both roles now register this way — the response is a
+  /// 201 whose body is
+  ///
+  /// ```json
+  /// {"user": {"id":"25","email":"…","name":"…","role":"student",
+  ///           "verification_status":"not_applicable","email_verified":false},
+  ///  "detail": "Verify your email to complete signup.",
+  ///  "email_verification_required": true}
+  /// ```
+  ///
+  /// — measured live, for a student (id 25) and an instructor (id 26). Note
+  /// there is **no `tokens` key at all**, which is why [hasSession] is false
+  /// here and why the signup screens must route to the OTP step rather than
+  /// into the app.
+  ///
+  /// Read from the top level **and** from under `user`: the live response puts
+  /// it at the top, but the flag is about the user, so both are checked and the
+  /// cost of the second lookup is nil.
+  final bool emailVerificationRequired;
+
+  /// From `user.email_verified`. Null when the response did not say, which is
+  /// the case for `/login/` and for any endpoint that predates the flag.
+  final bool? emailVerified;
+
+  /// True when this account still has to clear the email gate before it can be
+  /// used for anything.
+  ///
+  /// **The session test is the load-bearing half, not the flag.** The backend
+  /// documents `email_verification_required`, but the invariant that actually
+  /// matters is "registration did not hand us a usable session" — and an
+  /// account with no token cannot be used whatever the reason. Reading it that
+  /// way means this stays correct even if a future response omits the flag, and
+  /// it cannot route a session-carrying response to the OTP screen.
+  ///
+  /// For `/login/` this is always false: a login either issues a session (so
+  /// `hasSession` holds) or fails outright — an unverified account is refused
+  /// with a 400 rather than a tokenless 200.
+  bool get needsEmailVerification => emailVerificationRequired || !hasSession;
 
   /// True when this response established a session, so the client can stop
   /// treating the user as signed out.
@@ -118,13 +162,23 @@ class RegisteredAccount {
       ]),
       accessToken: accessToken,
       refreshToken: refreshToken,
+      // Top level first, matching the live response, then under `user` as the
+      // plausible alternative. See [emailVerificationRequired].
+      emailVerificationRequired:
+          _firstBool(json['email_verification_required']) ??
+          _firstBool(user['email_verification_required']) ??
+          false,
+      emailVerified:
+          _firstBool(user['email_verified']) ??
+          _firstBool(json['email_verified']),
     );
   }
 
   @override
   String toString() =>
       'RegisteredAccount(email: $email, role: ${role?.wireValue}, '
-      'status: $status, hasSession: $hasSession)';
+      'status: $status, hasSession: $hasSession, '
+      'needsVerification: $needsEmailVerification)';
 }
 
 /// The first non-blank scalar in [candidates], as a string, or null.
@@ -146,3 +200,10 @@ String? _firstString(List<Object?> candidates) {
   }
   return null;
 }
+
+/// A bool, or null when the value is absent or not a bool.
+///
+/// Not `value as bool?`: a JSON `"false"` or `0` would throw on the cast, and a
+/// wrong type in one optional flag should not fail the whole parse. Same helper
+/// as `me_profile.dart`, duplicated for the same reason `_firstString` is.
+bool? _firstBool(Object? value) => value is bool ? value : null;

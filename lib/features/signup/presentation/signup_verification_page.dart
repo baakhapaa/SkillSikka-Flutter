@@ -8,6 +8,7 @@ import 'package:google_fonts/google_fonts.dart';
 
 import '../../../core/network/api_error.dart';
 import '../../../core/widgets/api_error_snack.dart';
+import '../../../core/widgets/otp_code_field.dart';
 import '../../auth/data/auth_repository.dart';
 import '../../profile/data/user_profile.dart';
 
@@ -17,10 +18,17 @@ const _placeholderEmail = 'sarah@email.com';
 
 /// How long the resend action stays locked after a code goes out.
 ///
+/// **60 seconds, matching the backend's own cooldown** (confirmed 2026-10-07).
 /// Counted from arrival rather than from the last tap: this screen is only
 /// reached by completing the step that sent a code, so the wait has already
 /// started by the time it appears.
-const _resendCooldownSeconds = 45;
+///
+/// **This countdown is not a nicety — it is the only thing enforcing the
+/// cooldown.** `resend-otp` answers `200` even inside the window (it never
+/// refuses, to avoid confirming which addresses are registered), so a shorter
+/// client value would let the user tap straight into a request the server
+/// silently drops.
+const _resendCooldownSeconds = 60;
 
 class SignupVerificationPage extends ConsumerStatefulWidget {
   const SignupVerificationPage({super.key});
@@ -32,8 +40,12 @@ class SignupVerificationPage extends ConsumerStatefulWidget {
 
 class _SignupVerificationPageState
     extends ConsumerState<SignupVerificationPage> {
-  final _controllers = List.generate(4, (_) => TextEditingController());
-  final _focusNodes = List.generate(4, (_) => FocusNode());
+  /// The digits entered so far, kept in step by [OtpCodeField].
+  ///
+  /// Held here rather than read out of four controllers at submit time, because
+  /// the widget now owns those. Shorter than four until every box is filled —
+  /// see the widget's doc.
+  String _code = '';
 
   /// True while a request is in flight. See the student form's field of the same
   /// name — same reason: a slow request must not look frozen, and the button
@@ -99,26 +111,48 @@ class _SignupVerificationPageState
   /// Sends a fresh code.
   ///
   /// The cooldown is restarted only on success: a failed resend sent nothing,
-  /// so locking the action for another 45 seconds would leave the user with no
-  /// code and no way to ask again.
+  /// so locking the action for another minute would leave the user with no code
+  /// and no way to ask again.
+  ///
+  /// **"Success" here is weaker than it looks.** The endpoint answers 200 for
+  /// every well-formed request, including one it decided not to act on. Per the
+  /// backend's integration guide it silently skips when either of two conditions
+  /// holds:
+  ///
+  /// - fewer than **60 seconds** have passed since the last code, or
+  /// - the account has had **10 codes in the last 24 hours**.
+  ///
+  /// That is enumeration defence, not a bug on our side — see
+  /// [AuthApi.resendOtp] — which is why the confirmation message is worded as a
+  /// possibility rather than a receipt.
   Future<void> _resend() async {
     if (_isResending || _secondsLeft > 0) return;
 
-    final email = ref.read(userProfileProvider).email;
-    if (email.isEmpty) {
+    final profile = ref.read(userProfileProvider);
+    final email = profile.email;
+    final role = profile.role;
+    if (email.isEmpty || role == null) {
       _showSnack('Start again from signup so we know which email to use.');
       return;
     }
 
     setState(() => _isResending = true);
     try {
-      await ref.read(authRepositoryProvider).resendOtp(email: email);
+      await ref
+          .read(authRepositoryProvider)
+          .resendOtp(role: role, email: email);
       if (!mounted) return;
       setState(() {
         _isResending = false;
         _startCooldown();
       });
-      _showSnack('We sent a new code to $email.');
+      // **Not "we sent it".** The backend answers 200 whether or not it sent
+      // anything — it silently skips inside the 60-second cooldown and once the
+      // account has had 10 codes in 24 hours, and it never refuses, so that the
+      // endpoint cannot be used to discover which addresses are registered. A
+      // client that promised delivery would be claiming something it cannot
+      // know. The backend's own integration guide asks for exactly this wording.
+      _showSnack('If your account is eligible, a new code is on its way.');
     } on ApiException catch (error) {
       if (!mounted) return;
       setState(() => _isResending = false);
@@ -126,27 +160,33 @@ class _SignupVerificationPageState
     }
   }
 
-  /// Confirms the code with the server.
+  /// Confirms the code with the server — **and this is what signs the user in.**
   ///
-  /// This screen is reached whether or not registration returned a session
-  /// (handover doc §6.1). Always asking for the code is deliberate: it is
-  /// correct under both backend models, whereas skipping the step when a token
-  /// came back would leave the user stuck if the backend verifies by OTP.
+  /// Registration no longer returns a session for either role (confirmed live
+  /// 2026-10-07): it answers 201 with `email_verification_required: true` and no
+  /// tokens. So this call is the only place a signup session comes from, and a
+  /// user who never gets here never gets an account they can use.
+  ///
+  /// The role decides which endpoint the code goes to, which is why it is read
+  /// from the store rather than assumed: the two roles have separate paths.
   Future<void> _verify() async {
     if (_isSubmitting) return;
 
-    final code = _controllers
-        .map((controller) => controller.text.trim())
-        .join();
-    if (code.length != 4) {
+    final code = _code;
+    // Four digits, matching the backend's `^[0-9]{4}$`. The length alone is not
+    // enough — a paste can put a letter in a box that a numeric keyboard would
+    // never produce — and catching it here saves a round trip to be told.
+    if (!RegExp(r'^[0-9]{4}$').hasMatch(code)) {
       _showSnack('Enter the 4-digit code.');
       return;
     }
 
-    final email = ref.read(userProfileProvider).email;
-    if (email.isEmpty) {
+    final profile = ref.read(userProfileProvider);
+    final email = profile.email;
+    final role = profile.role;
+    if (email.isEmpty || role == null) {
       // Only reachable by deep-linking straight here, or by arriving with a
-      // cleared store. There is no address to verify against.
+      // cleared store. There is no account to verify against.
       _showSnack('Start again from signup so we know which email to verify.');
       return;
     }
@@ -155,15 +195,16 @@ class _SignupVerificationPageState
     try {
       await ref
           .read(authRepositoryProvider)
-          .verifyOtp(email: email, code: code);
+          .verifyOtp(role: role, email: email, code: code);
       if (!mounted) return;
       setState(() => _isSubmitting = false);
       context.push('/signup/interests');
     } on ApiException catch (error) {
       if (!mounted) return;
       setState(() => _isSubmitting = false);
-      // No inline validation on the boxes, so the server's message — a wrong
-      // code, an expired one — is shown as it came.
+      // No inline validation on the boxes, so the server's message — one
+      // sentence covering a wrong, expired or unknown-code case — is shown as it
+      // came.
       showApiErrorSnack(context, error);
     }
   }
@@ -172,13 +213,9 @@ class _SignupVerificationPageState
   void dispose() {
     // Not optional: a live periodic timer keeps calling setState on a State
     // that is no longer mounted, which throws once the user leaves the screen.
+    // The code boxes' controllers and focus nodes are no longer disposed here —
+    // `OtpCodeField` owns them and disposes them itself.
     _cooldown?.cancel();
-    for (final controller in _controllers) {
-      controller.dispose();
-    }
-    for (final focusNode in _focusNodes) {
-      focusNode.dispose();
-    }
     super.dispose();
   }
 
@@ -241,30 +278,12 @@ class _SignupVerificationPageState
                   padding: const EdgeInsets.fromLTRB(24, 40, 24, 0),
                   child: Column(
                     children: [
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: List.generate(4, (index) {
-                          return Padding(
-                            padding: EdgeInsets.only(
-                              right: index == 3 ? 0 : 16,
-                            ),
-                            child: _OtpBox(
-                              autofocus: index == 0,
-                              controller: _controllers[index],
-                              focusNode: _focusNodes[index],
-                              focused: _focusNodes[index].hasFocus,
-                              onChanged: (value) {
-                                if (value.isNotEmpty && index < 3) {
-                                  _focusNodes[index + 1].requestFocus();
-                                }
-                                if (value.isEmpty && index > 0) {
-                                  _focusNodes[index - 1].requestFocus();
-                                }
-                                setState(() {});
-                              },
-                            ),
-                          );
-                        }),
+                      OtpCodeField(
+                        onChanged: (code) => _code = code,
+                        // Locked while a request is in flight, but the digits
+                        // stay on screen so a rejected code can be corrected
+                        // rather than retyped.
+                        enabled: !_isSubmitting,
                       ),
                       const SizedBox(height: 24),
                       if (_secondsLeft > 0)
@@ -293,7 +312,9 @@ class _SignupVerificationPageState
                         TextButton(
                           onPressed: _isResending ? null : _resend,
                           child: Text(
-                            _isResending ? 'Sending a new code…' : 'Resend code',
+                            _isResending
+                                ? 'Sending a new code…'
+                                : 'Resend code',
                             style: GoogleFonts.manrope(
                               color: const Color(0xFFB59100),
                               fontSize: 14,
@@ -398,72 +419,6 @@ class _Header extends StatelessWidget {
             ),
           ),
         ],
-      ),
-    );
-  }
-}
-
-class _OtpBox extends StatelessWidget {
-  const _OtpBox({
-    required this.autofocus,
-    required this.controller,
-    required this.focusNode,
-    required this.focused,
-    required this.onChanged,
-  });
-
-  final bool autofocus;
-  final TextEditingController controller;
-  final FocusNode focusNode;
-  final bool focused;
-  final ValueChanged<String> onChanged;
-
-  @override
-  Widget build(BuildContext context) {
-    return SizedBox(
-      width: 64,
-      height: 64,
-      child: TextField(
-        controller: controller,
-        focusNode: focusNode,
-        autofocus: autofocus,
-        textAlign: TextAlign.center,
-        keyboardType: TextInputType.number,
-        maxLength: 1,
-        onChanged: onChanged,
-        style: GoogleFonts.manrope(
-          color: const Color(0xFF111827),
-          fontSize: 24,
-          fontWeight: FontWeight.w700,
-        ),
-        decoration: InputDecoration(
-          counterText: '',
-          filled: true,
-          fillColor: Colors.white,
-          contentPadding: EdgeInsets.zero,
-          border: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(16),
-            borderSide: BorderSide(
-              color: focused
-                  ? const Color(0xFFE6B800)
-                  : const Color(0xFFE5E7EB),
-              width: focused ? 2 : 1,
-            ),
-          ),
-          enabledBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(16),
-            borderSide: BorderSide(
-              color: focused
-                  ? const Color(0xFFE6B800)
-                  : const Color(0xFFE5E7EB),
-              width: focused ? 2 : 1,
-            ),
-          ),
-          focusedBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(16),
-            borderSide: const BorderSide(color: Color(0xFFE6B800), width: 2),
-          ),
-        ),
       ),
     );
   }

@@ -321,32 +321,168 @@ class AuthApi {
     };
   }
 
-  /// `POST /auth/verify-otp`.
+  /// The signup-OTP routes — **one pair per role**, exactly like registration.
   ///
-  /// **This endpoint does not exist.** The backend response is explicit that
-  /// signup email verification is not implemented and that registration returns
-  /// the session immediately; `/auth/verify-otp` and `/auth/resend-otp` below
-  /// were ours. Both calls are left in place only until the signup flow is
-  /// rewired — see `student-signup-backend-spec.md` §B. Do not treat either as
-  /// part of the contract.
+  /// Confirmed against the live schema on 2026-10-07 (123 paths). This is no
+  /// longer an instructor-only step: the backend added student signup OTP, so
+  /// **both** roles register without a session and then verify by email.
+  static const _verifyOtpPaths = <ProfileRole, String>{
+    ProfileRole.student: '/register/student/verify-otp/',
+    ProfileRole.instructor: '/register/instructor/verify-otp/',
+  };
+
+  static const _resendOtpPaths = <ProfileRole, String>{
+    ProfileRole.student: '/register/student/resend-otp/',
+    ProfileRole.instructor: '/register/instructor/resend-otp/',
+  };
+
+  /// `POST /register/student/verify-otp/` or `/register/instructor/verify-otp/`.
   ///
-  /// Returns the account when verification established a session, and null when
-  /// it did not. The body is optional, so this uses
-  /// [ApiClient.postOptionalBody]: a successful verification has no reason to
-  /// carry a payload.
+  /// The body is the schema's `SignupVerify`: **`{"email": ..., "otp": ...}`**.
+  /// The code field is **`otp`, not `code`** — and it is constrained to
+  /// `^[0-9]{4}$`, so the four boxes on the screen map to exactly one wire
+  /// field. All four measured live on 2026-10-07:
+  ///
+  /// | Sent | Answer |
+  /// |---|---|
+  /// | valid-shaped but wrong/expired/unknown | **400** `{"detail": "Invalid or expired OTP."}` |
+  /// | `otp` missing | **400** `{"otp": ["This field is required."]}` |
+  /// | `otp` not 4 digits | **400** `{"otp": ["This value does not match the required pattern."]}` |
+  ///
+  /// **The first row is one message for three causes, deliberately.** The
+  /// backend does not tell the client whether the code was wrong, expired, or
+  /// belonged to no account, so the screen cannot say either — it shows the
+  /// server's sentence and nothing more specific.
+  ///
+  /// Success is the step that issues the session, so the body is read with the
+  /// same tolerant parser registration and login use. It returns null when the
+  /// response carried no recognisable account.
   Future<RegisteredAccount?> verifyOtp({
+    required ProfileRole role,
     required String email,
     required String code,
   }) async {
     final body = await _client.postOptionalBody(
-      '/auth/verify-otp',
-      data: {'email': email, 'code': code},
+      _verifyOtpPaths[role]!,
+      data: {'email': email, 'otp': code},
     );
     return RegisteredAccount.tryParse(body);
   }
 
-  /// `POST /auth/resend-otp`. **Does not exist** — see [verifyOtp].
-  Future<void> resendOtp({required String email}) async {
-    await _client.postOptionalBody('/auth/resend-otp', data: {'email': email});
+  /// `POST /register/student/resend-otp/` or `/register/instructor/resend-otp/`.
+  ///
+  /// The body is the schema's `SignupEmail`: `{"email": ...}`.
+  ///
+  /// **It answers 200 whatever happens.** An unknown address, an address with
+  /// no account, and a call inside the 60-second cooldown all return the same
+  /// fixed sentence — *"If an eligible account exists and the resend cooldown
+  /// has elapsed, a signup OTP has been sent."* Verified live 2026-10-07, for
+  /// both a real account and a made-up one.
+  ///
+  /// That is account-enumeration defence, and it has two consequences the
+  /// caller has to live with:
+  ///
+  /// - **A resend can never be reported as failed from the response.** The only
+  ///   way this throws is a transport failure, a 4xx from a malformed body, or
+  ///   a 5xx.
+  /// - **The cooldown is ours to enforce.** The server will not refuse, so the
+  ///   countdown on the screen is the only thing stopping a tap-storm — which
+  ///   is why its length is a client constant that has to match the server's.
+  Future<void> resendOtp({
+    required ProfileRole role,
+    required String email,
+  }) async {
+    await _client.postOptionalBody(
+      _resendOtpPaths[role]!,
+      data: {'email': email},
+    );
+  }
+
+  // ---------------------------------------------------------------------------
+  // Password reset — a separate OTP flow from signup, and a different one
+  // ---------------------------------------------------------------------------
+  //
+  // Three steps, three endpoints, and **not** interchangeable with the signup
+  // pair above: different paths, a `reset_token` in the middle, and a reset
+  // endpoint at the end. The backend's integration guide is explicit that the
+  // signup and reset OTP purposes stay separate, so the 4-digit length is the
+  // only thing the two flows share.
+
+  /// `POST /forgot-password/` — asks for a reset code.
+  ///
+  /// Body `{"email": ...}`.
+  ///
+  /// **Answers 200 whether or not the address has an account**, with a fixed
+  /// sentence: `{"detail": "If an account exists with this email, a password
+  /// reset OTP has been sent."}` So the caller cannot tell whether anything was
+  /// sent, and the screen must advance to the code step either way — saying "no
+  /// such account" here would turn the endpoint into an address-enumeration
+  /// oracle.
+  ///
+  /// **There is no server-side cooldown on this one**, unlike signup resend:
+  /// every request mints a fresh code and **kills the previous one**, so only the
+  /// newest email's code works. The 60-second wait on the button is therefore a
+  /// pure client affordance, not a mirror of a server rule.
+  Future<void> requestPasswordReset({required String email}) async {
+    await _client.postOptionalBody('/forgot-password/', data: {'email': email});
+  }
+
+  /// `POST /forgot-password/verify-otp/` — exchanges the code for a reset token.
+  ///
+  /// Body `{"email": ..., "otp": ...}`, the code again as a **string**.
+  ///
+  /// Returns the opaque `reset_token`, or null when the response carried none.
+  /// **The token is the whole point of this call**: it is the only thing that
+  /// authorises [resetPassword], it is single-use, and it expires in 10 minutes.
+  /// Kept in memory by the caller and never persisted.
+  ///
+  /// Failures — note the shapes differ from the signup verify endpoint:
+  /// - **400** `{"detail": ["Invalid or expired OTP."]}` — a **list** here,
+  ///   where signup sends a plain string. Covers a wrong, expired or used-up code.
+  /// - **400** `{"otp": ["Enter exactly 4 numeric digits."]}` — bad format.
+  Future<String?> verifyPasswordResetOtp({
+    required String email,
+    required String code,
+  }) async {
+    final body = await _client.postOptionalBody(
+      '/forgot-password/verify-otp/',
+      data: {'email': email, 'otp': code},
+    );
+    if (body is! Map) return null;
+    final token = body['reset_token'];
+    if (token is String && token.trim().isNotEmpty) return token.trim();
+    return null;
+  }
+
+  /// `POST /forgot-password/reset/` — sets the new password.
+  ///
+  /// Body `{"reset_token": ..., "new_password": ..., "confirm_password": ...}`.
+  ///
+  /// **Returns no tokens, and that is the contract rather than an omission.** The
+  /// backend signs every existing session for the account out when the password
+  /// changes — stored refresh tokens stop working, and already-issued access
+  /// tokens die within their 30 minutes — so the user has to log in again. The
+  /// caller therefore ends this flow on the login screen, not in the app.
+  ///
+  /// Failures, and the distinction the caller needs:
+  /// - **400** `{"new_password": [...]}` or `{"confirm_password": [...]}` — the
+  ///   password rules, as **field errors**. The user can fix this in place.
+  /// - **400** `{"detail": ["Invalid or expired reset token."]}` — the token was
+  ///   used, is over 10 minutes old, or was tampered with. **A `detail` with no
+  ///   field errors**, which is how the screen tells "restart the flow" from
+  ///   "correct the password" without matching prose.
+  Future<void> resetPassword({
+    required String resetToken,
+    required String newPassword,
+    required String confirmPassword,
+  }) async {
+    await _client.postOptionalBody(
+      '/forgot-password/reset/',
+      data: {
+        'reset_token': resetToken,
+        'new_password': newPassword,
+        'confirm_password': confirmPassword,
+      },
+    );
   }
 }

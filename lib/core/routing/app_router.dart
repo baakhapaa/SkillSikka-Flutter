@@ -102,18 +102,22 @@ final appRouterProvider = Provider<GoRouter>((ref) {
       // on them signed in is how a user ends up in a loop.
       if (path == '/login-screen' || path == '/forgot-password') return '/';
 
-      // The signup family is public, so a signed-out user reaching it is correct
-      // and is left alone above. A *signed-in* one is a different case, and this
-      // is the only route in the family that produces it: registration now
-      // returns the session immediately (backend handoff §1), so the student and
-      // instructor forms adopt a session and then push to `/signup/verify`.
+      // `/signup/verify` used to be redirected to `/` here, because registration
+      // returned a session immediately and that screen's endpoint did not exist —
+      // a signed-in user on it had nowhere to go.
       //
-      // Without this rule that user sits on a screen whose endpoint
-      // (`/auth/verify-otp`) does not exist, with a session and no way forward —
-      // the guard would be leaving them somewhere it has already decided they do
-      // not belong. Sent home instead. See `student-signup-backend-spec.md` §B:
-      // the step is due to be deleted, and this rule goes with it.
-      if (path == '/signup/verify') return '/';
+      // **That rule is gone as of 2026-10-07, and re-adding it would break
+      // signup.** The backend now withholds the session until the emailed code is
+      // confirmed, for *both* roles, so the user is signed **out** the whole time
+      // they are on `/signup/verify` and the guard leaves them there correctly.
+      // The session appears only when verification succeeds, and the screen then
+      // pushes to `/signup/interests` — which is inside the public `/signup/`
+      // family, so it is not redirected either.
+      //
+      // Nothing replaces the rule. A signed-in user who navigates back to
+      // `/signup/verify` simply sits on a screen whose code they no longer have;
+      // there is no loop and no dead end, because `/signup/*` is public in both
+      // directions.
 
       // ---- The role clause: where "role-based" would actually live ----
       //

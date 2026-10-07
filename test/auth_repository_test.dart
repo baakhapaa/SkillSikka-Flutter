@@ -802,7 +802,11 @@ void main() {
           'access_token': 'from-otp',
         }),
         (repository, _, scope) async {
-          await repository.verifyOtp(email: 'sarah@example.com', code: '1234');
+          await repository.verifyOtp(
+            role: ProfileRole.student,
+            email: 'sarah@example.com',
+            code: '1234',
+          );
 
           expect(scope.read(sessionProvider)?.access, 'from-otp');
         },
@@ -816,16 +820,20 @@ void main() {
         scope,
       ) async {
         final account = await repository.verifyOtp(
+          role: ProfileRole.student,
           email: 'sarah@example.com',
           code: '1234',
         );
 
         expect(account, isNull);
         expect(scope.read(sessionProvider), isNull);
-        // …and the code really was sent.
+        // …and the code really was sent, under the wire name the backend uses.
+        // `otp`, not `code`: the schema's `SignupVerify` requires exactly that
+        // key, and sending `code` instead is a 400 "This field is required."
         final sent = adapter.requests.single.data as Map<String, dynamic>;
         expect(sent['email'], 'sarah@example.com');
-        expect(sent['code'], '1234');
+        expect(sent['otp'], '1234');
+        expect(sent.containsKey('code'), isFalse);
       });
     });
 
@@ -836,6 +844,7 @@ void main() {
         (_) => ResponseBody.fromString('', 204),
         (repository, _, _) async {
           final account = await repository.verifyOtp(
+            role: ProfileRole.student,
             email: 'sarah@example.com',
             code: '1234',
           );
@@ -848,15 +857,19 @@ void main() {
 
     test('a wrong code surfaces the server message', () async {
       final error = await _captureError(
-        (repository) =>
-            repository.verifyOtp(email: 'sarah@example.com', code: '0000'),
-        handler: (_) => _json({
-          'code': ['That code is not correct.'],
-        }, status: 400),
+        (repository) => repository.verifyOtp(
+          role: ProfileRole.student,
+          email: 'sarah@example.com',
+          code: '0000',
+        ),
+        // The live shape, measured 2026-10-07: a single sentence for a wrong,
+        // expired or unknown-code case alike.
+        handler: (_) =>
+            _json({'detail': 'Invalid or expired OTP.'}, status: 400),
       );
 
       expect(error.kind, ApiErrorKind.badRequest);
-      expect(error.fieldError('code'), 'That code is not correct.');
+      expect(error.displayMessage, 'Invalid or expired OTP.');
     });
 
     test('resendOtp posts the email and ignores the body', () async {
@@ -865,16 +878,54 @@ void main() {
         adapter,
         _,
       ) async {
-        await repository.resendOtp(email: 'sarah@example.com');
+        await repository.resendOtp(
+          role: ProfileRole.student,
+          email: 'sarah@example.com',
+        );
 
         final request = adapter.requests.single;
-        expect(request.path, endsWith('/auth/resend-otp'));
+        expect(request.path, endsWith('/register/student/resend-otp/'));
         expect(
           (request.data as Map<String, dynamic>)['email'],
           'sarah@example.com',
         );
       });
     });
+
+    // The two endpoints are separate paths rather than one path with a role
+    // field, so a role that does not reach the URL is a silent mis-route: the
+    // request looks well-formed and only the server would notice. Pinned for both
+    // verbs, because the screens pass the role to each independently.
+    test(
+      'the role selects the endpoint, for verify and resend alike',
+      () async {
+        for (final role in ProfileRole.values) {
+          final expected = '/register/${role.wireValue}/';
+
+          await _withRepo((_) => _json({'detail': 'ok'}), (
+            repository,
+            adapter,
+            _,
+          ) async {
+            await repository.resendOtp(role: role, email: 'a@b.com');
+            await repository.verifyOtp(
+              role: role,
+              email: 'a@b.com',
+              code: '1234',
+            );
+
+            expect(
+              adapter.requests[0].path,
+              endsWith('${expected}resend-otp/'),
+            );
+            expect(
+              adapter.requests[1].path,
+              endsWith('${expected}verify-otp/'),
+            );
+          });
+        }
+      },
+    );
   });
 
   group('FakeAuthRepository', () {
@@ -898,6 +949,32 @@ void main() {
       final account = await repository.register(_studentRequest());
 
       expect(account.hasSession, isFalse);
+      // Which is the whole point of the flag: a caller that sees this must route
+      // to the OTP screen rather than into the app.
+      expect(account.needsEmailVerification, isTrue);
+      expect(account.emailVerificationRequired, isTrue);
+    });
+
+    test('the session from verifyOtp is adopted, with the role', () async {
+      final container = ProviderContainer();
+      addTearDown(container.dispose);
+      final repository = FakeAuthRepository(
+        session: container.read(sessionProvider.notifier),
+        profile: container.read(userProfileProvider.notifier),
+      );
+
+      final account = await repository.verifyOtp(
+        role: ProfileRole.instructor,
+        email: 'teach@example.com',
+        code: '1234',
+      );
+
+      expect(account?.hasSession, isTrue);
+      // This is the only place a signup session comes from now, so a fake that
+      // returned an account without writing the session would leave every
+      // guarded route bouncing the user back to login.
+      expect(container.read(sessionProvider)?.access, 'fake-access-token');
+      expect(container.read(userProfileProvider).role, ProfileRole.instructor);
     });
 
     test(
@@ -914,7 +991,11 @@ void main() {
           throwsA(isA<ApiException>()),
         );
         expect(
-          () => repository.verifyOtp(email: 'a@b.com', code: '1234'),
+          () => repository.verifyOtp(
+            role: ProfileRole.student,
+            email: 'a@b.com',
+            code: '1234',
+          ),
           throwsA(isA<ApiException>()),
         );
         // Nothing was recorded as a success.

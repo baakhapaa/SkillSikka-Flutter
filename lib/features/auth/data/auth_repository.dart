@@ -23,10 +23,17 @@ import 'registration_request.dart';
 /// never a bare socket error. That is what lets a screen decide what to show
 /// without knowing what a `DioException` is.
 abstract interface class AuthRepository {
-  /// Creates the account and adopts the session the backend returns with it.
+  /// Creates the account. **Does not sign the user in any more.**
   ///
-  /// There is no email-verification step: registration returns JWT tokens
-  /// immediately (backend handoff §1), so this is the authenticated step.
+  /// Registration now returns 201 with `email_verification_required: true` and
+  /// no tokens, for both roles (confirmed live 2026-10-07 — this reverses the
+  /// older contract, where registration *was* the authenticated step). The
+  /// caller must therefore route to the OTP screen and let [verifyOtp] establish
+  /// the session.
+  ///
+  /// The role is still adopted from the response here, before any token check,
+  /// so the OTP screen knows which endpoint to use — see
+  /// [DioAuthRepository._adopt].
   Future<RegisteredAccount> register(RegistrationRequest request);
 
   /// Signs in with email and password, and adopts the session.
@@ -99,15 +106,84 @@ abstract interface class AuthRepository {
   /// Confirms the emailed code. Returns the account when verification
   /// established a session, and null when it did not.
   ///
-  /// **The endpoint does not exist.** Kept only until the signup flow is rewired;
-  /// see [AuthApi.verifyOtp].
+  /// **This is the step that signs the user in**, for both roles. Registration
+  /// now returns 201 with `email_verification_required: true` and **no tokens**
+  /// (confirmed live 2026-10-07), so until this call succeeds the app holds no
+  /// session and every guarded route bounces the user back to login.
+  ///
+  /// [role] decides the endpoint — `/register/student/verify-otp/` or
+  /// `/register/instructor/verify-otp/`. The two are separate paths, not one
+  /// path with a role field, exactly like registration itself.
+  ///
+  /// Throws [ApiException] on a rejected code. The backend answers a single
+  /// 400 `{"detail": "Invalid or expired OTP."}` for a wrong code, an expired
+  /// one, and an unknown address alike, so the screen has one message to show
+  /// and no way to be more specific than the server is.
   Future<RegisteredAccount?> verifyOtp({
+    required ProfileRole role,
     required String email,
     required String code,
   });
 
-  /// **Does not exist** — see [verifyOtp].
-  Future<void> resendOtp({required String email});
+  /// Asks for a fresh code.
+  ///
+  /// **Answers 200 whether or not anything was sent** — the backend replies
+  /// with a fixed "if an eligible account exists…" sentence to avoid confirming
+  /// which addresses are registered, and it says that even inside the 60-second
+  /// cooldown. So a successful return here means *the request was accepted*, not
+  /// that a mail went out, and the countdown on the screen is the only thing
+  /// enforcing the cooldown. See [AuthApi.resendOtp].
+  Future<void> resendOtp({required ProfileRole role, required String email});
+
+  // ---------------------------------------------------------------------------
+  // Password reset — three steps, and a different flow from signup
+  // ---------------------------------------------------------------------------
+
+  /// Step 1: asks the server to email a password-reset code.
+  ///
+  /// **Succeeds whether or not the address has an account.** The backend answers
+  /// with a fixed "if an account exists…" sentence, so the screen advances to the
+  /// code step either way; reporting "no such account" would turn the endpoint
+  /// into an address-enumeration oracle. See [AuthApi.requestPasswordReset].
+  ///
+  /// Unlike signup's [resendOtp] there is **no server-side cooldown** here — each
+  /// request mints a new code and kills the previous one — so the 60-second wait
+  /// on the button is a client choice rather than a mirror of a server rule.
+  Future<void> requestPasswordReset({required String email});
+
+  /// Step 2: exchanges the code for a single-use reset token.
+  ///
+  /// Returns the token, or **null when the server sent none** — which the caller
+  /// must treat as a failure, because nothing can authorise step 3 without it.
+  ///
+  /// Throws [ApiException] for a wrong, expired or used-up code. The backend
+  /// sends one message for all three, and sends it as a **list** on this endpoint
+  /// where signup sends a string; `ApiException` renders both.
+  Future<String?> verifyPasswordResetOtp({
+    required String email,
+    required String code,
+  });
+
+  /// Step 3: sets the new password.
+  ///
+  /// **Does not sign the user in, and must not be treated as if it did.** The
+  /// backend returns no tokens and invalidates **every** existing session for the
+  /// account — stored refresh tokens stop working — so the caller ends this flow
+  /// on the login screen.
+  ///
+  /// Throws [ApiException] for both failure kinds, and they need different
+  /// handling:
+  ///
+  /// - **field errors** on `new_password` / `confirm_password` — the user can fix
+  ///   this in place, so show them under the fields.
+  /// - **a `detail` with no field errors** — the reset token is dead (used, over
+  ///   10 minutes old, or tampered with). The only recovery is to start again, so
+  ///   the screen sends the user back to step 1.
+  Future<void> resetPassword({
+    required String resetToken,
+    required String newPassword,
+    required String confirmPassword,
+  });
 
   /// Sends the deferred half of the profile to the completion endpoint, when
   /// there is anything to send.
@@ -195,17 +271,39 @@ class DioAuthRepository implements AuthRepository {
 
   @override
   Future<RegisteredAccount?> verifyOtp({
+    required ProfileRole role,
     required String email,
     required String code,
   }) async {
-    final account = await _api.verifyOtp(email: email, code: code);
+    final account = await _api.verifyOtp(role: role, email: email, code: code);
     if (account != null) _adopt(account);
     return account;
   }
 
   @override
-  Future<void> resendOtp({required String email}) =>
-      _api.resendOtp(email: email);
+  Future<void> resendOtp({required ProfileRole role, required String email}) =>
+      _api.resendOtp(role: role, email: email);
+
+  @override
+  Future<void> requestPasswordReset({required String email}) =>
+      _api.requestPasswordReset(email: email);
+
+  @override
+  Future<String?> verifyPasswordResetOtp({
+    required String email,
+    required String code,
+  }) => _api.verifyPasswordResetOtp(email: email, code: code);
+
+  @override
+  Future<void> resetPassword({
+    required String resetToken,
+    required String newPassword,
+    required String confirmPassword,
+  }) => _api.resetPassword(
+    resetToken: resetToken,
+    newPassword: newPassword,
+    confirmPassword: confirmPassword,
+  );
 
   @override
   Future<bool> completeProfile({
@@ -321,8 +419,13 @@ class FakeAuthRepository implements AuthRepository {
   /// How long each call takes, so a test can observe the submitting state.
   Duration latency;
 
-  /// Whether registration returns a session — i.e. which of the two backend
-  /// models to imitate. Flip it to exercise both without touching the flow.
+  /// Whether registration returns a session.
+  ///
+  /// **Defaults to false, which is what the live backend does** — registration
+  /// returns no tokens and the session arrives from [verifyOtp] instead. The
+  /// flag is kept so the opposite shape can still be exercised without touching
+  /// the flow, and it drives [RegisteredAccount.emailVerificationRequired]
+  /// inversely, so the fake cannot claim "signed in" and "must verify" at once.
   bool tokenOnRegister;
 
   /// When set, every call throws this instead of succeeding.
@@ -330,8 +433,16 @@ class FakeAuthRepository implements AuthRepository {
 
   /// What the screens actually sent, so a test can assert on it.
   final List<RegistrationRequest> registrations = [];
-  final List<({String email, String code})> verifications = [];
-  final List<String> resends = [];
+
+  /// The code the screen submitted, **with the role that decided the endpoint**.
+  /// Both are recorded because a wrong role is a silent mis-route: the request
+  /// still looks correct and only the server would notice.
+  final List<({ProfileRole role, String email, String code})> verifications =
+      [];
+
+  /// The addresses a resend was asked for, with the role.
+  final List<({ProfileRole role, String email})> resends = [];
+
   final List<({String email, String password})> logins = [];
 
   /// How many times [logOut] was called. A count rather than a list because
@@ -349,6 +460,11 @@ class FakeAuthRepository implements AuthRepository {
       role: request.role,
       status: 'pending',
       accessToken: tokenOnRegister ? 'fake-access-token' : null,
+      // The live contract: registration withholds the session and asks for the
+      // emailed code. Tied to [tokenOnRegister] so the one flag still selects
+      // between "must verify" and "signed in on register", and the two cannot
+      // contradict each other.
+      emailVerificationRequired: !tokenOnRegister,
     );
     _adopt(account);
     return account;
@@ -393,28 +509,97 @@ class FakeAuthRepository implements AuthRepository {
 
   @override
   Future<RegisteredAccount?> verifyOtp({
+    required ProfileRole role,
     required String email,
     required String code,
   }) async {
     await _wait();
     _throwIfFailing();
-    verifications.add((email: email, code: code));
-    // Mirrors the backend answering with a session once the code is accepted.
+    verifications.add((role: role, email: email, code: code));
+    // Mirrors the backend answering with a session once the code is accepted —
+    // and this is the *only* place a signup session comes from now, so the
+    // adopted account has to carry the role for `_adopt` to write it.
     final account = RegisteredAccount(
       email: email,
       userId: 'fake-user-1',
+      role: role,
       status: 'active',
       accessToken: 'fake-access-token',
+      refreshToken: 'fake-refresh-token',
+      emailVerified: true,
     );
     _adopt(account);
     return account;
   }
 
   @override
-  Future<void> resendOtp({required String email}) async {
+  Future<void> resendOtp({
+    required ProfileRole role,
+    required String email,
+  }) async {
     await _wait();
     _throwIfFailing();
-    resends.add(email);
+    resends.add((role: role, email: email));
+  }
+
+  /// The addresses a reset code was requested for.
+  final List<String> resetRequests = [];
+
+  /// The codes submitted to the reset step, in order.
+  final List<({String email, String code})> resetVerifications = [];
+
+  /// Every step-3 body, so a test can assert the token was carried through and
+  /// the two passwords matched what the user typed.
+  final List<({String resetToken, String newPassword, String confirmPassword})>
+  passwordResets = [];
+
+  /// What [verifyPasswordResetOtp] answers with.
+  ///
+  /// **Non-null by default**, unlike the other optional answers on this double:
+  /// the real endpoint always returns a token on success, so a test that had to
+  /// configure one before the flow would run at all would be testing its own
+  /// setup. Set it to null to drive the "server sent no token" path.
+  String? resetToken = 'fake-reset-token';
+
+  /// Thrown by [resetPassword] when set, **independently of [failure]**, so a
+  /// test can have a healthy code step and a rejected password — which is the
+  /// case the screen has to survive, and the one where it must decide between
+  /// "fix the password" and "start over".
+  ApiException? resetFailure;
+
+  @override
+  Future<void> requestPasswordReset({required String email}) async {
+    await _wait();
+    _throwIfFailing();
+    resetRequests.add(email);
+  }
+
+  @override
+  Future<String?> verifyPasswordResetOtp({
+    required String email,
+    required String code,
+  }) async {
+    await _wait();
+    _throwIfFailing();
+    resetVerifications.add((email: email, code: code));
+    return resetToken;
+  }
+
+  @override
+  Future<void> resetPassword({
+    required String resetToken,
+    required String newPassword,
+    required String confirmPassword,
+  }) async {
+    await _wait();
+    _throwIfFailing();
+    final error = resetFailure;
+    if (error != null) throw error;
+    passwordResets.add((
+      resetToken: resetToken,
+      newPassword: newPassword,
+      confirmPassword: confirmPassword,
+    ));
   }
 
   /// Every completion body the screens sent, so a test can assert on it.

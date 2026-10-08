@@ -175,6 +175,34 @@ class ApiClient {
     );
   }
 
+  /// The response body of a `DELETE`, or null when the server sent none.
+  ///
+  /// The twin of [postOptionalBody], and it exists for the same reason: the
+  /// events endpoints disagree with their own schema about whether a cancel
+  /// answers with a body. `DELETE /events/{id}/register/` is documented as
+  /// **200 + the full Event** in the backend's brief and as **204** in the
+  /// generated OpenAPI schema, and `DELETE /events/{id}/save/` likewise (a JSON
+  /// `is_saved` object versus 204). A caller cannot use [delete] — which returns
+  /// `void` — without throwing away a body the brief says is there, and cannot
+  /// use a typed call without breaking if the schema is right. This accepts
+  /// either, so the call site reads the body when it arrives and falls back to
+  /// its own optimistic state when it does not.
+  Future<Object?> deleteOptionalBody(
+    String path, {
+    Object? data,
+    CancelToken? cancelToken,
+  }) async {
+    final response = await _raw(
+      () => _dio.delete<dynamic>(path, data: data, cancelToken: cancelToken),
+    );
+    final body = response.data;
+    // Same normalisation as [postOptionalBody]: the tolerant transformer hands
+    // back `''` for an empty body, and a caller checking for null should not have
+    // to know that.
+    if (body is String && body.isEmpty) return null;
+    return body;
+  }
+
   /// The response body, or null when the server sent none.
   ///
   /// For the rare endpoint whose body is genuinely optional. OTP verification is

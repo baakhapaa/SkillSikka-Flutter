@@ -4,8 +4,14 @@ import 'instructor_carousel.dart';
 
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:skillsikka/core/widgets/section_bar.dart';
+import 'package:skillsikka/features/events/data/event.dart';
+import 'package:skillsikka/features/events/data/event_page.dart';
+import 'package:skillsikka/features/events/data/events_providers.dart';
 import 'package:skillsikka/features/events/presentation/event_details.dart';
+import 'package:skillsikka/features/events/presentation/event_format.dart';
+import 'package:skillsikka/features/events/presentation/events_list_page.dart';
 import 'package:skillsikka/features/instructors/presentation/instructor_page.dart';
 import 'package:skillsikka/features/books/presentation/book_details.dart';
 import 'package:skillsikka/features/courses/presentation/courses.dart';
@@ -1913,35 +1919,51 @@ class _HomePageState extends State<HomePage>
     );
   }
 
+  /// The "Event near you" rail, loaded from `GET /events/?near=true`.
+  ///
+  /// A [Consumer] rather than a conversion of this whole page into a
+  /// `ConsumerStatefulWidget`: the page is a `StatefulWidget` driven by
+  /// controllers, timers and an `AnimationController`, and only this one section
+  /// needs a provider. Scoping the subscription to the rail also means the rest
+  /// of the page rebuilds nothing when the events arrive.
+  ///
+  /// The rail **hides itself** when there is nothing to show, and its loading
+  /// state is a **static skeleton, not a spinner**. A
+  /// `CircularProgressIndicator` inside this scroll view would be an animation
+  /// that never stops, which is both the wrong thing to look at in a rail and
+  /// enough to make `pumpAndSettle` hang in any test that mounts this page.
   Widget _buildEventsNearYou() {
-    const events = [
-      (
-        'assets/figma/homescreen/event-near1.png',
-        'Advanced Algebra & Calculus Masterclass',
-        'By Dr. Sarah Pakhrin',
-        '4.9',
-      ),
-      (
-        'assets/figma/homescreen/event-near2.png',
-        'Intro to Python: Build 10 Games in 30 Days',
-        'By Alex Thapa',
-        '4.8',
-      ),
-    ];
+    return Consumer(
+      builder: (context, ref, _) {
+        return ref
+            .watch(nearbyEventsProvider)
+            .when(
+              loading: _buildEventsSkeleton,
+              error: (_, _) => _buildEventsUnavailable(ref),
+              data: (page) => page.isEmpty
+                  ? const SizedBox.shrink()
+                  : _buildEventsRail(page),
+            );
+      },
+    );
+  }
 
+  Widget _buildEventsRail(EventPage page) {
     return Container(
       color: Colors.white,
       padding: const EdgeInsets.only(top: 16, bottom: 8),
       child: Column(
         children: [
           _buildSectionHeader(
-            'Event near you',
+            // The server reports which fallback step it used, so the heading
+            // never claims events are near when they are not — an event 300 km
+            // away under "Events near you" is a lie the data already knows how
+            // to avoid.
+            page.nearScope?.railTitle ?? 'Upcoming events',
             trailing: GestureDetector(
-              onTap: () {
-                Navigator.of(context).push(
-                  MaterialPageRoute(builder: (_) => const EventDetailsPage()),
-                );
-              },
+              onTap: () => Navigator.of(context).push(
+                MaterialPageRoute(builder: (_) => const EventsListPage()),
+              ),
               child: Text(
                 'See All',
                 style: GoogleFonts.figtree(
@@ -1953,141 +1975,342 @@ class _HomePageState extends State<HomePage>
             ),
           ),
           const SizedBox(height: 12),
+          // **264, not the design's 220.** The rail is a horizontal list, so
+          // every card shares this one height and the tallest card has to fit.
+          // The card splits it in half — cover 132, details 132 — and the details
+          // half must hold padding 28 + title 2 lines (31.2) + host (14.3) +
+          // date/place (14.3) + two 4px gaps + the action row (26.4) = **122.2**,
+          // leaving ~10px. The original 220 overflowed by the 13px that showed up
+          // as the black-and-yellow stripe.
+          //
+          // The text styles in `_buildEventCard` carry explicit `height:`
+          // multipliers for this reason: without them the line heights come from
+          // the font's own metrics, which differ between the bundled font and
+          // the fallback `flutter test` uses — so the arithmetic above would only
+          // hold on a device. `events_rail_overflow_test.dart` is the guard.
           SizedBox(
-            height: 220,
+            height: 264,
             child: ListView.separated(
               padding: const EdgeInsets.symmetric(horizontal: 16),
               scrollDirection: Axis.horizontal,
-              itemCount: events.length,
+              itemCount: page.events.length,
               separatorBuilder: (c, i) => const SizedBox(width: 16),
-              itemBuilder: (context, index) {
-                final e = events[index];
-                return Container(
-                  width: 260,
-                  decoration: BoxDecoration(
-                    color: const Color(0xFFF2F1F7),
-                    borderRadius: BorderRadius.circular(20),
-                    border: Border.all(color: const Color(0xFFF3F4F6)),
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.black.withValues(alpha: 0.03),
-                        blurRadius: 12,
-                        offset: const Offset(0, 4),
+              itemBuilder: (context, index) =>
+                  _buildEventCard(page.events[index]),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildEventCard(Event event) {
+    final date = eventDateLabel(event.startAt);
+    final place = eventPlaceLabel(city: event.city, format: event.format);
+    final distance = distanceLabel(event.distanceKm);
+    final meta = [
+      ?date,
+      if (place.isNotEmpty) place,
+      ?distance,
+    ].join(' \u00b7 ');
+
+    return GestureDetector(
+      onTap: () => _openEvent(event.id),
+      child: Container(
+        width: 260,
+        decoration: BoxDecoration(
+          color: const Color(0xFFF2F1F7),
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(color: const Color(0xFFF3F4F6)),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.03),
+              blurRadius: 12,
+              offset: const Offset(0, 4),
+            ),
+          ],
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // The cover is exactly **half the card**, and the details take the
+            // other half. Both halves are `Expanded`, so the split holds whatever
+            // the rail height is — which makes the rail height the single number
+            // to change to resize the whole card.
+            Expanded(
+              child: ClipRRect(
+                borderRadius: const BorderRadius.vertical(
+                  top: Radius.circular(20),
+                ),
+                child: event.coverImageUrl == null
+                    ? _eventCoverPlaceholder()
+                    : Image.network(
+                        event.coverImageUrl!,
+                        width: double.infinity,
+                        height: double.infinity,
+                        fit: BoxFit.cover,
+                        // Public same-origin URLs, per the backend brief — no
+                        // token, so `Image.network` is the right tool.
+                        errorBuilder: (_, _, _) => _eventCoverPlaceholder(),
+                        loadingBuilder: (c, child, progress) =>
+                            progress == null ? child : _eventCoverPlaceholder(),
                       ),
-                    ],
-                  ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      ClipRRect(
-                        borderRadius: const BorderRadius.vertical(
-                          top: Radius.circular(20),
-                        ),
-                        child: Image.asset(
-                          e.$1,
-                          height: 92,
-                          width: double.infinity,
-                          fit: BoxFit.cover,
-                          errorBuilder: (c, e, s) => Container(
-                            height: 92,
-                            color: const Color.fromARGB(255, 255, 255, 255),
-                            child: const Icon(Icons.image, color: Colors.white),
+              ),
+            ),
+            Expanded(
+              child: Padding(
+                padding: const EdgeInsets.all(14),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  // The text sits at the top of this half and the action row is
+                  // pinned to its bottom, so the half reads as filled rather than
+                  // as a block with slack under it. The two are separate children
+                  // on purpose: `spaceBetween` across the title, host and meta
+                  // lines would spread those apart as well.
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          event.title,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: GoogleFonts.inter(
+                            fontSize: 13,
+                            fontWeight: FontWeight.w700,
+                            height: 1.2,
+                            color: _titleInk,
                           ),
                         ),
-                      ),
-                      Padding(
-                        padding: const EdgeInsets.all(14),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              e.$2,
-                              maxLines: 2,
-                              overflow: TextOverflow.ellipsis,
-                              style: GoogleFonts.inter(
-                                fontSize: 13,
-                                fontWeight: FontWeight.w700,
-                                height: 1.2,
-                                color: _titleInk,
-                              ),
+                        if (event.host != null) ...[
+                          const SizedBox(height: 4),
+                          Text(
+                            'By ${event.host!.name}',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: GoogleFonts.figtree(
+                              fontSize: 11,
+                              // Pinned so the card's height arithmetic is
+                              // font-independent — see the rail height note.
+                              height: 1.3,
+                              color: _gray,
                             ),
-                            const SizedBox(height: 4),
-                            Text(
-                              e.$3,
-                              style: GoogleFonts.figtree(
-                                fontSize: 11,
-                                color: _gray,
-                              ),
+                          ),
+                        ],
+                        if (meta.isNotEmpty) ...[
+                          const SizedBox(height: 4),
+                          Text(
+                            meta,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: GoogleFonts.figtree(
+                              fontSize: 11,
+                              height: 1.3,
+                              color: _gray,
                             ),
-                            const SizedBox(height: 10),
-                            Row(
+                          ),
+                        ],
+                      ],
+                    ),
+                    Row(
+                      children: [
+                        // The stars are hidden while `rating` is null, which is
+                        // every event today. A five-star row with no number
+                        // beside it would be an invented score, so the rail shows
+                        // how many people are going instead — a fact it has.
+                        if (event.rating != null) ...[
+                          ...List.generate(
+                            5,
+                            (i) => Icon(
+                              Icons.star,
+                              size: 12,
+                              color: i < event.rating!.round()
+                                  ? const Color(0xFFFBBF24)
+                                  : const Color(0xFFE5E7EB),
+                            ),
+                          ),
+                          const SizedBox(width: 4),
+                          Text(
+                            ratingLabel(event.rating!),
+                            style: GoogleFonts.inter(
+                              fontSize: 11,
+                              fontWeight: FontWeight.w600,
+                              height: 1.2,
+                              color: _gray,
+                            ),
+                          ),
+                        ] else
+                          Text(
+                            attendingLabel(event.attendeeCount),
+                            style: GoogleFonts.inter(
+                              fontSize: 11,
+                              fontWeight: FontWeight.w600,
+                              height: 1.2,
+                              color: _gray,
+                            ),
+                          ),
+                        const Spacer(),
+                        GestureDetector(
+                          onTap: () => _openEvent(event.id),
+                          // Built from `_glossyGlassButton` directly rather than
+                          // `_glassSurface` so the rail's pill can be tuned
+                          // without moving the Retry button, which shares that
+                          // helper.
+                          child: _glossyGlassButton(
+                            pressed: false,
+                            // Tinted to the card instead of white, so the white
+                            // rim reads as a highlight rather than the whole pill
+                            // glowing. That is the look in the design reference.
+                            fill: const Color(0xFFF4F3F8),
+                            // A stadium, not a rounded rectangle — the reference
+                            // is fully round at both ends.
+                            radius: BorderRadius.circular(100),
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 12,
+                              vertical: 6,
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
                               children: [
-                                ...List.generate(5, (i) {
-                                  return Icon(
-                                    Icons.star,
-                                    size: 12,
-                                    color: i < 4
-                                        ? const Color(0xFFFBBF24)
-                                        : const Color.fromARGB(
-                                            255,
-                                            250,
-                                            252,
-                                            255,
-                                          ),
-                                  );
-                                }),
-                                const SizedBox(width: 4),
                                 Text(
-                                  e.$4,
-                                  style: GoogleFonts.inter(
-                                    fontSize: 11,
-                                    fontWeight: FontWeight.w600,
-                                    color: _gray,
+                                  'View',
+                                  style: GoogleFonts.figtree(
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.w700,
+                                    height: 1.2,
+                                    color: _titleInk,
                                   ),
                                 ),
-                                const Spacer(),
-                                GestureDetector(
-                                  onTap: () {
-                                    Navigator.push(
-                                      context,
-                                      MaterialPageRoute(
-                                        builder: (_) =>
-                                            const EventDetailsPage(),
-                                      ),
-                                    );
-                                  },
-                                  child: _glassSurface(
-                                    padding: const EdgeInsets.symmetric(
-                                      horizontal: 12,
-                                      vertical: 6,
-                                    ),
-                                    child: Row(
-                                      children: [
-                                        Text(
-                                          'View',
-                                          style: GoogleFonts.figtree(
-                                            fontSize: 12,
-                                            fontWeight: FontWeight.w600,
-                                          ),
-                                        ),
-                                        const SizedBox(width: 4),
-                                        const Icon(
-                                          Icons.arrow_forward,
-                                          size: 12,
-                                        ),
-                                      ],
-                                    ),
-                                  ),
+                                const SizedBox(width: 4),
+                                const Icon(
+                                  Icons.arrow_forward,
+                                  size: 12,
+                                  color: _titleInk,
                                 ),
                               ],
                             ),
-                          ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _openEvent(int eventId) {
+    Navigator.of(context).push(
+      MaterialPageRoute(builder: (_) => EventDetailsPage(eventId: eventId)),
+    );
+  }
+
+  Widget _eventCoverPlaceholder() {
+    return Container(
+      color: const Color(0xFFE9E7EF),
+      child: const Icon(Icons.event, size: 28, color: Color(0xFFB9B4C7)),
+    );
+  }
+
+  /// The rail's loading state: two grey blocks with a card's footprint.
+  ///
+  /// Deliberately static. See [_buildEventsNearYou] for why this is not a
+  /// spinner.
+  Widget _buildEventsSkeleton() {
+    return Container(
+      color: Colors.white,
+      padding: const EdgeInsets.only(top: 16, bottom: 8),
+      child: Column(
+        children: [
+          _buildSectionHeader('Events', trailing: const SizedBox.shrink()),
+          const SizedBox(height: 12),
+          SizedBox(
+            // Matches the loaded rail's height exactly, so the section does not
+            // jump when the events arrive.
+            height: 264,
+            child: ListView.separated(
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              scrollDirection: Axis.horizontal,
+              itemCount: 2,
+              separatorBuilder: (c, i) => const SizedBox(width: 16),
+              itemBuilder: (c, i) => Container(
+                width: 260,
+                decoration: BoxDecoration(
+                  color: const Color(0xFFF2F1F7),
+                  borderRadius: BorderRadius.circular(20),
+                ),
+                child: Column(
+                  children: [
+                    // The same 50/50 split as the loaded card — the cover block is
+                    // one `Expanded`, the details area the other — so the skeleton
+                    // has the card's exact footprint and nothing shifts when the
+                    // events arrive.
+                    const Expanded(
+                      child: DecoratedBox(
+                        decoration: BoxDecoration(
+                          color: Color(0xFFE9E7EF),
+                          borderRadius: BorderRadius.vertical(
+                            top: Radius.circular(20),
+                          ),
                         ),
                       ),
-                    ],
+                    ),
+                    const Expanded(child: SizedBox.shrink()),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// A failed rail, kept quiet.
+  ///
+  /// One section of a long home screen should not shout: the retry is offered
+  /// because a dropped connection is the likeliest cause, but nothing is drawn
+  /// in red and the rest of the page is untouched.
+  Widget _buildEventsUnavailable(WidgetRef ref) {
+    return Container(
+      color: Colors.white,
+      padding: const EdgeInsets.only(top: 16, bottom: 8),
+      child: Column(
+        children: [
+          _buildSectionHeader('Events', trailing: const SizedBox.shrink()),
+          const SizedBox(height: 12),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    "Couldn't load events.",
+                    style: GoogleFonts.figtree(fontSize: 12, color: _gray),
                   ),
-                );
-              },
+                ),
+                GestureDetector(
+                  onTap: () => ref.invalidate(nearbyEventsProvider),
+                  child: _glassSurface(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 6,
+                    ),
+                    child: Text(
+                      'Retry',
+                      style: GoogleFonts.figtree(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                ),
+              ],
             ),
           ),
         ],

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:skillsikka/features/home/presentation/home_page.dart';
 
+import 'support/events_test_scope.dart';
 import 'support/home_page_font_harness.dart';
 
 /// Section headings must line up with the content under them at 360pt, the
@@ -23,7 +24,11 @@ void main() {
   ) async {
     await tester.binding.setSurfaceSize(const Size(360, 900));
     addTearDown(() => tester.binding.setSurfaceSize(null));
-    await tester.pumpWidget(const MaterialApp(home: HomePage()));
+    // The events rail is provider-driven; the scope stubs it so this test stays
+    // a layout measurement.
+    await tester.pumpWidget(
+      eventsTestScope(child: const MaterialApp(home: HomePage())),
+    );
     await tester.pump();
 
     for (final title in ['Get Premium Courses', 'Recommended Books']) {

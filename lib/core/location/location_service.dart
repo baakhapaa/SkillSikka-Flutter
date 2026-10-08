@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:geocoding/geocoding.dart' as geocoding;
 import 'package:geolocator/geolocator.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 /// Why a location lookup failed, expressed in terms the UI can act on.
 enum LocationFailureReason {
@@ -181,3 +182,13 @@ class LocationService {
     }
   }
 }
+
+/// The location service, as a provider.
+///
+/// Exists so a feature can resolve a position without constructing a plugin
+/// wrapper of its own, and so a widget test can replace it with something that
+/// does not reach for a platform channel — `geolocator` has no implementation
+/// under `flutter test`, and every call throws `MissingPluginException`.
+final locationServiceProvider = Provider<LocationService>(
+  (ref) => const LocationService(),
+);

@@ -8,6 +8,8 @@ import 'package:skillsikka/features/profile/data/profile_role.dart';
 import 'package:skillsikka/features/profile/data/user_profile.dart';
 import 'package:skillsikka/features/profile/presentation/profile_page.dart';
 
+import 'support/events_test_scope.dart';
+
 /// Rewritten 2026-09-24. Every assertion that used to fail here was asserting
 /// UI that no longer exists — see the notes on each test. Nothing in this file
 /// was failing because of a bug in the app.
@@ -15,7 +17,11 @@ void main() {
   testWidgets('footer switches between all learning destinations', (
     WidgetTester tester,
   ) async {
-    await tester.pumpWidget(const MaterialApp(home: AppShell()));
+    // `AppShell` mounts `HomePage`, whose events rail now reads a provider —
+    // so this needs a scope even though the assertions are about the footer.
+    await tester.pumpWidget(
+      eventsTestScope(child: const MaterialApp(home: AppShell())),
+    );
 
     // The footer is the only chrome on this screen.
     final footer = find.byKey(const ValueKey('skill-sikka-footer'));

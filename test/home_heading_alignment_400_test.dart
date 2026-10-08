@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:skillsikka/features/home/presentation/home_page.dart';
 
+import 'support/events_test_scope.dart';
 import 'support/home_page_font_harness.dart';
 
 /// Same assertions as the 360pt file, at 400pt. Kept in a separate file for the
@@ -19,7 +20,11 @@ void main() {
   ) async {
     await tester.binding.setSurfaceSize(const Size(400, 900));
     addTearDown(() => tester.binding.setSurfaceSize(null));
-    await tester.pumpWidget(const MaterialApp(home: HomePage()));
+    // The events rail is provider-driven; the scope stubs it so this test stays
+    // a layout measurement.
+    await tester.pumpWidget(
+      eventsTestScope(child: const MaterialApp(home: HomePage())),
+    );
     await tester.pump();
 
     for (final title in ['Get Premium Courses', 'Recommended Books']) {

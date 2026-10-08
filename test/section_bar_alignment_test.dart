@@ -3,6 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:skillsikka/core/widgets/section_bar.dart';
 import 'package:skillsikka/features/home/presentation/home_page.dart';
 
+import 'support/events_test_scope.dart';
 import 'support/home_page_font_harness.dart';
 
 void main() {
@@ -11,7 +12,11 @@ void main() {
   Future<void> pumpHome(WidgetTester tester, double width) async {
     await tester.binding.setSurfaceSize(Size(width, 800));
     addTearDown(() => tester.binding.setSurfaceSize(null));
-    await tester.pumpWidget(const MaterialApp(home: HomePage()));
+    // The events rail is provider-driven; the scope stubs it so this test stays
+    // a layout measurement.
+    await tester.pumpWidget(
+      eventsTestScope(child: const MaterialApp(home: HomePage())),
+    );
     await tester.pump();
   }
 

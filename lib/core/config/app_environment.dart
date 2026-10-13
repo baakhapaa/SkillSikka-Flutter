@@ -96,15 +96,34 @@ class AppConfig {
   /// backend does with request origins (CORS, `CSRF_TRUSTED_ORIGINS`) has to
   /// name this host too.
   ///
-  /// **The LAN address is the default below**, so a plain `flutter run` reaches
-  /// the dev backend from a physical device with no flags. Override with
-  /// `--dart-define=API_BASE_URL=...` to point anywhere else — including back at
-  /// loopback via `adb reverse`, above.
+  /// **The LAN address of the development machine is the default as of
+  /// 2026-10-09.** The backend runs on that same machine, and a physical Android
+  /// device reaches it over Wi-Fi with **no `adb` tunnel** — which is the point:
+  /// `adb` is not on this machine's `PATH`, and a failed `adb reverse` leaves the
+  /// app running with every request refused, which reads like a backend fault.
   ///
-  /// Two consequences of it being a private address: it only resolves on the
-  /// network that owns it, and **the server must actually be running** —
-  /// `./manage.py runserver 0.0.0.0:8000`, with `'192.168.1.77'` in
-  /// `ALLOWED_HOSTS`.
+  /// Two conditions are required, both server-side:
+  ///
+  /// 1. `python manage.py runserver 0.0.0.0:8000` — the default binds
+  ///    `127.0.0.1`, which a phone cannot reach.
+  /// 2. This address listed in `ALLOWED_HOSTS` (set in
+  ///    `D:\SkillSikka-Django\.env`), or Django answers `400 DisallowedHost`.
+  ///
+  /// **This address is DHCP-assigned and can change** — the backend's lease has
+  /// already moved three times between 2026-09-28 and 2026-10-07 (`.84` → `.77` →
+  /// `.68`). When it moves, either update this line, set a DHCP reservation, or
+  /// override at launch with `--dart-define=API_BASE_URL=...`, which needs no code
+  /// change.
+  ///
+  /// For a device with no usable LAN path — a different network, or a firewall
+  /// that drops inbound — the fallback is the `adb reverse` tunnel described
+  /// above, which needs an explicit
+  /// `--dart-define=API_BASE_URL=http://127.0.0.1:8000/api/v1`, since loopback is
+  /// no longer the default.
+  ///
+  /// Because this is a LAN address, it only resolves on the network that owns it:
+  /// a device on a different network cannot reach it and needs the tunnel above
+  /// instead, and the server must actually be running on that address.
   ///
   /// Reachability can be checked without Flutter: the URL in a browser, or a
   /// raw TCP probe. Any HTTP response at all, even `400`, means the request got
@@ -144,11 +163,31 @@ class AppConfig {
   /// **The address moved again on 2026-10-07 — it is `.68` now, not `.77`.**
   /// Same dev PC (MAC `a8-41-f4-97-32-4c`), new DHCP lease; `.77` stopped
   /// answering and the MAC turned up at `.68`. Every `.77` below is history, kept
-  /// because the reasoning still holds — only the number changed. Because this is
-  /// the second move in a week, prefer a DHCP reservation or a hostname over
-  /// editing this constant again.
+  /// because the reasoning still holds — only the number changed. **It changed
+  /// again on 2026-10-09, and the backend moved onto this machine:** the default
+  /// was set to `192.168.18.30`. **That was a misreading and it is fixed as of
+  /// 2026-10-12 — the development machine is not a `192.168.18.x` host at all.**
+  /// `192.168.18.30` came from a Wi-Fi *client* address of a separate router
+  /// (`Honor-9C-71`, WPA2, channel 100) that this PC does not currently hold; the
+  /// machine's own active address is on `192.168.1.0/24`.
+  ///
+  /// **Measured 2026-10-12:** `192.168.18.30:8000` does not answer — a physical
+  /// device on the same Wi-Fi times out after dio's 15 s connect timeout, which
+  /// is the failure this line caused. `192.168.1.64:8000` answers: raw TCP open,
+  /// `GET /api/v1/` → **404** (URL resolver reached, so not `DisallowedHost`),
+  /// `POST /api/v1/login/` → **400** (validator ran), and
+  /// `/api/schema/?format=json` → **200**. The listener is bound `0.0.0.0:8000`,
+  /// so no `runserver` change is outstanding.
+  ///
+  /// **Lesson, and the reason this keeps moving:** confirm which address is
+  /// actually live *before* writing it here. `ipconfig` + a TCP probe on the
+  /// candidate, not an address recalled from an earlier session — and not an
+  /// address that turns out to belong to a different subnet entirely.
+  ///
+  /// As before, prefer a DHCP reservation or a hostname over editing this
+  /// constant; `--dart-define=API_BASE_URL=...` needs no code change.
   static const _defaultUrls = <AppEnvironment, String>{
-    AppEnvironment.development: 'http://192.168.1.68:8000/api/v1',
+    AppEnvironment.development: 'http://192.168.1.64:8000/api/v1',
     AppEnvironment.staging: 'https://staging-api.skillsikka.com/api/v1',
     AppEnvironment.production: 'https://api.skillsikka.com/api/v1',
   };

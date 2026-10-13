@@ -21,6 +21,13 @@ import 'support/home_page_font_harness.dart';
 /// why none of the existing home-page layout tests caught it, and why this test
 /// pins the payload the backend actually returns.
 ///
+/// **2026-10-10 — the rail is back to the design's 220.** The title is now
+/// capped at a single ellipsized line, which is what made that possible: the
+/// details half's content is a constant (106.6 in a 110 half) instead of growing
+/// with the title. So the worst case is no longer a two-line title — it is a
+/// one-line title *with* a host and a date/place line. The cap is asserted
+/// below, so this test cannot start passing because a title stopped wrapping.
+///
 /// Deliberately does **not** drain overflows: a `RenderFlex` overflow in this
 /// card *is* the defect, exactly as in `home_heading_alignment_360_test`.
 void main() {
@@ -32,9 +39,10 @@ void main() {
     await tester.binding.setSurfaceSize(const Size(360, 900));
     addTearDown(() => tester.binding.setSurfaceSize(null));
 
-    // The longest card the backend can produce: a title that wraps to two lines
-    // plus a host and a date/place line. Every text is capped by `maxLines`, so
-    // this is the worst case, not one sample of many.
+    // The tallest card the backend can produce. The title is capped at one line
+    // (asserted below), so the height comes from the lines that *can* still grow:
+    // the host and the date/place line. A title long enough to be ellipsized is
+    // still the right thing to use here, because that is what a real one is.
     final event = Event.tryParse(
       jsonDecode('''
 {
@@ -83,6 +91,14 @@ void main() {
     expect(find.text('Events near you'), findsOneWidget);
     expect(find.text('By Test Instructor'), findsOneWidget);
     expect(find.text('View'), findsOneWidget);
+
+    // The one-line cap is load-bearing — it is what keeps the card's height, and
+    // so the gap above the action row, constant. Assert it rather than trusting
+    // the arithmetic above to notice if the cap is ever raised back to two.
+    final title = tester.widget<Text>(
+      find.text('[Sample] Advanced Algebra & Calculus Masterclass'),
+    );
+    expect(title.maxLines, 1);
 
     expect(
       tester.takeException(),

@@ -74,6 +74,51 @@ void installHomePageFontHarness() {
       GoogleFonts.figtree(fontWeight: weight);
       GoogleFonts.inter(fontWeight: weight);
     }
+
+    // **`await` this one. It is load-bearing, and dropping it costs the whole
+    // home-page layout suite.** Do not "fix" the hang by removing the await.
+    //
+    // `googleFontsTextStyle` (google_fonts_base.dart:110-117) returns the
+    // `TextStyle` *synchronously* — `fontFamily: 'Manrope_w700'` plus
+    // `fontFamilyFallback: ['Manrope']` — and does not wait for the load. What
+    // the load does is register that family in the engine's font table. So all
+    // the `await` buys is that the family exists before the first layout pass,
+    // and that is the entire difference between:
+    //
+    //   registered    → every glyph is Roboto's, ~0.5em average advance
+    //   unregistered  → nothing matches `fontFamily`, so the text falls back to
+    //                   **Ahem**, the framework's default test font: one square
+    //                   per glyph, advance exactly 1.0em.
+    //                   (flutter_test matchers.dart:534 — "the Flutter framework
+    //                   uses a font called 'Ahem' which shows squares instead of
+    //                   characters".)
+    //
+    // Ahem is what the 2026-10-12 run saw, and it is why the overflows were
+    // *huge* rather than a few pixels:
+    //
+    //   home_page.dart:1485  the featured-course author Row. Observed
+    //                       **525px of children in a 296px box — 229 over**
+    //                       (296 at 360pt, 336 at 400pt; children 525 either
+    //                       way). Ahem predicts 514. The same row in Roboto is
+    //                       ~280 and fits with room to spare.
+    //   home_page.dart:1838  the Recommended-Books tag Row. Observed **294 and
+    //                       318px**, again identical at 360 and 400. Ahem
+    //                       predicts 288/288/312 — a uniform +6 is just
+    //                       `_buildTag`'s padding+border, not a font difference.
+    //
+    // The giveaway is that those widths do not change with the surface width:
+    // intrinsic widths that ignore their parent are not "a bit too wide", they
+    // are the wrong font. Four tests failed on it — every HomePage test using
+    // this harness, at 360 and at 400.
+    //
+    // `pendingFonts()` is `Future.wait(pendingFontFutures)` over a
+    // *library-global* set (google_fonts_base.dart:35), and the prewarm above
+    // has just put one future in it per resolved style. Each is served by the
+    // mocked `flutter/assets` handler installed a few lines up, which answers
+    // with `Future.value(bytes)` — a microtask, with no timer, no socket and no
+    // plugin in the path — so this wait cannot hang on its own. See `tearDown`
+    // for the futures that *can* strand, and why `clear()` there is what keeps
+    // the next test alive.
     await GoogleFonts.pendingFonts();
   });
 
@@ -102,6 +147,20 @@ void installHomePageFontHarness() {
     //
     // Clearing the set here drops the stranded future. Note this does not wait
     // on it, which is the point — it can no longer complete.
+    //
+    // **Why `setUp`'s `await` is safe and this `clear()` is still needed.**
+    // They cover different futures. The prewarm's own futures are served by the
+    // mocked `flutter/assets` handler installed above, which answers with
+    // `Future.value(bytes)` — a microtask, no timer and no socket — so waiting
+    // on them cannot hang. THIS line exists for the loads the *test body*
+    // starts instead: HomePage resolves weights the prewarm does not cover, and
+    // any of those still in flight when the body returns is stranded, because
+    // the removal is `loadingFuture.then((_) => set.remove(...))` registered in
+    // the body's fake-async zone — and `flutter test` tears that zone down the
+    // moment the body completes, before `tearDown` runs. `clear()` drops those
+    // entries unconditionally instead of waiting on a future that can never
+    // settle. Waiting here would hang for the same reason the stranded future
+    // does.
     font_assets.pendingFontFutures.clear();
   });
 }

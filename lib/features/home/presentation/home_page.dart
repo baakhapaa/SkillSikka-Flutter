@@ -1983,21 +1983,26 @@ class _HomePageState extends State<HomePage>
             ),
           ),
           const SizedBox(height: 12),
-          // **264, not the design's 220.** The rail is a horizontal list, so
-          // every card shares this one height and the tallest card has to fit.
-          // The card splits it in half — cover 132, details 132 — and the details
-          // half must hold padding 28 + title 2 lines (31.2) + host (14.3) +
-          // date/place (14.3) + two 4px gaps + the action row (26.4) = **122.2**,
-          // leaving ~10px. The original 220 overflowed by the 13px that showed up
-          // as the black-and-yellow stripe.
+          // **The design's 220.** The rail is a horizontal list, so every card
+          // shares this one height and the tallest card has to fit.
+          //
+          // The card splits it in half — cover 110, details 110 — and the details
+          // half must hold padding 28 + title (15.6, capped at one line) + host
+          // (14.3) + date/place (14.3) + two 4px gaps + the action row (26.4) =
+          // **106.6**, leaving ~3px. That ~3px is the whole of the gap above the
+          // action row: the title is a single ellipsized line (see
+          // `_buildEventCard`), which is what lets the card be this short. A
+          // two-line title needs 122.2 and would overflow — which is why this was
+          // 264 until the title was capped, and why
+          // `events_rail_overflow_test.dart` pins the cap.
           //
           // The text styles in `_buildEventCard` carry explicit `height:`
           // multipliers for this reason: without them the line heights come from
           // the font's own metrics, which differ between the bundled font and
           // the fallback `flutter test` uses — so the arithmetic above would only
-          // hold on a device. `events_rail_overflow_test.dart` is the guard.
+          // hold on a device.
           SizedBox(
-            height: 264,
+            height: 220,
             child: ListView.separated(
               padding: const EdgeInsets.symmetric(horizontal: 16),
               scrollDirection: Axis.horizontal,
@@ -2080,9 +2085,19 @@ class _HomePageState extends State<HomePage>
                     Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
+                        // One line, always — ellipsized if it will not fit.
+                        //
+                        // A two-line title made the card's height depend on the
+                        // title's own length. The details half is a fixed height
+                        // and the action row is pinned to its bottom, so the
+                        // slack had nowhere to go but the gap above that row: it
+                        // read as ~10px on a two-line title and ~25px on a
+                        // one-line one. Capping the title at one line makes the
+                        // half's content a constant, and so makes that gap a
+                        // constant too.
                         Text(
                           event.title,
-                          maxLines: 2,
+                          maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           style: GoogleFonts.inter(
                             fontSize: 13,
@@ -2240,7 +2255,7 @@ class _HomePageState extends State<HomePage>
           SizedBox(
             // Matches the loaded rail's height exactly, so the section does not
             // jump when the events arrive.
-            height: 264,
+            height: 220,
             child: ListView.separated(
               padding: const EdgeInsets.symmetric(horizontal: 16),
               scrollDirection: Axis.horizontal,

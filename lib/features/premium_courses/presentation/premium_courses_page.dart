@@ -279,7 +279,7 @@ class _CarouselCourseCard extends StatelessWidget {
     behavior: HitTestBehavior.opaque,
     onTap: () => Navigator.of(
       context,
-    ).push(MaterialPageRoute(builder: (_) => const CourseDetailsPage())),
+    ).push(MaterialPageRoute(builder: (_) => const PremiumCourseDetailsPage())),
     child: Container(
       width: 220,
       padding: const EdgeInsets.all(12),
@@ -330,7 +330,9 @@ class _CarouselCourseCard extends StatelessWidget {
               PressableChip(
                 label: 'View',
                 onTap: () => Navigator.of(context).push(
-                  MaterialPageRoute(builder: (_) => const CourseDetailsPage()),
+                  MaterialPageRoute(
+                    builder: (_) => const PremiumCourseDetailsPage(),
+                  ),
                 ),
                 fontSize: 10,
                 fontWeight: FontWeight.w700,
@@ -355,7 +357,7 @@ class _ListCourseCard extends StatelessWidget {
     behavior: HitTestBehavior.opaque,
     onTap: () => Navigator.of(
       context,
-    ).push(MaterialPageRoute(builder: (_) => const CourseDetailsPage())),
+    ).push(MaterialPageRoute(builder: (_) => const PremiumCourseDetailsPage())),
     child: Container(
       height: 106,
       padding: const EdgeInsets.all(12),

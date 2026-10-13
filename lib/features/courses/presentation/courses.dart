@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:skillsikka/core/widgets/course_detail_view.dart';
 import 'package:skillsikka/core/widgets/pressable_chip.dart';
+import 'package:skillsikka/features/courses/data/course.dart';
+import 'package:skillsikka/features/courses/presentation/course_details_page.dart';
 import 'package:skillsikka/features/search/presentation/search_page.dart';
 
 const _bg = Color(0xFFFAF9F6);
@@ -26,53 +29,21 @@ class _AllCoursesPageState extends State<AllCoursesPage> {
     'Class 10',
   ];
 
-  static const _coursePool = <_Course>[
-    _Course(
-      image: 'assets/figma/courses/ui-ux.png',
-      title: 'UI/UX Design Fundamentals',
-      rating: '4.7',
-      level: 'Beginner',
-    ),
-    _Course(
-      image: 'assets/figma/courses/js.png',
-      title: 'JavaScript Masterclass',
-      rating: '4.9',
-      level: 'Intermediate',
-    ),
-    _Course(
-      image: 'assets/figma/courses/ml.png',
-      title: 'Machine Learning Basics',
-      rating: '4.8',
-      level: 'Advanced',
-    ),
-    _Course(
-      image: 'assets/figma/courses/dm.png',
-      title: 'Digital Marketing 101',
-      rating: '4.5',
-      level: 'Beginner',
-    ),
-    _Course(
-      image: 'assets/figma/courses/react.png',
-      title: 'React Native Development',
-      rating: '4.6',
-      level: 'Intermediate',
-    ),
-    _Course(
-      image: 'assets/figma/courses/cc.png',
-      title: 'Cloud Computing Essentials',
-      rating: '4.3',
-      level: 'Advanced',
-    ),
-  ];
-
-  List<_Course> get _allCourses =>
-      List.generate(18, (i) => _coursePool[i % _coursePool.length]);
+  /// The catalogue filtered by the selected Class chip.
+  ///
+  /// `All` is the **absence** of a filter, not a value on any course — see
+  /// [CourseDetailData.classLevel]. This used to ignore the chips entirely and
+  /// tile the six-entry pool to eighteen cards so the grid had something to
+  /// scroll, which is why every chip appeared to do nothing.
+  List<CourseDetailData> get _visibleCourses {
+    final chip = _chips[_selectedChip];
+    if (chip == 'All') return coursePool;
+    return coursePool.where((c) => c.classLevel == chip).toList();
+  }
 
   @override
   Widget build(BuildContext context) {
-    final courses = _allCourses;
-    // Group into 3 sections of 6 (3 rows × 2 cards each)
-    const cardsPerSection = 6;
+    final courses = _visibleCourses;
 
     return Scaffold(
       backgroundColor: _bg,
@@ -91,20 +62,10 @@ class _AllCoursesPageState extends State<AllCoursesPage> {
                     const SizedBox(height: 28),
                     _buildSectionHeader(),
                     const SizedBox(height: 16),
-                    for (
-                      var s = 0;
-                      s < courses.length;
-                      s += cardsPerSection
-                    ) ...[
-                      _buildCoursesGrid(
-                        courses.sublist(
-                          s,
-                          (s + cardsPerSection).clamp(0, courses.length),
-                        ),
-                      ),
-                      if (s + cardsPerSection < courses.length)
-                        const SizedBox(height: 12),
-                    ],
+                    if (courses.isEmpty)
+                      _buildEmptyState()
+                    else
+                      _buildCoursesGrid(courses),
                   ],
                 ),
               ),
@@ -202,10 +163,14 @@ class _AllCoursesPageState extends State<AllCoursesPage> {
   // SECTION HEADER
   // ─────────────────────────────────────────────────────────────
   Widget _buildSectionHeader() {
+    // Names the filter, so a filtered grid cannot be mistaken for the whole
+    // catalogue — "All Courses" over two Class 6 cards would be a lie.
+    final chip = _chips[_selectedChip];
+
     return Row(
       children: [
         Text(
-          'All Courses',
+          chip == 'All' ? 'All Courses' : '$chip Courses',
           style: GoogleFonts.manrope(
             fontSize: 16,
             fontWeight: FontWeight.w700,
@@ -230,7 +195,28 @@ class _AllCoursesPageState extends State<AllCoursesPage> {
   // ─────────────────────────────────────────────────────────────
   // COURSES GRID (2 columns × N rows)
   // ─────────────────────────────────────────────────────────────
-  Widget _buildCoursesGrid(List<_Course> courses) {
+  /// Shown when a class has no courses yet, so a filter can never produce a
+  /// blank screen that reads as a loading failure.
+  Widget _buildEmptyState() {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 48),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(Icons.menu_book_outlined, size: 32, color: _softGray),
+            const SizedBox(height: 12),
+            Text(
+              'No courses for this class yet.',
+              style: GoogleFonts.figtree(fontSize: 13, color: _softGray),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildCoursesGrid(List<CourseDetailData> courses) {
     return Column(
       children: [
         for (var i = 0; i < courses.length; i += 2) ...[
@@ -252,17 +238,11 @@ class _AllCoursesPageState extends State<AllCoursesPage> {
     );
   }
 
-  Widget _buildCourseCard(_Course course) {
+  Widget _buildCourseCard(CourseDetailData course) {
     return GestureDetector(
-      onTap: () {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('${course.title} selected'),
-            behavior: SnackBarBehavior.floating,
-            backgroundColor: _ink,
-          ),
-        );
-      },
+      onTap: () => Navigator.of(context).push(
+        MaterialPageRoute(builder: (_) => CourseDetailPage(course: course)),
+      ),
       child: Container(
         decoration: BoxDecoration(
           color: Colors.white,
@@ -347,18 +327,4 @@ class _AllCoursesPageState extends State<AllCoursesPage> {
       ),
     );
   }
-}
-
-class _Course {
-  const _Course({
-    required this.image,
-    required this.title,
-    required this.rating,
-    required this.level,
-  });
-
-  final String image;
-  final String title;
-  final String rating;
-  final String level;
 }

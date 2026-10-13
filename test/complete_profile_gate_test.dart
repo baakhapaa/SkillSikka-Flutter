@@ -61,7 +61,7 @@ ProviderContainer _referenceContainer() {
 /// so the test drives it the same way: a button that records whatever the gate
 /// decides.
 ///
-/// This deliberately avoids pumping `CourseDetailsPage` — that screen builds a
+/// This deliberately avoids pumping `PremiumCourseDetailsPage` — that screen builds a
 /// `VideoPlayerController` from an asset, which is unrelated noise here.
 class _GateHarness extends StatelessWidget {
   const _GateHarness({required this.onResult, this.addCourse = false});

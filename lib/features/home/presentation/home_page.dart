@@ -14,6 +14,8 @@ import 'package:skillsikka/features/events/presentation/event_format.dart';
 import 'package:skillsikka/features/events/presentation/events_list_page.dart';
 import 'package:skillsikka/features/instructors/presentation/instructor_page.dart';
 import 'package:skillsikka/features/books/presentation/book_details.dart';
+import 'package:skillsikka/features/courses/data/course.dart';
+import 'package:skillsikka/features/courses/presentation/course_details_page.dart';
 import 'package:skillsikka/features/courses/presentation/courses.dart';
 import 'package:skillsikka/features/premium_courses/presentation/premium_course_details_page.dart';
 import 'package:skillsikka/features/premium_courses/presentation/premium_courses_page.dart';
@@ -968,32 +970,15 @@ class _HomePageState extends State<HomePage>
       'Class 9',
       'Class 10',
     ];
-    const courses = [
-      (
-        'assets/figma/homescreen/course-thumbnail.png',
-        'Physics',
-        'Physical Chemistry Foundations',
-        '4.7',
-      ),
-      (
-        'assets/figma/homescreen/course-thumbnail2.png',
-        'History',
-        'World History: Middle Ages to Modern',
-        '4.9',
-      ),
-      (
-        'assets/figma/homescreen/course-thumbnail3.png',
-        'Geometry',
-        'Basic Geometry: Proofs & Shapes',
-        '4.6',
-      ),
-      (
-        'assets/figma/homescreen/course-thumbnail4.png',
-        'Biology',
-        'Introduction to Biology & Life',
-        '4.8',
-      ),
-    ];
+
+    // The rail samples the **same catalogue** the Courses tab filters, so a Class
+    // chip means the same thing on both screens — and every class has content,
+    // which a rail with its own four-course list could not guarantee. `All` is
+    // the absence of a filter; the rail shows the first four either way.
+    final selected = filters[_selectedClassIndex];
+    final visible = selected == 'All'
+        ? coursePool.take(4).toList()
+        : coursePool.where((c) => c.classLevel == selected).take(4).toList();
 
     return ColoredBox(
       color: Colors.white,
@@ -1047,115 +1032,138 @@ class _HomePageState extends State<HomePage>
             const SizedBox(height: 14),
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 16),
-              child: GridView.builder(
-                shrinkWrap: true,
-                physics: const NeverScrollableScrollPhysics(),
-                itemCount: courses.length,
-                gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                  crossAxisCount: 2,
-                  childAspectRatio: 0.85,
-                  crossAxisSpacing: 12,
-                  mainAxisSpacing: 12,
-                ),
-                itemBuilder: (context, index) {
-                  final c = courses[index];
-                  return Container(
-                    decoration: BoxDecoration(
-                      color: Colors.white,
-                      borderRadius: BorderRadius.circular(16),
-                      border: Border.all(color: const Color(0xFFF3F4F6)),
-                      boxShadow: const [
-                        BoxShadow(
-                          color: Color(0x08000000),
-                          blurRadius: 8,
-                          offset: Offset(0, 2),
-                        ),
-                      ],
-                    ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        ClipRRect(
-                          borderRadius: const BorderRadius.vertical(
-                            top: Radius.circular(16),
+              child: visible.isEmpty
+                  ? Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 24),
+                      child: Text(
+                        'No courses for this class yet.',
+                        style: GoogleFonts.figtree(fontSize: 13, color: _gray),
+                      ),
+                    )
+                  : GridView.builder(
+                      shrinkWrap: true,
+                      physics: const NeverScrollableScrollPhysics(),
+                      itemCount: visible.length,
+                      gridDelegate:
+                          const SliverGridDelegateWithFixedCrossAxisCount(
+                            crossAxisCount: 2,
+                            childAspectRatio: 0.85,
+                            crossAxisSpacing: 12,
+                            mainAxisSpacing: 12,
                           ),
-                          child: Image.asset(
-                            c.$1,
-                            height: 98,
-                            width: double.infinity,
-                            fit: BoxFit.cover,
-                            errorBuilder: (c, e, s) => Container(
-                              height: 98,
-                              color: Colors.grey.shade200,
-                              child: const Icon(
-                                Icons.image,
-                                color: Colors.white,
-                              ),
+                      itemBuilder: (context, index) {
+                        final course = visible[index];
+                        // Same detail screen the Courses tab opens — one page for the
+                        // whole app, rather than a second copy of it here.
+                        return GestureDetector(
+                          behavior: HitTestBehavior.opaque,
+                          onTap: () => Navigator.of(context).push(
+                            MaterialPageRoute(
+                              builder: (_) => CourseDetailPage(course: course),
                             ),
                           ),
-                        ),
-                        Padding(
-                          padding: const EdgeInsets.all(12),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Row(
-                                children: [
-                                  Container(
-                                    padding: const EdgeInsets.symmetric(
-                                      horizontal: 6,
-                                      vertical: 2,
-                                    ),
-                                    decoration: BoxDecoration(
-                                      color: const Color(0xFFF9FAFB),
-                                      borderRadius: BorderRadius.circular(4),
-                                    ),
-                                    child: Text(
-                                      c.$2,
-                                      style: GoogleFonts.figtree(
-                                        fontSize: 9,
-                                        fontWeight: FontWeight.w600,
-                                        color: _gray,
+                          child: Container(
+                            decoration: BoxDecoration(
+                              color: Colors.white,
+                              borderRadius: BorderRadius.circular(16),
+                              border: Border.all(
+                                color: const Color(0xFFF3F4F6),
+                              ),
+                              boxShadow: const [
+                                BoxShadow(
+                                  color: Color(0x08000000),
+                                  blurRadius: 8,
+                                  offset: Offset(0, 2),
+                                ),
+                              ],
+                            ),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                ClipRRect(
+                                  borderRadius: const BorderRadius.vertical(
+                                    top: Radius.circular(16),
+                                  ),
+                                  child: Image.asset(
+                                    course.image,
+                                    height: 98,
+                                    width: double.infinity,
+                                    fit: BoxFit.cover,
+                                    errorBuilder: (_, _, _) => Container(
+                                      height: 98,
+                                      color: Colors.grey.shade200,
+                                      child: const Icon(
+                                        Icons.image,
+                                        color: Colors.white,
                                       ),
                                     ),
                                   ),
-                                  const Spacer(),
-                                  const Icon(
-                                    Icons.star,
-                                    color: Color(0xFFFBBF24),
-                                    size: 10,
-                                  ),
-                                  const SizedBox(width: 2),
-                                  Text(
-                                    c.$4,
-                                    style: GoogleFonts.figtree(
-                                      fontSize: 10,
-                                      fontWeight: FontWeight.w700,
-                                      color: _titleInk,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                              const SizedBox(height: 8),
-                              Text(
-                                c.$3,
-                                maxLines: 2,
-                                overflow: TextOverflow.ellipsis,
-                                style: GoogleFonts.manrope(
-                                  fontSize: 12,
-                                  fontWeight: FontWeight.w700,
-                                  height: 1.3,
-                                  color: _titleInk,
                                 ),
-                              ),
-                            ],
+                                Padding(
+                                  padding: const EdgeInsets.all(12),
+                                  child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      Row(
+                                        children: [
+                                          Container(
+                                            padding: const EdgeInsets.symmetric(
+                                              horizontal: 6,
+                                              vertical: 2,
+                                            ),
+                                            decoration: BoxDecoration(
+                                              color: const Color(0xFFF9FAFB),
+                                              borderRadius:
+                                                  BorderRadius.circular(4),
+                                            ),
+                                            child: Text(
+                                              course.category,
+                                              style: GoogleFonts.figtree(
+                                                fontSize: 9,
+                                                fontWeight: FontWeight.w600,
+                                                color: _gray,
+                                              ),
+                                            ),
+                                          ),
+                                          const Spacer(),
+                                          const Icon(
+                                            Icons.star,
+                                            color: Color(0xFFFBBF24),
+                                            size: 10,
+                                          ),
+                                          const SizedBox(width: 2),
+                                          Text(
+                                            course.rating,
+                                            style: GoogleFonts.figtree(
+                                              fontSize: 10,
+                                              fontWeight: FontWeight.w700,
+                                              color: _titleInk,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                      const SizedBox(height: 8),
+                                      Text(
+                                        course.title,
+                                        maxLines: 2,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: GoogleFonts.manrope(
+                                          fontSize: 12,
+                                          fontWeight: FontWeight.w700,
+                                          height: 1.3,
+                                          color: _titleInk,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ],
+                            ),
                           ),
-                        ),
-                      ],
+                        );
+                      },
                     ),
-                  );
-                },
-              ),
             ),
           ],
         ),
@@ -1706,7 +1714,7 @@ class _HomePageState extends State<HomePage>
   void _openPremiumCourseDetails() {
     Navigator.of(
       context,
-    ).push(MaterialPageRoute(builder: (_) => const CourseDetailsPage()));
+    ).push(MaterialPageRoute(builder: (_) => const PremiumCourseDetailsPage()));
   }
 
   Widget _buildRecommendedBooks() {

@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/widgets/course_detail_view.dart';
-import '../../profile/presentation/complete_profile_gate.dart';
+import '../../learning/presentation/start_course.dart';
 
 /// The premium course-detail screen.
 ///
@@ -32,25 +32,21 @@ class _PremiumCourseDetailsPageState
   ///
   /// The gate takes a container rather than this widget's `ref`: it only reads,
   /// and its other call site is a plain `StatefulWidget` that has no ref to give.
+  /// `startCourse` owns that, so all three detail pages share one flow.
   Future<void> _enrol() async {
-    final allowed = await ensureProfileComplete(
-      context,
-      ProviderScope.containerOf(context, listen: false),
-    );
-    if (!allowed || !mounted) return;
-
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('Enrolled successfully!'),
-        behavior: SnackBarBehavior.floating,
-        backgroundColor: Color(0xFF111827),
-      ),
-    );
+    await startCourse(context, _premiumCourseDetail);
+    // The bar reads the enrolment store in `build`, and the answer changed while
+    // the player was open.
+    if (mounted) setState(() {});
   }
 
   @override
-  Widget build(BuildContext context) =>
-      CourseDetailView(data: _premiumCourseDetail, onEnrol: _enrol);
+  Widget build(BuildContext context) => CourseDetailView(
+    data: _premiumCourseDetail,
+    isEnrolled: isCourseEnrolled(context, _premiumCourseDetail),
+    onEnrol: _enrol,
+    onContinue: () => continueCourse(context, _premiumCourseDetail),
+  );
 }
 
 /// The premium screen's content, moved here verbatim when the layout was

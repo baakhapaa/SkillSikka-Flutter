@@ -1,11 +1,27 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 
-class MyLearningPage extends StatelessWidget {
+import '../data/enrollment.dart';
+import 'start_course.dart';
+
+/// The My Learning tab.
+///
+/// **Provider-driven since 2026-10-16.** Everything here used to be hardcoded —
+/// `68% Complete`, `Lesson 12 of 18`, `24.5h` — so enrolling in a course changed
+/// nothing on the one screen whose job is to show what you are enrolled in. The
+/// "Continue Learning" section and the stat strip now read
+/// [enrolledCoursesProvider], which closes the loop the enrolment flow opens.
+///
+/// **Certificates and Completed Courses are still mock content**, and
+/// deliberately so: both need a certificates API that does not exist. Wiring
+/// them to the enrolment store would only let them show courses the user just
+/// started, which is a different and worse lie than an obvious placeholder.
+class MyLearningPage extends ConsumerWidget {
   const MyLearningPage({super.key});
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     return ColoredBox(
       key: const ValueKey('destination-My Learning'),
       color: const Color(0xFFFAF9F6),
@@ -31,176 +47,155 @@ class MyLearningPage extends StatelessWidget {
   }
 }
 
-class _ContinueLearning extends StatelessWidget {
+class _ContinueLearning extends ConsumerWidget {
   const _ContinueLearning();
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    final enrollments = ref.watch(enrolledCoursesProvider);
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         const _SectionTitle('Continue Learning'),
         const SizedBox(height: 12),
-        Container(
-          clipBehavior: Clip.antiAlias,
-          decoration: BoxDecoration(
-            color: Colors.white,
-            border: Border.all(color: const Color(0xFFEAEAEA)),
-            borderRadius: BorderRadius.circular(16),
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              AspectRatio(
-                aspectRatio: 16 / 7.1,
-                child: Image.asset(
-                  'assets/figma/learning/course_banner.png',
-                  fit: BoxFit.cover,
-                ),
-              ),
-              Padding(
-                padding: const EdgeInsets.all(16),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        _Badge('Advanced Web Design'),
-                        Text('68% Complete', style: _boldSmall()),
-                      ],
-                    ),
-                    const SizedBox(height: 12),
-                    Text(
-                      'Interactive Design Principles & Micro-animations',
-                      style: _courseTitle(),
-                    ),
-                    const SizedBox(height: 12),
-                    ClipRRect(
-                      borderRadius: BorderRadius.circular(100),
-                      child: const LinearProgressIndicator(
-                        value: .68,
-                        minHeight: 6,
-                        backgroundColor: Color(0xFFF3F4F6),
-                        valueColor: AlwaysStoppedAnimation(Color(0xFFFFD233)),
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Text(
-                          'Lesson 12 of 18  •  12m left',
-                          style: _mutedSmall(),
-                        ),
-                        TextButton(
-                          onPressed: () {},
-                          style: TextButton.styleFrom(
-                            backgroundColor: const Color(0xFFFFD233),
-                            foregroundColor: const Color(0xFF111827),
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 14,
-                              vertical: 6,
-                            ),
-                            minimumSize: Size.zero,
-                            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(12),
-                            ),
-                          ),
-                          child: Text('Resume', style: _boldSmall()),
-                        ),
-                      ],
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-        ),
-        const SizedBox(height: 12),
-        const _MiniCourse(
-          title: 'Physical Chemistry Foundations',
-          progress: .65,
-          percent: '65%',
-          image: 'assets/figma/learning/chemistry.png',
-          accessed: 'Last accessed: 2 hours ago',
-        ),
-        const SizedBox(height: 10),
-        const _MiniCourse(
-          title: 'Python for Absolute Beginners',
-          progress: .3,
-          percent: '30%',
-          image: 'assets/figma/learning/python.png',
-          accessed: 'Last accessed: 1 day ago',
-        ),
+        if (enrollments.isEmpty)
+          const _NothingInProgress()
+        else ...[
+          // The most recent enrolment is the best proxy for "where I left off"
+          // that an in-memory store can offer — it keeps insertion order, not
+          // access times, and there is no timestamp to sort on.
+          _CourseInProgress(enrollment: enrollments.last),
+          for (final enrollment in enrollments.reversed.skip(1))
+            Padding(
+              padding: const EdgeInsets.only(top: 10),
+              child: _MiniCourse(enrollment: enrollment),
+            ),
+        ],
       ],
     );
   }
 }
 
-class _MiniCourse extends StatelessWidget {
-  const _MiniCourse({
-    required this.title,
-    required this.progress,
-    required this.percent,
-    required this.image,
-    required this.accessed,
-  });
-
-  final String title;
-  final double progress;
-  final String percent;
-  final String image;
-  final String accessed;
+/// Shown when nothing is enrolled in yet.
+///
+/// An empty state rather than the old hardcoded card: with a real store behind
+/// this section, a fake course sitting in it would read as a bug.
+class _NothingInProgress extends StatelessWidget {
+  const _NothingInProgress();
 
   @override
   Widget build(BuildContext context) {
     return Container(
-      height: 84,
-      padding: const EdgeInsets.all(12),
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 28),
       decoration: BoxDecoration(
         color: Colors.white,
-        border: Border.all(color: const Color(0xFFF3F4F6)),
+        border: Border.all(color: const Color(0xFFEAEAEA)),
         borderRadius: BorderRadius.circular(16),
       ),
-      child: Row(
+      child: Column(
         children: [
-          ClipRRect(
-            borderRadius: BorderRadius.circular(8),
-            child: Image.asset(image, width: 60, height: 60, fit: BoxFit.cover),
+          const Icon(
+            Icons.play_circle_outline,
+            size: 34,
+            color: Color(0xFF9CA3AF),
           ),
-          const SizedBox(width: 12),
-          Expanded(
+          const SizedBox(height: 10),
+          Text(
+            'Nothing in progress yet',
+            style: const TextStyle(
+              fontSize: 14,
+              fontWeight: FontWeight.w700,
+              color: Color(0xFF111827),
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            'Enrol in a course and it will show up here, ready to resume.',
+            textAlign: TextAlign.center,
+            style: _mutedSmall(),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// The hero card: the course most recently enrolled in, with a Resume button.
+class _CourseInProgress extends StatelessWidget {
+  const _CourseInProgress({required this.enrollment});
+
+  final Enrollment enrollment;
+
+  @override
+  Widget build(BuildContext context) {
+    final course = enrollment.course;
+
+    return Container(
+      clipBehavior: Clip.antiAlias,
+      decoration: BoxDecoration(
+        color: Colors.white,
+        border: Border.all(color: const Color(0xFFEAEAEA)),
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          AspectRatio(
+            aspectRatio: 16 / 7.1,
+            child: Image.asset(course.image, fit: BoxFit.cover),
+          ),
+          Padding(
+            padding: const EdgeInsets.all(16),
             child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
-                  title,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: _miniTitle(),
-                ),
-                const SizedBox(height: 4),
                 Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    Expanded(
-                      child: LinearProgressIndicator(
-                        value: progress,
-                        minHeight: 4,
-                        backgroundColor: const Color(0xFFF3F4F6),
-                        valueColor: const AlwaysStoppedAnimation(
-                          Color(0xFFE6B800),
-                        ),
-                      ),
+                    _Badge(course.level),
+                    Text(
+                      '${enrollment.percentLabel} Complete',
+                      style: _boldSmall(),
                     ),
-                    const SizedBox(width: 8),
-                    Text(percent, style: _boldTiny()),
                   ],
                 ),
-                const SizedBox(height: 4),
-                Text(accessed, style: _tiny(color: const Color(0xFF9CA3AF))),
+                const SizedBox(height: 12),
+                Text(course.title, style: _courseTitle()),
+                const SizedBox(height: 12),
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(100),
+                  child: LinearProgressIndicator(
+                    value: enrollment.progress,
+                    minHeight: 6,
+                    backgroundColor: const Color(0xFFF3F4F6),
+                    valueColor: const AlwaysStoppedAnimation(Color(0xFFFFD233)),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text(enrollment.positionLabel, style: _mutedSmall()),
+                    TextButton(
+                      onPressed: () => continueCourse(context, course),
+                      style: TextButton.styleFrom(
+                        backgroundColor: const Color(0xFFFFD233),
+                        foregroundColor: const Color(0xFF111827),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 14,
+                          vertical: 6,
+                        ),
+                        minimumSize: Size.zero,
+                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                      ),
+                      child: Text('Resume', style: _boldSmall()),
+                    ),
+                  ],
+                ),
               ],
             ),
           ),
@@ -210,23 +205,109 @@ class _MiniCourse extends StatelessWidget {
   }
 }
 
-class _LearningStats extends StatelessWidget {
-  const _LearningStats();
+class _MiniCourse extends StatelessWidget {
+  const _MiniCourse({required this.enrollment});
+
+  final Enrollment enrollment;
 
   @override
   Widget build(BuildContext context) {
+    final course = enrollment.course;
+
+    return GestureDetector(
+      onTap: () => continueCourse(context, course),
+      behavior: HitTestBehavior.opaque,
+      child: Container(
+        height: 84,
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          border: Border.all(color: const Color(0xFFF3F4F6)),
+          borderRadius: BorderRadius.circular(16),
+        ),
+        child: Row(
+          children: [
+            ClipRRect(
+              borderRadius: BorderRadius.circular(8),
+              child: Image.asset(
+                course.image,
+                width: 60,
+                height: 60,
+                fit: BoxFit.cover,
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    course.title,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: _miniTitle(),
+                  ),
+                  const SizedBox(height: 4),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: LinearProgressIndicator(
+                          value: enrollment.progress,
+                          minHeight: 4,
+                          backgroundColor: const Color(0xFFF3F4F6),
+                          valueColor: const AlwaysStoppedAnimation(
+                            Color(0xFFE6B800),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Text(enrollment.percentLabel, style: _boldTiny()),
+                    ],
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    enrollment.positionLabel,
+                    style: _tiny(color: const Color(0xFF9CA3AF)),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// The stat strip, now derived.
+///
+/// The three values are all counted off the enrolment store. `HOURS LEARNED`
+/// and `DAY STREAK` are gone: neither is derivable from anything the app has —
+/// a streak needs its own backend work (`streak-integration-readiness`) and
+/// there are no watch times to add up — and an authored number sitting beside
+/// two live ones is the kind of thing that gets trusted.
+class _LearningStats extends ConsumerWidget {
+  const _LearningStats();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final enrollments = ref.watch(enrolledCoursesProvider);
+    final completed = enrollments.where((e) => e.progress >= 1).length;
+    final lessons = enrollments.fold<int>(0, (sum, e) => sum + e.done);
+
     return Container(
       padding: const EdgeInsets.symmetric(vertical: 16),
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(16),
       ),
-      child: const Row(
+      child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceAround,
         children: [
-          _Stat(value: '24.5h', label: 'HOURS LEARNED'),
-          _Stat(value: '12', label: 'COMPLETED'),
-          _Stat(value: '🔥 8 Days', label: 'DAY STREAK'),
+          _Stat(value: '${enrollments.length}', label: 'ENROLLED'),
+          _Stat(value: '$completed', label: 'COMPLETED'),
+          _Stat(value: '$lessons', label: 'LESSONS DONE'),
         ],
       ),
     );

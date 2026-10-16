@@ -31,6 +31,8 @@ class CourseDetailView extends StatefulWidget {
     super.key,
     required this.data,
     required this.onEnrol,
+    this.isEnrolled = false,
+    this.onContinue,
   });
 
   final CourseDetailData data;
@@ -38,6 +40,19 @@ class CourseDetailView extends StatefulWidget {
   /// Runs the enrolment flow. Owned by the caller because the gate needs a
   /// `ProviderContainer`, which this widget must not reach for.
   final Future<void> Function() onEnrol;
+
+  /// Whether the user is already enrolled in [data].
+  ///
+  /// Defaults to false, so every caller that does not know about enrolment keeps
+  /// exactly the behaviour it had: the bar reads `Enroll Now`.
+  final bool isEnrolled;
+
+  /// Opens the player for a course already enrolled in.
+  ///
+  /// Null falls back to [onEnrol] — a caller that does not distinguish the two
+  /// states still does something sensible when the button is tapped, rather than
+  /// rendering a button that does nothing.
+  final VoidCallback? onContinue;
 
   @override
   State<CourseDetailView> createState() => _CourseDetailViewState();
@@ -1133,7 +1148,16 @@ class _CourseDetailViewState extends State<CourseDetailView> {
               ),
               const Spacer(),
               GestureDetector(
-                onTap: () => widget.onEnrol(),
+                onTap: () {
+                  // Enrolled: the button reopens the course instead of trying to
+                  // sell it again, and skips the profile gate — the user is
+                  // already past it.
+                  if (widget.isEnrolled) {
+                    (widget.onContinue ?? widget.onEnrol)();
+                    return;
+                  }
+                  widget.onEnrol();
+                },
                 child: Container(
                   padding: const EdgeInsets.symmetric(
                     horizontal: 24,
@@ -1144,7 +1168,9 @@ class _CourseDetailViewState extends State<CourseDetailView> {
                     borderRadius: BorderRadius.circular(100),
                   ),
                   child: Text(
-                    widget.data.enrollLabel,
+                    widget.isEnrolled
+                        ? 'Continue Learning'
+                        : widget.data.enrollLabel,
                     style: GoogleFonts.figtree(
                       fontSize: 14,
                       fontWeight: FontWeight.w700,
@@ -1204,6 +1230,8 @@ class CourseDetailData {
     this.bannerVideoAsset,
     this.price = '',
     this.badge = '',
+    this.resources = const <CourseResource>[],
+    this.discussions = const <CourseDiscussion>[],
   });
 
   /// Thumbnail in the catalogue list, and the still banner when
@@ -1300,6 +1328,13 @@ class CourseDetailData {
   /// not render it. Empty for the class catalogue, whose cards label themselves
   /// with [level] instead.
   final String badge;
+
+  /// The downloadable pack on the player's **Resources** tab. Empty renders the
+  /// tab's empty state.
+  final List<CourseResource> resources;
+
+  /// The thread on the player's **Q&A** tab. Empty renders the empty state.
+  final List<CourseDiscussion> discussions;
 }
 
 class CourseModule {
@@ -1319,7 +1354,12 @@ class CourseModule {
 
 /// One lecture inside a [CourseModule], shown when its section is expanded.
 class CourseLesson {
-  const CourseLesson(this.title, this.duration, {this.isPreview = false});
+  const CourseLesson(
+    this.title,
+    this.duration, {
+    this.isPreview = false,
+    this.videoAsset,
+  });
 
   final String title;
 
@@ -1327,8 +1367,18 @@ class CourseLesson {
   final String duration;
 
   /// Udemy marks a lecture or two per course as free to watch; this renders as
-  /// a `Preview` tag on the row.
+  /// a `Preview` tag on the detail screen's curriculum and as a green play icon
+  /// on the player's lesson row.
   final bool isPreview;
+
+  /// The lecture's video, when there is one.
+  ///
+  /// **Null on every entry in the catalogue, and that is the honest state** —
+  /// no lesson video assets exist in this repo. The player falls back to the
+  /// course's still image, the same way the detail screen's banner does, and a
+  /// null here is also what keeps `video_player` (no platform implementation
+  /// under `flutter test`) off every test path.
+  final String? videoAsset;
 }
 
 class CourseInclude {
@@ -1397,4 +1447,75 @@ class CourseReview {
 
   final String body;
   final int stars;
+}
+
+/// One downloadable file on the player's **Resources** tab.
+///
+/// **Course-level, not lesson-level.** The design's header names the episode
+/// (`EP. 2 Defining the Product Strategy Grid`), but the five files under it are
+/// course-wide templates — a strategy grid, a workbook, an interview guide, a
+/// benchmark framework — and they do not change as the lesson does. The header
+/// still names the current lesson, because that is what the design does; the
+/// list beneath it is the course's pack.
+///
+/// If resources should ever become per-lesson, this moves to [CourseLesson] and
+/// nothing else changes: the player already reads the list through one getter.
+class CourseResource {
+  const CourseResource(this.title, this.type);
+
+  final String title;
+  final CourseResourceType type;
+}
+
+/// The file kind behind a [CourseResource] — which is all a row needs, because
+/// the kind is what the row prints and the colour it prints it in.
+enum CourseResourceType {
+  pdf('PDF', Color(0xFFD93025), Icons.picture_as_pdf_outlined),
+  doc('DOC', Color(0xFF1A73E8), Icons.description_outlined),
+  xls('XLS', Color(0xFF1E8E3E), Icons.grid_on_outlined);
+
+  const CourseResourceType(this.label, this.color, this.icon);
+
+  /// The small caps label under the file's title, e.g. `PDF`.
+  final String label;
+  final Color color;
+  final IconData icon;
+}
+
+/// One message in a course's discussion thread, shown on the player's **Q&A**
+/// tab.
+///
+/// Also course-level, and for the same reason: the design's `Episode 2` pill
+/// scopes the thread to the lesson being watched, but the thread itself is the
+/// course's.
+class CourseDiscussion {
+  const CourseDiscussion(
+    this.author,
+    this.role,
+    this.when,
+    this.body, {
+    this.isStaff = false,
+    this.reactions = 0,
+  });
+
+  final String author;
+
+  /// The line under the name, e.g. `Student` or `Product Owner`.
+  final String role;
+
+  /// e.g. `3h ago`.
+  final String when;
+
+  final String body;
+
+  /// Marks the instructor's own replies, which the design badges.
+  final bool isStaff;
+
+  /// Reactions the message arrived with. The player's own tap adds to this
+  /// locally — there is no endpoint to send it to.
+  final int reactions;
+
+  /// The letter the avatar circle shows. The design has no photos, so every
+  /// avatar is an initial.
+  String get initial => author.isEmpty ? '?' : author[0].toUpperCase();
 }

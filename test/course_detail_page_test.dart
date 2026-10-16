@@ -5,6 +5,7 @@ import 'package:skillsikka/features/courses/data/course.dart';
 import 'package:skillsikka/features/courses/presentation/course_details_page.dart';
 import 'package:skillsikka/features/courses/presentation/courses.dart';
 import 'package:skillsikka/features/home/presentation/home_page.dart';
+import 'package:skillsikka/features/learning/presentation/course_player_page.dart';
 import 'package:skillsikka/features/profile/data/profile_completeness.dart';
 
 import 'support/events_test_scope.dart';
@@ -186,7 +187,7 @@ void main() {
     expect(find.text('Enroll Now'), findsOneWidget);
   });
 
-  testWidgets('the enrol button runs the profile gate and confirms', (
+  testWidgets('the enrol button runs the profile gate and opens the player', (
     tester,
   ) async {
     await pumpAtPhoneSize(
@@ -208,11 +209,16 @@ void main() {
     drainUnrelatedOverflows(tester);
 
     await tester.tap(find.text('Enroll Now'));
-    await tester.pump();
-    await tester.pump();
+    // The flow pushes a route now, so the two bare `pump`s this test used are
+    // not enough — the transition has to finish before the player is on screen.
+    await tester.pumpAndSettle();
     drainUnrelatedOverflows(tester);
 
-    expect(find.text('Enrolled successfully!'), findsOneWidget);
+    expect(
+      find.byType(CoursePlayerPage),
+      findsOneWidget,
+      reason: 'enrolling used to stop at a SnackBar on the detail page',
+    );
   });
 
   testWidgets('a class chip filters the Courses tab to that class', (

@@ -1083,6 +1083,11 @@ class _CourseDetailViewState extends State<CourseDetailView> {
   // BOTTOM STICKY BAR
   // ─────────────────────────────────────────────────────────────
   Widget _buildBottomStickyBar() {
+    // A paid course leads with what it costs; a free one has nothing to charge
+    // for, so it leads with the duration instead. One rule, both states — the
+    // label and the value always describe the same thing.
+    final hasPrice = widget.data.price.isNotEmpty;
+
     return Positioned(
       left: 0,
       right: 0,
@@ -1109,7 +1114,7 @@ class _CourseDetailViewState extends State<CourseDetailView> {
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   Text(
-                    'TOTAL TIME',
+                    hasPrice ? 'TOTAL PRICE' : 'TOTAL TIME',
                     style: GoogleFonts.inter(
                       fontSize: 10,
                       color: _softGray,
@@ -1117,7 +1122,7 @@ class _CourseDetailViewState extends State<CourseDetailView> {
                     ),
                   ),
                   Text(
-                    widget.data.totalTime,
+                    hasPrice ? widget.data.price : widget.data.totalTime,
                     style: GoogleFonts.manrope(
                       fontSize: 20,
                       fontWeight: FontWeight.w700,
@@ -1174,7 +1179,7 @@ class CourseDetailData {
     required this.rating,
     required this.level,
     required this.category,
-    required this.classLevel,
+    this.classLevel = '',
     required this.ratingsCount,
     required this.studentsEnrolled,
     required this.instructorName,
@@ -1197,6 +1202,8 @@ class CourseDetailData {
     this.descriptionIntro = '',
     this.enrollLabel = 'Enroll Now',
     this.bannerVideoAsset,
+    this.price = '',
+    this.badge = '',
   });
 
   /// Thumbnail in the catalogue list, and the still banner when
@@ -1225,6 +1232,10 @@ class CourseDetailData {
   /// Drives the class chips on the Courses tab and the home rail, so it has to
   /// match those chip labels exactly. `All` is not a value here — it is the
   /// absence of a filter.
+  ///
+  /// **Empty for a course that is not part of the class-filtered catalogue** —
+  /// a skill course has no class. This is a filter key only: the detail view
+  /// never renders it.
   final String classLevel;
 
   /// The `(14,820 ratings)` style string, parentheses included.
@@ -1263,7 +1274,8 @@ class CourseDetailData {
   final List<RatingBar> ratingBars;
   final List<CourseReview> reviews;
 
-  /// The `10hrs` string in the bottom bar.
+  /// The `10hrs` string in the bottom bar. Shown only when [price] is empty —
+  /// a paid course's bar leads with the price instead.
   final String totalTime;
 
   /// Rendered above the description blocks, e.g. `Course Updates:`. Omitted
@@ -1275,6 +1287,19 @@ class CourseDetailData {
   /// When set, the banner plays this video. When null the banner is a still
   /// image — the catalogue case.
   final String? bannerVideoAsset;
+
+  /// The card's price, e.g. `Rs. 1,299`.
+  ///
+  /// **This drives the bottom bar.** Non-empty, the bar reads `TOTAL PRICE` +
+  /// this value; empty, it stays `TOTAL TIME` + [totalTime]. One rule with two
+  /// states, so a card's price is never dropped on the screen it opens and a
+  /// free course is never given a price it does not have.
+  final String price;
+
+  /// The card's top-left tag, e.g. `Python`. Card-only — the detail screen does
+  /// not render it. Empty for the class catalogue, whose cards label themselves
+  /// with [level] instead.
+  final String badge;
 }
 
 class CourseModule {

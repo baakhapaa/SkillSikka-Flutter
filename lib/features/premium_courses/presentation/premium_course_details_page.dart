@@ -191,4 +191,11 @@ const _premiumCourseDetail = CourseDetailData(
     CourseReview(name: 'Flintin VF', when: '23 days ago', body: 'good'),
   ],
   totalTime: '10hrs',
+  // Premium courses are the paid ones, so the bottom bar leads with a price.
+  //
+  // **This is the design's value, not the listing's.** The premium screen is
+  // hardcoded to this one course and the premium listing's twelve cards are not
+  // linked to it, so there is no card price to inherit. If that link is ever
+  // built, this becomes the tapped card's price instead.
+  price: 'Rs.24.99',
 );

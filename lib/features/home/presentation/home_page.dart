@@ -20,6 +20,7 @@ import 'package:skillsikka/features/courses/presentation/courses.dart';
 import 'package:skillsikka/features/premium_courses/presentation/premium_course_details_page.dart';
 import 'package:skillsikka/features/premium_courses/presentation/premium_courses_page.dart';
 import 'package:skillsikka/features/recommendedcourse/presentation/recommended_course.dart';
+import 'package:skillsikka/features/skill_courses/data/skill_course.dart';
 import 'package:skillsikka/features/skill_courses/presentation/skill_courses.dart';
 import 'package:skillsikka/features/search/presentation/search_page.dart';
 import 'package:skillsikka/features/notification/presentation/notification_page.dart';
@@ -536,14 +537,19 @@ class _HomePageState extends State<HomePage>
     return _HeroCardLayout.lerp(from, to, t);
   }
 
-  Widget _buildSkillCourses() {
-    const courses = [
-      (Icons.code, 'Coding', '32 Courses'),
-      (Icons.brush, 'Drawing', '24 Courses'),
-      (Icons.mic, 'Public Speaking', '18 Courses'),
-      (Icons.music_note, 'Music', '40 Lessons'),
-    ];
+  /// The four skills the Skill Courses tab is built around, in chip order.
+  ///
+  /// The count under each label is **derived from the catalogue** rather than
+  /// authored: the old hardcoded `'32 Courses'` disagreed with the tab, which
+  /// counts the same pool, and `'40 Lessons'` was the odd one out.
+  static const _skillRail = <(IconData, String)>[
+    (Icons.code, 'Coding'),
+    (Icons.brush, 'Drawing'),
+    (Icons.mic, 'Public Speaking'),
+    (Icons.music_note, 'Music'),
+  ];
 
+  Widget _buildSkillCourses() {
     return Column(
       children: [
         _buildSectionHeader(
@@ -570,62 +576,78 @@ class _HomePageState extends State<HomePage>
           child: ListView.separated(
             padding: const EdgeInsets.symmetric(horizontal: 16),
             scrollDirection: Axis.horizontal,
-            itemCount: courses.length,
+            itemCount: _skillRail.length,
             separatorBuilder: (c, i) => const SizedBox(width: 14),
             itemBuilder: (context, index) {
-              final c = courses[index];
-              return Container(
-                constraints: const BoxConstraints(minWidth: 140),
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 12,
-                  vertical: 10,
-                ),
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(14),
-                  border: Border.all(color: const Color(0xFFF3F4F6)),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.black.withValues(alpha: 0.03),
-                      blurRadius: 8,
+              final (icon, skill) = _skillRail[index];
+              final count = skillCoursePool
+                  .where((c) => c.category == skill)
+                  .length;
+
+              return GestureDetector(
+                onTap: () {
+                  Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder: (_) => SkillCoursesPage(initialSkill: skill),
                     ),
-                  ],
-                ),
-                child: Row(
-                  children: [
-                    Container(
-                      width: 36,
-                      height: 36,
-                      decoration: const BoxDecoration(
-                        color: Color(0xFFFFFBEB),
-                        shape: BoxShape.circle,
+                  );
+                },
+                child: Container(
+                  constraints: const BoxConstraints(minWidth: 140),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 10,
+                  ),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(14),
+                    border: Border.all(color: const Color(0xFFF3F4F6)),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withValues(alpha: 0.03),
+                        blurRadius: 8,
                       ),
-                      child: Icon(
-                        c.$1,
-                        color: const Color(0xFFE6BD1E),
-                        size: 18,
+                    ],
+                  ),
+                  child: Row(
+                    children: [
+                      Container(
+                        width: 36,
+                        height: 36,
+                        decoration: const BoxDecoration(
+                          color: Color(0xFFFFFBEB),
+                          shape: BoxShape.circle,
+                        ),
+                        child: Icon(
+                          icon,
+                          color: const Color(0xFFE6BD1E),
+                          size: 18,
+                        ),
                       ),
-                    ),
-                    const SizedBox(width: 10),
-                    Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Text(
-                          c.$2,
-                          style: GoogleFonts.inter(
-                            fontSize: 11,
-                            fontWeight: FontWeight.w700,
-                            color: _titleInk,
+                      const SizedBox(width: 10),
+                      Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Text(
+                            skill,
+                            style: GoogleFonts.inter(
+                              fontSize: 11,
+                              fontWeight: FontWeight.w700,
+                              color: _titleInk,
+                            ),
                           ),
-                        ),
-                        Text(
-                          c.$3,
-                          style: GoogleFonts.figtree(fontSize: 9, color: _gray),
-                        ),
-                      ],
-                    ),
-                  ],
+                          Text(
+                            '$count Courses',
+                            style: GoogleFonts.figtree(
+                              fontSize: 9,
+                              color: _gray,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
                 ),
               );
             },

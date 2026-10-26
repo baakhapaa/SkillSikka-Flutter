@@ -199,6 +199,90 @@ void main() {
     expect(find.text('View more'), findsNothing);
   });
 
+  testWidgets('replying nests the answer under its message', (tester) async {
+    final course = geometry;
+    // The whole thread has to be built: posting a reply opens the thread, so
+    // the assertion below needs the second card to exist to be compared with.
+    await pumpPlayer(tester, course, size: const Size(360, 1400));
+
+    await tester.tap(find.text('Q&A'));
+    await tester.pump();
+    drainUnrelatedOverflows(tester);
+
+    final parent = course.discussions.first;
+    final next = course.discussions[1];
+
+    // The first `Reply` in the tree is the first card's.
+    await tester.tap(find.text('Reply').first);
+    await tester.pump();
+
+    // The composer says what it is about to do — otherwise a reply and a new
+    // discussion look identical while you are typing.
+    expect(find.text('Replying to ${parent.author}'), findsOneWidget);
+
+    await tester.enterText(
+      find.byType(TextField),
+      'Which construction should I redo first?',
+    );
+    await tester.tap(find.byIcon(Icons.send));
+    await tester.pump();
+    drainUnrelatedOverflows(tester);
+
+    final reply = find.text('Which construction should I redo first?');
+    expect(reply, findsOneWidget);
+
+    // Under the message it answers, and above the next card — not at the top
+    // of the list, which is where a new discussion goes.
+    final replyY = tester.getTopLeft(reply).dy;
+    expect(
+      replyY,
+      greaterThan(tester.getTopLeft(find.text(parent.body)).dy),
+      reason: 'the reply rendered above the message it answers',
+    );
+    expect(
+      replyY,
+      lessThan(tester.getTopLeft(find.text(next.body)).dy),
+      reason: 'the reply became a new message in the thread',
+    );
+
+    // And indented, so the nesting is visible rather than implied by order.
+    expect(
+      tester.getTopLeft(reply).dx,
+      greaterThan(tester.getTopLeft(find.text(parent.body)).dx),
+      reason: 'the reply is flush with its parent, so it reads as a sibling',
+    );
+
+    // A reply is part of a discussion, not a new one.
+    expect(find.text('${course.discussions.length}'), findsOneWidget);
+  });
+
+  testWidgets('posting with no reply target still starts a new discussion', (
+    tester,
+  ) async {
+    final course = geometry;
+    await pumpPlayer(tester, course, size: const Size(360, 1400));
+
+    await tester.tap(find.text('Q&A'));
+    await tester.pump();
+    drainUnrelatedOverflows(tester);
+
+    await tester.enterText(find.byType(TextField), 'Is the pack printable?');
+    await tester.tap(find.byIcon(Icons.send));
+    await tester.pump();
+    drainUnrelatedOverflows(tester);
+
+    final comment = find.text('Is the pack printable?');
+    expect(comment, findsOneWidget);
+
+    // Above the first authored card, because a new discussion sorts to the top
+    // — the opposite of where a reply goes.
+    expect(
+      tester.getTopLeft(comment).dy,
+      lessThan(tester.getTopLeft(find.text(course.discussions.first.body)).dy),
+    );
+    expect(find.text('${course.discussions.length + 1}'), findsOneWidget);
+  });
+
   testWidgets('the bottom bar offers Enroll, then Continue Learning', (
     tester,
   ) async {

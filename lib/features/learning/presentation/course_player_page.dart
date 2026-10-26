@@ -63,12 +63,31 @@ class _CoursePlayerPageState extends ConsumerState<CoursePlayerPage> {
 
   /// Discussions the user has reacted to in this session. Local, because there
   /// is no endpoint to send a reaction to.
-  final Set<int> _reacted = <int>{};
+  ///
+  /// Keyed by [_QaCard.key], not by list position: a card's index moves the
+  /// moment a newer comment is posted above it, and a reaction that jumped to
+  /// a different message would be worse than one that is forgotten.
+  final Set<String> _reacted = <String>{};
 
-  /// Comments posted from the composer on this screen, newest first.
-  final List<CourseDiscussion> _localComments = <CourseDiscussion>[];
+  /// Top-level comments posted from the composer, newest first.
+  final List<_QaCard> _localComments = <_QaCard>[];
 
-  /// How many comments show before `View more`, and whether it has been tapped.
+  /// Replies posted from this screen, grouped by the card they answer.
+  ///
+  /// Replies are **not** in the main list. A reply that renders as the next
+  /// message in the thread is not a reply — it is a second question that
+  /// happens to start with an `@`.
+  final Map<String, List<CourseDiscussion>> _replies =
+      <String, List<CourseDiscussion>>{};
+
+  /// Which card the composer is currently answering, or null when it is
+  /// posting a new top-level comment.
+  _ReplyTarget? _replyTarget;
+
+  int _nextLocalKey = 0;
+
+  /// How many **cards** show before `View more`, and whether it has been
+  /// tapped. Replies do not count — they live inside their card.
   ///
   /// Three rather than five because the catalogue authors four per course, so
   /// the control always has something behind it — a `View more` that expands to
@@ -646,10 +665,7 @@ class _CoursePlayerPageState extends ConsumerState<CoursePlayerPage> {
   Widget _buildQaTab() {
     // Comments posted on this screen sit on top of the course's thread, newest
     // first. See `_postComment` for why they are held here and not in the store.
-    final discussions = <CourseDiscussion>[
-      ..._localComments,
-      ..._course.discussions,
-    ];
+    final discussions = _qaCards;
     final visible = _showAllComments
         ? discussions
         : discussions.take(_commentPreview).toList(growable: false);
@@ -669,7 +685,10 @@ class _CoursePlayerPageState extends ConsumerState<CoursePlayerPage> {
                 ),
               ),
               const SizedBox(width: 8),
-              // Derived from the thread, like every other count on this screen.
+              // Counts cards, not messages: a reply is part of the discussion
+              // it answers, so it does not start one. This is why replying
+              // leaves the badge alone — that is the correct behaviour, not a
+              // missed rebuild.
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
                 decoration: BoxDecoration(
@@ -715,31 +734,43 @@ class _CoursePlayerPageState extends ConsumerState<CoursePlayerPage> {
               color: _fill,
               borderRadius: BorderRadius.circular(24),
             ),
-            child: Row(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
               children: [
-                Expanded(
-                  child: TextField(
-                    controller: _composer,
-                    focusNode: _composerFocus,
-                    minLines: 1,
-                    maxLines: 3,
-                    style: GoogleFonts.figtree(fontSize: 12.5, color: _ink),
-                    decoration: InputDecoration(
-                      isDense: true,
-                      border: InputBorder.none,
-                      hintText: 'Add to the discussion...',
-                      hintStyle: GoogleFonts.figtree(
-                        fontSize: 12.5,
-                        color: _softGray,
+                // Only while a reply is in progress. Without it the composer
+                // looks identical whether it will post a new discussion or
+                // answer an existing one — and the nesting is the only other
+                // clue, which is too late.
+                if (_replyTarget case final target?) _buildReplyBanner(target),
+                Row(
+                  children: [
+                    Expanded(
+                      child: TextField(
+                        controller: _composer,
+                        focusNode: _composerFocus,
+                        minLines: 1,
+                        maxLines: 3,
+                        style: GoogleFonts.figtree(fontSize: 12.5, color: _ink),
+                        decoration: InputDecoration(
+                          isDense: true,
+                          border: InputBorder.none,
+                          hintText: _replyTarget == null
+                              ? 'Add to the discussion...'
+                              : 'Write a reply...',
+                          hintStyle: GoogleFonts.figtree(
+                            fontSize: 12.5,
+                            color: _softGray,
+                          ),
+                        ),
                       ),
                     ),
-                  ),
-                ),
-                IconButton(
-                  onPressed: _postComment,
-                  icon: const Icon(Icons.send, size: 18),
-                  color: _ink,
-                  tooltip: 'Post',
+                    IconButton(
+                      onPressed: _postComment,
+                      icon: const Icon(Icons.send, size: 18),
+                      color: _ink,
+                      tooltip: _replyTarget == null ? 'Post' : 'Reply',
+                    ),
+                  ],
                 ),
               ],
             ),
@@ -755,8 +786,7 @@ class _CoursePlayerPageState extends ConsumerState<CoursePlayerPage> {
               : ListView(
                   padding: const EdgeInsets.fromLTRB(16, 0, 16, 32),
                   children: [
-                    for (var i = 0; i < visible.length; i++)
-                      _buildDiscussionCard(discussions[i], i),
+                    for (final card in visible) _buildDiscussionCard(card),
                     if (!_showAllComments &&
                         discussions.length > _commentPreview)
                       Center(
@@ -780,8 +810,10 @@ class _CoursePlayerPageState extends ConsumerState<CoursePlayerPage> {
     );
   }
 
-  Widget _buildDiscussionCard(CourseDiscussion discussion, int index) {
-    final reacted = _reacted.contains(index);
+  Widget _buildDiscussionCard(_QaCard card) {
+    final discussion = card.comment;
+    final replies = _replies[card.key] ?? const <CourseDiscussion>[];
+    final reacted = _reacted.contains(card.key);
     final reactions = discussion.reactions + (reacted ? 1 : 0);
 
     return Container(
@@ -879,32 +911,187 @@ class _CoursePlayerPageState extends ConsumerState<CoursePlayerPage> {
                 label: reactions == 0 ? 'React' : '$reactions',
                 active: reacted,
                 onTap: () => setState(() {
-                  if (!_reacted.remove(index)) _reacted.add(index);
+                  if (!_reacted.remove(card.key)) _reacted.add(card.key);
                 }),
               ),
               const SizedBox(width: 18),
               _CardAction(
                 icon: Icons.chat_bubble_outline,
                 label: 'Reply',
-                // Not a dead control: replying is what the composer above is
-                // for, so this puts the cursor in it and names who is being
-                // answered.
-                onTap: () {
-                  _composer.text = '@${discussion.author} ';
-                  _composer.selection = TextSelection.collapsed(
-                    offset: _composer.text.length,
-                  );
-                  _composerFocus.requestFocus();
-                },
+                // Not a dead control, and no longer a shortcut to a flat
+                // comment: this targets the card, so the composer posts
+                // underneath it instead of at the top of the list.
+                onTap: () => _startReply(card.key, discussion.author),
               ),
             ],
+          ),
+          if (replies.isNotEmpty) _buildReplyList(card.key, replies),
+        ],
+      ),
+    );
+  }
+
+  /// The replies to one card, indented behind a thread rule.
+  ///
+  /// One level deep, deliberately. A reply to a reply joins this same list and
+  /// carries an `@mention` instead of a third indent — deeper nesting buys
+  /// nothing on a 360pt screen and costs the reader the whole column.
+  Widget _buildReplyList(String threadKey, List<CourseDiscussion> replies) {
+    return Container(
+      margin: const EdgeInsets.only(top: 10),
+      padding: const EdgeInsets.only(left: 12),
+      decoration: const BoxDecoration(
+        border: Border(left: BorderSide(color: _border, width: 2)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          for (final reply in replies) _buildReplyRow(threadKey, reply),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildReplyRow(String threadKey, CourseDiscussion reply) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 10),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                width: 24,
+                height: 24,
+                alignment: Alignment.center,
+                decoration: const BoxDecoration(
+                  color: _fill,
+                  shape: BoxShape.circle,
+                ),
+                child: Text(
+                  reply.initial,
+                  style: GoogleFonts.manrope(
+                    fontSize: 10.5,
+                    fontWeight: FontWeight.w700,
+                    color: _gray,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Flexible(
+                child: Text(
+                  reply.author,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: GoogleFonts.figtree(
+                    fontSize: 11.5,
+                    fontWeight: FontWeight.w700,
+                    color: _ink,
+                  ),
+                ),
+              ),
+              if (reply.isStaff) ...[
+                const SizedBox(width: 4),
+                Container(
+                  width: 7,
+                  height: 7,
+                  decoration: const BoxDecoration(
+                    color: _gold,
+                    shape: BoxShape.circle,
+                  ),
+                ),
+              ],
+              const SizedBox(width: 6),
+              Text(
+                '${reply.when} • ${reply.role}',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: GoogleFonts.inter(fontSize: 10, color: _softGray),
+              ),
+            ],
+          ),
+          const SizedBox(height: 6),
+          Text(
+            reply.body,
+            style: GoogleFonts.figtree(
+              fontSize: 12,
+              height: 1.35,
+              color: _gray,
+            ),
+          ),
+          const SizedBox(height: 4),
+          _CardAction(
+            icon: Icons.chat_bubble_outline,
+            label: 'Reply',
+            // Replies to a reply stay in this list, so the mention is what
+            // says who is being answered.
+            onTap: () => _startReply(threadKey, reply.author, mention: true),
           ),
         ],
       ),
     );
   }
 
-  /// Posts the composer's text as a new comment.
+  /// Points the composer at [threadKey] and says who it is answering.
+  ///
+  /// The mention is only written for a reply-to-a-reply: answering the card
+  /// itself is already unambiguous from the nesting, and prefilling `@Author`
+  /// there is what made a threaded answer look like a new message. Existing
+  /// text is never clobbered.
+  void _startReply(String threadKey, String author, {bool mention = false}) {
+    setState(() {
+      _replyTarget = _ReplyTarget(key: threadKey, author: author);
+      if (mention && !_composer.text.startsWith('@$author')) {
+        _composer.text = '@$author ${_composer.text}';
+        _composer.selection = TextSelection.collapsed(
+          offset: _composer.text.length,
+        );
+      }
+    });
+    _composerFocus.requestFocus();
+  }
+
+  Widget _buildReplyBanner(_ReplyTarget target) {
+    return Padding(
+      padding: const EdgeInsets.only(top: 8, right: 6),
+      child: Row(
+        children: [
+          const Icon(Icons.reply, size: 13, color: _softGray),
+          const SizedBox(width: 5),
+          Expanded(
+            child: Text(
+              'Replying to ${target.author}',
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: GoogleFonts.inter(
+                fontSize: 10.5,
+                fontWeight: FontWeight.w600,
+                color: _gray,
+              ),
+            ),
+          ),
+          GestureDetector(
+            onTap: () => setState(() => _replyTarget = null),
+            behavior: HitTestBehavior.opaque,
+            child: const Padding(
+              padding: EdgeInsets.all(4),
+              child: Icon(Icons.close, size: 13, color: _softGray),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// The thread as it renders: local comments first, then the course's own.
+  List<_QaCard> get _qaCards => [
+    ..._localComments,
+    for (var i = 0; i < _course.discussions.length; i++)
+      _QaCard(key: 'course:$i', comment: _course.discussions[i]),
+  ];
+
+  /// Posts the composer's text — under the card being answered, or as a new
+  /// discussion when nothing is targeted.
   ///
   /// **Local only.** There is no discussions endpoint, so the message is held in
   /// this screen's state and is gone when it closes. It is not written to the
@@ -914,9 +1101,23 @@ class _CoursePlayerPageState extends ConsumerState<CoursePlayerPage> {
   void _postComment() {
     final text = _composer.text.trim();
     if (text.isEmpty) return;
+    final target = _replyTarget;
     setState(() {
-      _localComments.add(CourseDiscussion('You', 'Student', 'Just now', text));
+      final comment = CourseDiscussion('You', 'Student', 'Just now', text);
+      if (target != null) {
+        _replies
+            .putIfAbsent(target.key, () => <CourseDiscussion>[])
+            .add(comment);
+      } else {
+        _localComments.insert(
+          0,
+          _QaCard(key: 'local:${_nextLocalKey++}', comment: comment),
+        );
+      }
       _composer.clear();
+      _replyTarget = null;
+      // The answered card has to be on screen, so posting a reply opens the
+      // rest of the thread the same way posting a comment does.
       _showAllComments = true;
     });
     _composerFocus.unfocus();
@@ -928,6 +1129,31 @@ class _CoursePlayerPageState extends ConsumerState<CoursePlayerPage> {
     if (_lessons.isEmpty) return _course.title;
     return 'EP. ${_currentIndex + 1} ${_lessons[_currentIndex].title}';
   }
+}
+
+// ─────────────────────────────────────────────────────────────
+// THREAD PARTS
+// ─────────────────────────────────────────────────────────────
+
+/// One top-level card: a message, and the key its replies are filed under.
+///
+/// [key] is a string and not the [CourseDiscussion] itself because the model
+/// has no identity — two messages with the same body are the same value — and
+/// keying a map by value would merge two real threads into one. Authored cards
+/// use `course:<index>`; cards posted here use `local:<n>`.
+class _QaCard {
+  const _QaCard({required this.key, required this.comment});
+
+  final String key;
+  final CourseDiscussion comment;
+}
+
+/// The card the composer is answering, and the name to show it is answering.
+class _ReplyTarget {
+  const _ReplyTarget({required this.key, required this.author});
+
+  final String key;
+  final String author;
 }
 
 // ─────────────────────────────────────────────────────────────

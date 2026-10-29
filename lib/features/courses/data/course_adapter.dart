@@ -119,7 +119,14 @@ class CourseMapper {
       learningOutcomes: _stringList(course['learning_outcomes']),
       curriculumSummary: _curriculumSummary(modules, totalSeconds),
       modules: modules,
-      includes: _includes(course, lessons, resources),
+      includes: _includes(
+        course,
+        lessons,
+        // The server counts the real resource table; the fallback list only
+        // knows about `pdf`/`ebook` lessons. Prefer the server's number when the
+        // payload carries it — a list row does not, a detail fetch does.
+        _int(course['resources_count']) ?? resources.length,
+      ),
       requirements: _stringList(course['requirements']),
       // The Description section is the changelog, as the design has it. With no
       // updates to show, the intro goes too — `Course Updates:` over nothing
@@ -200,24 +207,34 @@ class CourseMapper {
     ];
   }
 
-  /// The course's **resource pack** — the player's Resources tab, and the
-  /// design's `N Support files` row.
+  /// The course's **fallback resource pack**.
   ///
-  /// **A PDF is a resource, not a lecture.** The backend has no resource table
-  /// and `POST /courses/{id}/assets/` is still 404, so the only file a course
-  /// payload actually carries is a `pdf`/`ebook` *lesson*, whose `content_url`
-  /// is the file. Those rows are lifted out of the curriculum here.
+  /// **Real resources come from `GET /courses/{id}/resources/`**, which the
+  /// player fetches lazily and which wins whenever it answers a non-empty list
+  /// (see `course_player_page.dart`). This function is what a course with no
+  /// resource rows falls back to, and it exists for one case: the dev seed
+  /// (`seed_courses.py:64`) makes a third of every course's lessons `pdf`, and
+  /// those rows were the only file the app ever showed. Dropping them here would
+  /// make every seeded course's Resources tab go empty.
   ///
-  /// `CourseResourceType` has no `ebook`, so both kinds label as `PDF`; the
-  /// seeded payloads only contain `pdf`, and the moment the backend grows a
-  /// resources endpoint this whole function is replaced by reading it.
+  /// A `pdf`/`ebook` **lesson** is still not a lecture — `_modules` skips it —
+  /// so lifting it out here is the only place it can appear. Its `content_url`
+  /// is the file, which is why these rows are now openable: they used to carry a
+  /// title and nothing else, and the download button was decoration.
+  ///
+  /// `CourseResourceType.fromFormat` maps `content_type` too, so an `ebook`
+  /// labels as `PDF` only because that is what the seed stores it as.
   static List<CourseResource> _resources(List<Map<String, dynamic>> lessons) {
     return [
       for (final row in lessons)
         if (CourseLessonKind.fromWire(row['content_type']).isDocument)
           CourseResource(
             _str(row['title'], fallback: 'Resource'),
-            CourseResourceType.pdf,
+            CourseResourceType.fromFormat(row['content_type']),
+            id: _int(row['id']),
+            url: _str(row['content_url']).isEmpty
+                ? null
+                : _str(row['content_url']),
           ),
     ];
   }
@@ -226,16 +243,12 @@ class CourseMapper {
 
   /// The rows in **This course includes**.
   ///
-  /// **The backend has no includes table and no `includes` field**, so this used
-  /// to be `const []` — a heading with an empty white block under it on every
-  /// API course.
-  ///
   /// **A course's lessons are all videos.** There is no text, PDF or ebook
   /// lesson type in the product: a PDF is a *resource* attached to the course,
   /// not a lecture. So the duration row is the course's own
   /// `total_duration_seconds` — the server's aggregate over every lesson —
   /// rather than a sum filtered by `content_type`, and the support-files row
-  /// counts the pack `_resources` lifted out of the payload.
+  /// counts [resourceCount].
   ///
   /// The last three rows are **product policy, not payload**: lifetime access,
   /// mobile/desktop/TV and the certificate hold for every course in the app, and
@@ -248,7 +261,7 @@ class CourseMapper {
   static List<CourseInclude> _includes(
     Map<String, dynamic> course,
     List<Map<String, dynamic>> lessons,
-    List<CourseResource> resources,
+    int resourceCount,
   ) {
     // The server's own total, falling back to the lessons we were handed — a
     // list row carries the total but no lessons, a detail fetch carries both.
@@ -265,11 +278,10 @@ class CourseMapper {
           Icons.play_circle_outline,
           '${_compact(seconds)} of on-demand video',
         ),
-      if (resources.isNotEmpty)
+      if (resourceCount > 0)
         CourseInclude(
           Icons.description_outlined,
-          '${resources.length} support '
-          '${resources.length == 1 ? 'file' : 'files'}',
+          '$resourceCount support ${resourceCount == 1 ? 'file' : 'files'}',
         ),
       const CourseInclude(Icons.all_inclusive, 'Full lifetime access'),
       const CourseInclude(Icons.devices, 'Access on mobile, desktop and TV'),

@@ -1,10 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:skillsikka/core/network/api_error.dart';
 import 'package:skillsikka/core/widgets/course_detail_view.dart';
 import 'package:skillsikka/features/courses/data/course.dart';
 import 'package:skillsikka/features/courses/data/course_adapter.dart';
 import 'package:skillsikka/features/courses/data/course_api.dart';
+import 'package:skillsikka/features/courses/data/course_resources_api.dart';
 import 'package:skillsikka/features/courses/presentation/course_details_page.dart';
 import 'package:skillsikka/features/learning/data/enrollment.dart';
 import 'package:skillsikka/features/learning/presentation/course_player_page.dart';
@@ -63,15 +65,22 @@ void main() {
     int startIndex = 0,
     Size size = const Size(360, 800),
     FakeCourseApi? api,
+    FakeCourseResourcesApi? resources,
   }) async {
     await tester.binding.setSurfaceSize(size);
     addTearDown(() => tester.binding.setSurfaceSize(null));
 
-    // An API course makes the player fetch its progress on open. Every test that
-    // passes one hands over a fake, so no suite reaches the network — dio would
-    // answer 400 under `flutter test`, which looks like a product bug.
+    // An API course makes the player fetch its progress on open, and tapping
+    // Resources makes it fetch the pack. Every test that passes one hands over a
+    // fake, so no suite reaches the network — dio would answer 400 under
+    // `flutter test`, which looks like a product bug.
     final container = ProviderContainer(
-      overrides: [if (api != null) courseApiProvider.overrideWithValue(api)],
+      overrides: [
+        if (api != null) courseApiProvider.overrideWithValue(api),
+        courseResourcesApiProvider.overrideWithValue(
+          resources ?? FakeCourseResourcesApi(),
+        ),
+      ],
     );
     addTearDown(container.dispose);
     if (enrolled) {
@@ -751,5 +760,190 @@ void main() {
 
       expect(find.text('You finished this course'), findsNothing);
     });
+  });
+
+  /// The Resources tab, which fetches `GET /courses/{id}/resources/` the first
+  /// time it is opened — the same lazy contract the Q&A tab has.
+  group('resources', () {
+    CourseDetailData apiCourse(List<Map<String, dynamic>> lessons) =>
+        CourseMapper.detail(
+          course: {
+            'id': 99,
+            'title': 'Drawing from Observation',
+            'description': 'Learn by doing.',
+            'course_type': 'skill',
+            'skill_category': 13,
+            'skill_category_name': 'Drawing',
+            'is_paid': false,
+            'price': null,
+            'thumbnail_url': '',
+            'is_published': true,
+            'average_rating': null,
+            'review_count': 0,
+            'students_enrolled': 0,
+            'lessons_count': lessons.length,
+            'total_duration_seconds': 900,
+            'instructor': 4,
+            'instructor_name': 'Test Instructor',
+            'learning_outcomes': <String>[],
+            'requirements': <String>[],
+            'updated_at': '2026-10-27T06:04:13.639481Z',
+          },
+          lessons: lessons,
+        );
+
+    Map<String, dynamic> lesson(int id, {String kind = 'video'}) => {
+      'id': id,
+      'title': 'Lesson $id',
+      'content_type': kind,
+      'content_url': 'https://example.com/$id.mp4',
+      'content_text': null,
+      'section': 'Foundations',
+      'duration_seconds': 300,
+      'is_preview': false,
+      'order': id,
+    };
+
+    CourseResource file(
+      String title, {
+      int? lessonId,
+      String format = 'pdf',
+      int? sizeBytes,
+      String? url = 'https://example.com/file.pdf',
+    }) => CourseResource(
+      title,
+      CourseResourceType.fromFormat(format),
+      id: title.hashCode.abs(),
+      url: url,
+      lessonId: lessonId,
+      sizeBytes: sizeBytes,
+    );
+
+    testWidgets('the tab fetches once, and only when it is opened', (
+      tester,
+    ) async {
+      final resources = FakeCourseResourcesApi();
+      await pumpPlayer(
+        tester,
+        apiCourse([lesson(1)]),
+        api: FakeCourseApi(),
+        resources: resources,
+      );
+      await tester.pumpAndSettle();
+
+      expect(
+        resources.calls,
+        isEmpty,
+        reason:
+            'a player opened to watch a lecture must not fetch a tab nobody '
+            'looked at',
+      );
+
+      await tester.tap(find.text('Resources'));
+      await tester.pumpAndSettle();
+      expect(resources.calls, [99]);
+
+      // Leaving and coming back must not spend a second request.
+      await tester.tap(find.text('Lessons'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Resources'));
+      await tester.pumpAndSettle();
+      expect(resources.calls, [99]);
+    });
+
+    testWidgets('a lesson shows its own files and the course-wide ones', (
+      tester,
+    ) async {
+      final resources = FakeCourseResourcesApi(
+        rows: [
+          file('This lesson worksheet', lessonId: 1),
+          file('Course-wide template'),
+          file('Next lesson handout', lessonId: 2),
+        ],
+      );
+      await pumpPlayer(
+        tester,
+        apiCourse([lesson(1), lesson(2)]),
+        api: FakeCourseApi(),
+        resources: resources,
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Resources'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('This lesson worksheet'), findsOneWidget);
+      expect(
+        find.text('Course-wide template'),
+        findsOneWidget,
+        reason:
+            'a row with no lesson is course-wide — every bootcamp pack is '
+            'shaped that way and must stay visible',
+      );
+      expect(
+        find.text('Next lesson handout'),
+        findsNothing,
+        reason: 'another lesson’s file is not this lesson’s file',
+      );
+      expect(find.text('2 files'), findsOneWidget);
+    });
+
+    testWidgets('a server pack replaces the pdf-lesson fallback', (
+      tester,
+    ) async {
+      // The course carries a `pdf` lesson, which the adapter lifts into a
+      // fallback resource. Once the server answers real rows, those win.
+      final course = apiCourse([lesson(1), lesson(2, kind: 'pdf')]);
+      expect(course.resources, hasLength(1));
+
+      await pumpPlayer(
+        tester,
+        course,
+        api: FakeCourseApi(),
+        resources: FakeCourseResourcesApi(
+          rows: [file('Workbook', lessonId: 1, format: 'xlsx')],
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Resources'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Workbook'), findsOneWidget);
+      expect(find.text('1 file'), findsOneWidget);
+      expect(
+        find.text('Lesson 2'),
+        findsNothing,
+        reason: 'the fallback list is only for a course with no rows',
+      );
+    });
+
+    testWidgets(
+      'a refused load says so instead of claiming there are no files',
+      (tester) async {
+        final resources = FakeCourseResourcesApi(
+          failure: const ApiException(
+            kind: ApiErrorKind.forbidden,
+            statusCode: 403,
+            message: 'You must be enrolled in this course to access it.',
+          ),
+        );
+        await pumpPlayer(
+          tester,
+          apiCourse([lesson(1)]),
+          api: FakeCourseApi(),
+          resources: resources,
+        );
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('Resources'));
+        await tester.pumpAndSettle();
+
+        expect(find.text('Could not load the files'), findsOneWidget);
+        expect(
+          find.text('No files for this lesson'),
+          findsNothing,
+          reason: 'a 403 is not an empty pack',
+        );
+        expect(find.text('Try again'), findsOneWidget);
+      },
+    );
   });
 }

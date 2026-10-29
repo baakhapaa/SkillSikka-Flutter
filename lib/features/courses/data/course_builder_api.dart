@@ -167,12 +167,73 @@ class CourseBuilderApi {
     onProgress: onProgress,
   );
 
+  /// Uploads one **resource** file — a worksheet, a template, a starter pack.
+  ///
+  /// A third `kind`, not a lesson asset: the lesson list is a
+  /// video/pdf/epub list and a 500 MB cap on a spreadsheet is a mistake waiting
+  /// to happen. The server accepts documents and archives up to 25 MB here.
+  Future<String> uploadResourceAsset({
+    required int courseId,
+    required Uint8List bytes,
+    required String fileName,
+    void Function(int sent, int total)? onProgress,
+  }) => uploadCourseAsset(
+    courseId: courseId,
+    kind: 'resource',
+    bytes: bytes,
+    fileName: fileName,
+    onProgress: onProgress,
+  );
+
+  /// `POST /courses/{id}/resources/` — attaches an uploaded file to a lesson.
+  ///
+  /// [lessonId] is what makes it per-lesson; null leaves a course-wide row, the
+  /// shape every bootcamp pack has. [fileUrl] is what [uploadResourceAsset]
+  /// answered, and [fileFormat] is the server's own vocabulary (`pdf`, `docx`,
+  /// `xlsx`, `zip`, …).
+  ///
+  /// Called *after* `POST /lessons/`, because the row needs the lesson id and
+  /// the lesson does not exist until that answers.
+  Future<int> createResource({
+    required int courseId,
+    required String title,
+    required String fileUrl,
+    required String fileFormat,
+    int? lessonId,
+    int? sizeBytes,
+    int? order,
+  }) async {
+    final body = await _client.post<Map<String, dynamic>>(
+      '/courses/$courseId/resources/',
+      data: {
+        'title': title,
+        'file_url': fileUrl,
+        'file_format': fileFormat,
+        'lesson': ?lessonId,
+        'file_size_bytes': ?sizeBytes,
+        'order': ?order,
+      },
+    );
+    final id = body['id'];
+    if (id is! int) {
+      throw StateError(
+        'POST /courses/$courseId/resources/ returned no id: $body',
+      );
+    }
+    return id;
+  }
+
+  Future<void> deleteResource({
+    required int courseId,
+    required int resourceId,
+  }) => _client.delete('/courses/$courseId/resources/$resourceId/');
+
   /// `POST /courses/{id}/assets/` — multipart, field `file`, plus `kind`.
   ///
-  /// [kind] is `cover` or `lesson`. The course id is required rather than a
-  /// lesson id because a lesson's file has to be uploaded *before* the lesson
-  /// row exists: the sheet uploads on save, and the id is only minted by the
-  /// `POST /lessons/` that follows.
+  /// [kind] is `cover`, `lesson` or `resource`. The course id is required rather
+  /// than a lesson id because a lesson's file has to be uploaded *before* the
+  /// lesson row exists: the sheet uploads on save, and the id is only minted by
+  /// the `POST /lessons/` that follows.
   Future<String> uploadCourseAsset({
     required int courseId,
     required String kind,

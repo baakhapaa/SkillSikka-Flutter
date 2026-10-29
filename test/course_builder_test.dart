@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:typed_data';
 
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:skillsikka/core/network/api_error.dart';
@@ -11,6 +12,37 @@ import 'package:skillsikka/features/courses/presentation/widgets/course_basics_s
 import 'package:skillsikka/features/courses/presentation/widgets/lesson_editor_sheet.dart';
 import 'package:skillsikka/features/courses/presentation/widgets/prompt_dialog.dart';
 import 'package:skillsikka/core/widgets/upload_card.dart';
+
+/// Returns whatever files a test hands it, so the sheet's **Attach resources**
+/// block can be driven without an OS dialog.
+class _FakeFilePicker extends FilePicker {
+  _FakeFilePicker(this.result);
+
+  FilePickerResult? result;
+
+  /// The last `allowMultiple` asked for. Attaching a lesson's files one at a
+  /// time would be a worse flow than the one the block promises.
+  bool? lastAllowMultiple;
+
+  @override
+  Future<FilePickerResult?> pickFiles({
+    String? dialogTitle,
+    String? initialDirectory,
+    FileType type = FileType.any,
+    List<String>? allowedExtensions,
+    Function(FilePickerStatus)? onFileLoading,
+    bool allowCompression = false,
+    int compressionQuality = 0,
+    bool allowMultiple = false,
+    bool withData = false,
+    bool withReadStream = false,
+    bool lockParentWindow = false,
+    bool readSequential = false,
+  }) async {
+    lastAllowMultiple = allowMultiple;
+    return result;
+  }
+}
 
 /// Stands in for the network so the builder can be driven end to end.
 ///
@@ -23,14 +55,15 @@ class _FakeCourseApi implements CourseBuilderApi {
 
   final List<CourseDraft> createdCourses = [];
   final Map<int, CourseDraft> updatedCourses = {};
-  final List<
-    ({int courseId, CourseLesson lesson, int order, String? section})
-  >
+  final List<({int courseId, CourseLesson lesson, int order, String? section})>
   createdLessons = [];
   final List<({CourseLesson lesson, int order, String? section})>
   updatedLessons = [];
   final List<int> deletedLessons = [];
   final List<int> published = [];
+
+  /// The id `createLesson` answered — what a resource row must point at.
+  int? lastCreatedLessonId;
 
   bool failCreate = false;
 
@@ -67,7 +100,7 @@ class _FakeCourseApi implements CourseBuilderApi {
       order: order,
       section: section,
     ));
-    return _nextId++;
+    return lastCreatedLessonId = _nextId++;
   }
 
   @override
@@ -120,6 +153,65 @@ class _FakeCourseApi implements CourseBuilderApi {
     return 'https://example.com/covers/$fileName';
   }
 
+  /// Every resource file that went up, in order.
+  final List<({int courseId, String fileName})> resourceUploads = [];
+
+  /// Every resource row created, in order — the assertion that a file attached
+  /// while adding a lesson actually reaches the server, with the lesson id the
+  /// create answered.
+  final List<
+    ({
+      int courseId,
+      int? lessonId,
+      String title,
+      String fileUrl,
+      String fileFormat,
+    })
+  >
+  createdResources = [];
+
+  bool failResource = false;
+
+  @override
+  Future<String> uploadResourceAsset({
+    required int courseId,
+    required Uint8List bytes,
+    required String fileName,
+    void Function(int sent, int total)? onProgress,
+  }) async {
+    resourceUploads.add((courseId: courseId, fileName: fileName));
+    if (failResource) {
+      throw const ApiException(kind: ApiErrorKind.unknown, statusCode: 400);
+    }
+    return 'https://example.com/resources/$fileName';
+  }
+
+  @override
+  Future<int> createResource({
+    required int courseId,
+    required String title,
+    required String fileUrl,
+    required String fileFormat,
+    int? lessonId,
+    int? sizeBytes,
+    int? order,
+  }) async {
+    createdResources.add((
+      courseId: courseId,
+      lessonId: lessonId,
+      title: title,
+      fileUrl: fileUrl,
+      fileFormat: fileFormat,
+    ));
+    return _nextId++;
+  }
+
+  @override
+  Future<void> deleteResource({
+    required int courseId,
+    required int resourceId,
+  }) async {}
+
   @override
   Future<String> uploadCourseAsset({
     required int courseId,
@@ -130,6 +222,13 @@ class _FakeCourseApi implements CourseBuilderApi {
   }) {
     if (kind == 'cover') {
       return uploadCover(courseId: courseId, bytes: bytes, fileName: fileName);
+    }
+    if (kind == 'resource') {
+      return uploadResourceAsset(
+        courseId: courseId,
+        bytes: bytes,
+        fileName: fileName,
+      );
     }
     return uploadLessonAsset(
       courseId: courseId,
@@ -179,7 +278,12 @@ Future<void> _addModule(WidgetTester tester, String name) async {
 }
 
 void main() {
-  setUp(() {});
+  setUp(() {
+    // `FilePicker.platform` is static and the getter throws until it is set.
+    // Inert by default so a stray tap on an upload card cannot reach an OS
+    // dialog; the resources test installs its own.
+    FilePicker.platform = _FakeFilePicker(null);
+  });
 
   testWidgets('step 1 refuses to continue without a title', (tester) async {
     final api = _FakeCourseApi();
@@ -302,6 +406,136 @@ void main() {
     expect(find.text('Line and shape'), findsOneWidget);
     // The row prints the duration it was given, not a placeholder.
     expect(find.textContaining('09:30'), findsOneWidget);
+  });
+
+  testWidgets('a lesson carries resources, attached once the lesson exists', (
+    tester,
+  ) async {
+    // The order is the point. A resource row needs `lesson`, and the lesson id is
+    // only minted by `POST /lessons/` — so the file uploads first, the lesson is
+    // created second, and the row goes up third. A sheet that created the row
+    // on save would have had no id to send.
+    final api = _FakeCourseApi();
+    final picker = _FakeFilePicker(
+      FilePickerResult([
+        PlatformFile(
+          name: 'worksheet.pdf',
+          size: 2048,
+          bytes: Uint8List.fromList([1, 2, 3]),
+        ),
+        PlatformFile(
+          name: 'template.xlsx',
+          size: 4096,
+          bytes: Uint8List.fromList([4, 5, 6]),
+        ),
+      ]),
+    );
+    FilePicker.platform = picker;
+
+    await tester.pumpWidget(_app(api));
+    await _title(tester, 'Illustration');
+    await tester.tap(find.text('Continue'));
+    await tester.pumpAndSettle();
+    await _addModule(tester, 'Getting Started');
+    await tester.tap(find.text('Add lesson'));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Paste a link'));
+    await tester.pumpAndSettle();
+    final fields = find.descendant(
+      of: find.byType(LessonEditorSheet),
+      matching: find.byType(TextFormField),
+    );
+    await tester.enterText(fields.at(0), 'Line and shape');
+    await tester.enterText(fields.at(1), '09:30');
+    await tester.enterText(fields.at(2), 'https://example.com/a.mp4');
+    await tester.pump();
+
+    // The block sits under the content fields, so on the default surface it is
+    // below the fold — a bare `tap` would hit whatever is under that point.
+    await tester.ensureVisible(find.text('Attach files'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Attach files'));
+    await tester.pumpAndSettle();
+
+    expect(picker.lastAllowMultiple, isTrue);
+    expect(api.resourceUploads, hasLength(2));
+    expect(
+      api.createdResources,
+      isEmpty,
+      reason: 'no row can exist before the lesson does',
+    );
+    expect(find.text('worksheet.pdf'), findsOneWidget);
+
+    await tester.tap(find.text('Save lesson'));
+    await tester.pumpAndSettle();
+
+    expect(api.createdLessons, hasLength(1));
+    expect(api.createdResources, hasLength(2));
+    // Every row points at the lesson `createLesson` answered — the id that did
+    // not exist when the files were uploaded.
+    expect(
+      api.createdResources.every((r) => r.lessonId == api.lastCreatedLessonId),
+      isTrue,
+    );
+    expect(api.createdResources.map((r) => r.fileFormat), ['pdf', 'xlsx']);
+    expect(
+      api.createdResources.first.fileUrl,
+      'https://example.com/resources/worksheet.pdf',
+    );
+  });
+
+  testWidgets('a failed resource upload keeps the lesson saveable', (
+    tester,
+  ) async {
+    // Losing a lesson because a spreadsheet was too big would be the worse
+    // outcome; the sheet reports the file and lets the save through.
+    final api = _FakeCourseApi()..failResource = true;
+    FilePicker.platform = _FakeFilePicker(
+      FilePickerResult([
+        PlatformFile(
+          name: 'huge.zip',
+          size: 99999999,
+          bytes: Uint8List.fromList([7]),
+        ),
+      ]),
+    );
+
+    await tester.pumpWidget(_app(api));
+    await _title(tester, 'Illustration');
+    await tester.tap(find.text('Continue'));
+    await tester.pumpAndSettle();
+    await _addModule(tester, 'Getting Started');
+    await tester.tap(find.text('Add lesson'));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Paste a link'));
+    await tester.pumpAndSettle();
+    final fields = find.descendant(
+      of: find.byType(LessonEditorSheet),
+      matching: find.byType(TextFormField),
+    );
+    await tester.enterText(fields.at(0), 'Line and shape');
+    await tester.enterText(fields.at(1), '09:30');
+    await tester.enterText(fields.at(2), 'https://example.com/a.mp4');
+    await tester.pump();
+
+    // The block sits under the content fields, so on the default surface it is
+    // below the fold — a bare `tap` would hit whatever is under that point.
+    await tester.ensureVisible(find.text('Attach files'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Attach files'));
+    await tester.pumpAndSettle();
+
+    // The failure is named inline, and the file is not attached.
+    expect(find.textContaining('huge.zip'), findsOneWidget);
+    expect(find.text('Save lesson'), findsOneWidget);
+
+    await tester.tap(find.text('Save lesson'));
+    await tester.pumpAndSettle();
+
+    expect(api.createdLessons, hasLength(1));
+    expect(api.createdResources, isEmpty);
   });
 
   testWidgets('the lesson sheet rejects a duration it cannot read', (
@@ -834,20 +1068,26 @@ void main() {
       'is_preview': id == 1,
     };
 
-    test('modules are rebuilt from the section strings, in first-seen order', () {
-      final draft = CourseDraft.fromServer(course(), [
-        lesson(1, 'Getting Started', 1),
-        lesson(2, 'Getting Started', 2),
-        lesson(3, 'Core Skills', 3),
-      ]);
+    test(
+      'modules are rebuilt from the section strings, in first-seen order',
+      () {
+        final draft = CourseDraft.fromServer(course(), [
+          lesson(1, 'Getting Started', 1),
+          lesson(2, 'Getting Started', 2),
+          lesson(3, 'Core Skills', 3),
+        ]);
 
-      expect(draft.modules.map((m) => m.title), ['Getting Started', 'Core Skills']);
-      expect(draft.modules[0].lessons.map((l) => l.title), [
-        'Lesson 1',
-        'Lesson 2',
-      ]);
-      expect(draft.modules[1].lessons.single.title, 'Lesson 3');
-    });
+        expect(draft.modules.map((m) => m.title), [
+          'Getting Started',
+          'Core Skills',
+        ]);
+        expect(draft.modules[0].lessons.map((l) => l.title), [
+          'Lesson 1',
+          'Lesson 2',
+        ]);
+        expect(draft.modules[1].lessons.single.title, 'Lesson 3');
+      },
+    );
 
     test('duration and the preview flag survive the read', () {
       final draft = CourseDraft.fromServer(course(), [
@@ -878,15 +1118,18 @@ void main() {
       expect(CourseDraft.fromServer(course(), const []).modules, isEmpty);
     });
 
-    test('two modules with the same name merge — a known, documented limit', () {
-      final draft = CourseDraft.fromServer(course(), [
-        lesson(1, 'Intro', 1),
-        lesson(2, 'Middle', 2),
-        lesson(3, 'Intro', 3),
-      ]);
+    test(
+      'two modules with the same name merge — a known, documented limit',
+      () {
+        final draft = CourseDraft.fromServer(course(), [
+          lesson(1, 'Intro', 1),
+          lesson(2, 'Middle', 2),
+          lesson(3, 'Intro', 3),
+        ]);
 
-      expect(draft.modules, hasLength(2));
-      expect(draft.modules[0].lessons, hasLength(2));
-    });
+        expect(draft.modules, hasLength(2));
+        expect(draft.modules[0].lessons, hasLength(2));
+      },
+    );
   });
 }

@@ -1766,20 +1766,62 @@ class CourseReview {
 
 /// One downloadable file on the player's **Resources** tab.
 ///
-/// **Course-level, not lesson-level.** The design's header names the episode
-/// (`EP. 2 Defining the Product Strategy Grid`), but the five files under it are
-/// course-wide templates — a strategy grid, a workbook, an interview guide, a
-/// benchmark framework — and they do not change as the lesson does. The header
-/// still names the current lesson, because that is what the design does; the
-/// list beneath it is the course's pack.
+/// **Per-lesson since 2026-10-29.** A resource row now carries an optional
+/// `lesson` (`CourseResource.lesson` on the server), so the builder attaches
+/// files while it is editing a lesson and the player shows the current lesson's
+/// pack. The design's header already names the episode, which is what this
+/// finally matches. A null [lessonId] is a course-wide row — every bootcamp pack
+/// that predates the change.
 ///
-/// If resources should ever become per-lesson, this moves to [CourseLesson] and
-/// nothing else changes: the player already reads the list through one getter.
+/// [url] is what makes the row openable. The old model carried a title and a
+/// kind and nothing else, so the download button was decoration; the demo
+/// catalogue's entries still have no URL and still render as decoration.
 class CourseResource {
-  const CourseResource(this.title, this.type);
+  const CourseResource(
+    this.title,
+    this.type, {
+    this.id,
+    this.url,
+    this.lessonId,
+    this.sizeBytes,
+  });
 
   final String title;
   final CourseResourceType type;
+
+  /// The server's row id, or null for a demo-catalogue entry.
+  final int? id;
+
+  /// The file itself. Null on catalogue rows.
+  final String? url;
+
+  /// The lesson this file belongs to, or null for a course-wide row.
+  final int? lessonId;
+
+  final int? sizeBytes;
+
+  bool get isOpenable => url != null && url!.trim().isNotEmpty;
+
+  /// The second line under the title: `PDF · 2.4 MB`, or just `PDF`.
+  String get subtitle {
+    final size = _sizeLabel(sizeBytes);
+    return size == null ? type.label : '${type.label} · $size';
+  }
+
+  static String? _sizeLabel(int? bytes) {
+    if (bytes == null || bytes <= 0) return null;
+    const units = ['B', 'KB', 'MB', 'GB'];
+    var value = bytes.toDouble();
+    var unit = 0;
+    while (value >= 1024 && unit < units.length - 1) {
+      value /= 1024;
+      unit++;
+    }
+    final rounded = value >= 10 || unit == 0
+        ? value.round().toString()
+        : value.toStringAsFixed(1);
+    return '$rounded ${units[unit]}';
+  }
 }
 
 /// The file kind behind a [CourseResource] — which is all a row needs, because
@@ -1787,7 +1829,11 @@ class CourseResource {
 enum CourseResourceType {
   pdf('PDF', Color(0xFFD93025), Icons.picture_as_pdf_outlined),
   doc('DOC', Color(0xFF1A73E8), Icons.description_outlined),
-  xls('XLS', Color(0xFF1E8E3E), Icons.grid_on_outlined);
+  xls('XLS', Color(0xFF1E8E3E), Icons.grid_on_outlined),
+  zip('ZIP', Color(0xFFB06000), Icons.folder_zip_outlined),
+  image('IMG', Color(0xFF7B1FA2), Icons.image_outlined),
+  link('LINK', Color(0xFF00695C), Icons.link),
+  other('FILE', Color(0xFF5F6368), Icons.insert_drive_file_outlined);
 
   const CourseResourceType(this.label, this.color, this.icon);
 
@@ -1795,6 +1841,23 @@ enum CourseResourceType {
   final String label;
   final Color color;
   final IconData icon;
+
+  /// Maps the server's `file_format` vocabulary
+  /// (`pdf, doc, docx, xls, xlsx, figma, svg, zip, link, other`) onto a row
+  /// style. Unknown values fall back to [other] rather than throwing: the
+  /// server owns that list and may add to it.
+  static CourseResourceType fromFormat(Object? format) {
+    final value = format is String ? format.trim().toLowerCase() : '';
+    return switch (value) {
+      'pdf' => CourseResourceType.pdf,
+      'doc' || 'docx' || 'word' => CourseResourceType.doc,
+      'xls' || 'xlsx' || 'csv' || 'excel' => CourseResourceType.xls,
+      'zip' || 'rar' || '7z' => CourseResourceType.zip,
+      'svg' || 'png' || 'jpg' || 'jpeg' || 'figma' => CourseResourceType.image,
+      'link' => CourseResourceType.link,
+      _ => CourseResourceType.other,
+    };
+  }
 }
 
 /// One message in a course's discussion thread, shown on the player's **Q&A**

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:url_launcher/url_launcher.dart';
 import 'package:video_player/video_player.dart';
 
 import '../../../core/widgets/course_image.dart';
@@ -8,6 +9,7 @@ import '../../../core/network/api_error.dart';
 import '../../../core/widgets/api_error_snack.dart';
 import '../../courses/data/course_api.dart';
 import '../../courses/data/course_discussions_api.dart';
+import '../../courses/data/course_resources_api.dart';
 import '../../courses/presentation/widgets/review_sheet.dart';
 
 import '../../../core/widgets/course_detail_view.dart';
@@ -104,6 +106,24 @@ class _CoursePlayerPageState extends ConsumerState<CoursePlayerPage> {
   bool _loadingThreads = false;
   String? _threadError;
   bool _posting = false;
+
+  /// The course's real resource rows, or null before the tab is opened.
+  ///
+  /// **Null means "use the fallback"**, not "empty": [CourseDetailData.resources]
+  /// already carries the `pdf`/`ebook` lessons the adapter lifted out of the
+  /// curriculum, and a catalogue entry has nothing else. The server list wins
+  /// whenever it answers a non-empty array.
+  List<CourseResource>? _resources;
+
+  /// Whether the fetch has already happened — **not** whether it found rows.
+  ///
+  /// A course with no resource rows answers `[]`, which leaves [_resources]
+  /// null so the fallback still renders. Without this flag the tab would treat
+  /// that as "never loaded" and refetch on every visit.
+  bool _resourcesLoaded = false;
+
+  bool _loadingResources = false;
+  String? _resourceError;
 
   /// Top-level comments posted from the composer, newest first.
   final List<_QaCard> _localComments = <_QaCard>[];
@@ -1078,7 +1098,7 @@ class _CoursePlayerPageState extends ConsumerState<CoursePlayerPage> {
   // ─────────────────────────────────────────────────────────────
 
   Widget _buildResourcesTab() {
-    final resources = _course.resources;
+    final resources = _visibleResources;
 
     return ListView(
       padding: const EdgeInsets.only(bottom: 32),
@@ -1108,13 +1128,39 @@ class _CoursePlayerPageState extends ConsumerState<CoursePlayerPage> {
             ],
           ),
         ),
-        if (resources.isEmpty)
+        if (_loadingResources && _resources == null)
+          const Padding(
+            padding: EdgeInsets.only(top: 40),
+            child: Center(
+              child: SizedBox(
+                width: 22,
+                height: 22,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              ),
+            ),
+          ),
+        if (_resourceError != null)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
+            child: _ThreadErrorState(
+              message: _resourceError!,
+              title: 'Could not load the files',
+              onRetry: () {
+                setState(() {
+                  _resources = null;
+                  _resourcesLoaded = false;
+                });
+                _loadResources();
+              },
+            ),
+          ),
+        if (resources.isEmpty && !_loadingResources && _resourceError == null)
           const Padding(
             padding: EdgeInsets.only(top: 40),
             child: _EmptyState(
               icon: Icons.folder_open_outlined,
-              title: 'No files for this course',
-              body: 'The instructor has not attached any resources yet.',
+              title: 'No files for this lesson',
+              body: 'The instructor has not attached any resources here.',
             ),
           )
         else
@@ -1123,59 +1169,112 @@ class _CoursePlayerPageState extends ConsumerState<CoursePlayerPage> {
     );
   }
 
+  /// The rows this tab prints: the current lesson's files plus the course-wide
+  /// ones.
+  ///
+  /// **A null [CourseResource.lessonId] is course-wide, not orphaned.** Every
+  /// bootcamp pack predates per-lesson attachment and has no lesson at all, so
+  /// those rows have to stay visible on every lesson. Before the tab is opened
+  /// there is no server list and [_course]'s fallback pack is course-wide too,
+  /// which is why the fallback path returns everything.
+  List<CourseResource> get _visibleResources {
+    final all = _resources ?? _course.resources;
+    if (_resources == null) return all;
+    final lessonId = _currentLesson?.id;
+    if (lessonId == null) return all;
+    return [
+      for (final resource in all)
+        if (resource.lessonId == null || resource.lessonId == lessonId)
+          resource,
+    ];
+  }
+
+  /// Opens a resource in the phone's browser.
+  ///
+  /// A row with no URL is a demo-catalogue entry; it keeps the decoration it
+  /// always had rather than throwing a "cannot open" snackbar at a tap the user
+  /// was never invited to make.
+  Future<void> _openResource(CourseResource resource) async {
+    final url = resource.url;
+    if (url == null) return;
+    final uri = Uri.tryParse(url);
+    if (uri == null || !uri.hasScheme) {
+      _resourceSnack('That file has no address.');
+      return;
+    }
+    final opened = await launchUrl(uri, mode: LaunchMode.externalApplication);
+    if (!opened && mounted) {
+      _resourceSnack('No app on this device can open that file.');
+    }
+  }
+
+  void _resourceSnack(String message) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message, style: GoogleFonts.figtree(fontSize: 12.5)),
+        behavior: SnackBarBehavior.floating,
+      ),
+    );
+  }
+
   Widget _buildResourceRow(CourseResource resource) {
+    final openable = resource.isOpenable;
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
-        Padding(
-          padding: const EdgeInsets.fromLTRB(16, 10, 16, 10),
-          child: Row(
-            children: [
-              Icon(resource.type.icon, size: 22, color: resource.type.color),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text(
-                      resource.title,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: GoogleFonts.figtree(
-                        fontSize: 12.5,
-                        fontWeight: FontWeight.w600,
-                        color: _ink,
+        InkWell(
+          onTap: openable ? () => _openResource(resource) : null,
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(16, 10, 16, 10),
+            child: Row(
+              children: [
+                Icon(resource.type.icon, size: 22, color: resource.type.color),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        resource.title,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: GoogleFonts.figtree(
+                          fontSize: 12.5,
+                          fontWeight: FontWeight.w600,
+                          color: _ink,
+                        ),
                       ),
-                    ),
-                    const SizedBox(height: 2),
-                    Text(
-                      resource.type.label,
-                      style: GoogleFonts.inter(
-                        fontSize: 9,
-                        fontWeight: FontWeight.w700,
-                        letterSpacing: 0.6,
-                        color: resource.type.color,
+                      const SizedBox(height: 2),
+                      Text(
+                        resource.subtitle,
+                        style: GoogleFonts.inter(
+                          fontSize: 9,
+                          fontWeight: FontWeight.w700,
+                          letterSpacing: 0.6,
+                          color: resource.type.color,
+                        ),
                       ),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
-              ),
-              const SizedBox(width: 10),
-              Container(
-                width: 32,
-                height: 32,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  border: Border.all(color: _border),
+                const SizedBox(width: 10),
+                Container(
+                  width: 32,
+                  height: 32,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    border: Border.all(color: _border),
+                  ),
+                  child: Icon(
+                    Icons.file_download_outlined,
+                    size: 15,
+                    color: openable ? _gray : _border,
+                  ),
                 ),
-                child: const Icon(
-                  Icons.file_download_outlined,
-                  size: 15,
-                  color: _gray,
-                ),
-              ),
-            ],
+              ],
+            ),
           ),
         ),
         const Divider(height: 1, thickness: 1, color: _border),
@@ -1195,9 +1294,52 @@ class _CoursePlayerPageState extends ConsumerState<CoursePlayerPage> {
   /// panel nobody looked at.
   void _selectTab(int index) {
     setState(() => _tabIndex = index);
+    if (index == 1) {
+      if (_course.id == null || _resourcesLoaded || _loadingResources) return;
+      _loadResources();
+      return;
+    }
     if (index != 2) return;
     if (_course.id == null || _threads != null || _loadingThreads) return;
     _loadThreads();
+  }
+
+  /// `GET /courses/{id}/resources/` — the first time the Resources tab opens.
+  ///
+  /// A failure is **not** the same as an empty pack. A student without access
+  /// gets 403 `NOT_ENROLLED`, and printing "the instructor has not attached any
+  /// resources" over that would be a lie; the tab says what happened instead and
+  /// keeps the adapter's fallback list underneath.
+  Future<void> _loadResources() async {
+    final courseId = _course.id;
+    if (courseId == null) return;
+    setState(() {
+      _loadingResources = true;
+      _resourceError = null;
+    });
+    try {
+      final rows = await ref.read(courseResourcesApiProvider).list(courseId);
+      if (!mounted) return;
+      setState(() {
+        _loadingResources = false;
+        _resourcesLoaded = true;
+        // An empty answer keeps the fallback: a seeded course's `pdf` lessons
+        // are still the only files it has, and the server has no rows for them.
+        if (rows.isNotEmpty) _resources = rows;
+      });
+    } on ApiException catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _loadingResources = false;
+        _resourceError = error.displayMessage;
+      });
+    } on Object {
+      if (!mounted) return;
+      setState(() {
+        _loadingResources = false;
+        _resourceError = 'The files could not be loaded.';
+      });
+    }
   }
 
   /// Loads the first page, or the next one when [more] is set.
@@ -2183,10 +2325,15 @@ class _CardAction extends StatelessWidget {
 /// needs a way back, and `No discussions yet` on a course with 300 of them
 /// would be a lie.
 class _ThreadErrorState extends StatelessWidget {
-  const _ThreadErrorState({required this.message, required this.onRetry});
+  const _ThreadErrorState({
+    required this.message,
+    required this.onRetry,
+    this.title = 'Could not load the discussion',
+  });
 
   final String message;
   final VoidCallback onRetry;
+  final String title;
 
   @override
   Widget build(BuildContext context) {
@@ -2199,7 +2346,7 @@ class _ThreadErrorState extends StatelessWidget {
             const Icon(Icons.cloud_off_outlined, size: 34, color: _softGray),
             const SizedBox(height: 10),
             Text(
-              'Could not load the discussion',
+              title,
               textAlign: TextAlign.center,
               style: GoogleFonts.figtree(
                 fontSize: 13.5,

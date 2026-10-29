@@ -5,6 +5,10 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 import '../../../../core/network/api_error.dart';
+// Only the row style: this file's `CourseLesson` is the builder's draft type,
+// and `course_detail_view.dart` exports a different class of the same name.
+import '../../../../core/widgets/course_detail_view.dart'
+    show CourseResourceType;
 import '../../../../core/widgets/labeled_text_field.dart';
 import '../../../../core/widgets/upload_card.dart';
 import '../../../../core/widgets/pressable_chip.dart';
@@ -20,10 +24,37 @@ sealed class LessonSheetResult {
   const LessonSheetResult();
 }
 
+/// One file the instructor attached while editing the lesson.
+///
+/// **Already uploaded by the time the sheet closes.** The bytes go out on pick,
+/// not on save, so a failed upload is reported against the file the user chose
+/// rather than as a dead sheet. What the builder still has to do is create the
+/// resource row, because a row needs the lesson id and the lesson does not exist
+/// until `POST /lessons/` answers.
+class PendingResource {
+  const PendingResource({
+    required this.title,
+    required this.url,
+    required this.format,
+    this.sizeBytes,
+  });
+
+  final String title;
+  final String url;
+
+  /// The server's `file_format` vocabulary: `pdf`, `docx`, `xlsx`, `zip`, …
+  final String format;
+
+  final int? sizeBytes;
+}
+
 class LessonSaved extends LessonSheetResult {
-  const LessonSaved(this.lesson);
+  const LessonSaved(this.lesson, {this.resources = const <PendingResource>[]});
 
   final CourseLesson lesson;
+
+  /// Files to attach to the lesson once it has an id. Empty on most lessons.
+  final List<PendingResource> resources;
 }
 
 class LessonDeleted extends LessonSheetResult {
@@ -32,7 +63,12 @@ class LessonDeleted extends LessonSheetResult {
 
 /// Add / edit one lesson.
 class LessonEditorSheet extends StatefulWidget {
-  const LessonEditorSheet({super.key, this.initial, required this.onUpload});
+  const LessonEditorSheet({
+    super.key,
+    this.initial,
+    required this.onUpload,
+    this.onUploadResource,
+  });
 
   final CourseLesson? initial;
 
@@ -44,11 +80,18 @@ class LessonEditorSheet extends StatefulWidget {
   /// inline message instead of closing over a lost lesson.
   final Future<String> Function(Uint8List bytes, String fileName) onUpload;
 
+  /// Uploads one **resource** file — the same route with `kind=resource`, which
+  /// is why it is a second callback rather than a second API client. Null hides
+  /// the attach block, which is what a caller with no course id gets.
+  final Future<String> Function(Uint8List bytes, String fileName)?
+  onUploadResource;
+
   /// Opens the sheet and returns what the user did, or null for a dismissal.
   static Future<LessonSheetResult?> show(
     BuildContext context, {
     CourseLesson? initial,
     required Future<String> Function(Uint8List bytes, String fileName) onUpload,
+    Future<String> Function(Uint8List bytes, String fileName)? onUploadResource,
   }) {
     return showModalBottomSheet<LessonSheetResult>(
       context: context,
@@ -57,8 +100,11 @@ class LessonEditorSheet extends StatefulWidget {
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
       ),
-      builder: (context) =>
-          LessonEditorSheet(initial: initial, onUpload: onUpload),
+      builder: (context) => LessonEditorSheet(
+        initial: initial,
+        onUpload: onUpload,
+        onUploadResource: onUploadResource,
+      ),
     );
   }
 
@@ -103,6 +149,11 @@ class _LessonEditorSheetState extends State<LessonEditorSheet> {
   _ContentSource _source = _ContentSource.upload;
   PlatformFile? _picked;
   bool _uploading = false;
+
+  /// Files attached to this lesson, already uploaded and waiting for the lesson
+  /// row to exist. See [PendingResource].
+  final List<PendingResource> _attachments = <PendingResource>[];
+  bool _uploadingResource = false;
 
   @override
   void initState() {
@@ -213,22 +264,128 @@ class _LessonEditorSheetState extends State<LessonEditorSheet> {
       contentUrl: _kind.usesBody ? null : contentUrl,
       contentText: _kind.usesBody ? _body.text.trim() : null,
     );
-    Navigator.of(context).pop(LessonSaved(lesson));
+    Navigator.of(context).pop(
+      LessonSaved(
+        lesson,
+        resources: List<PendingResource>.unmodifiable(_attachments),
+      ),
+    );
+  }
+
+  /// The **Attach resources** block.
+  ///
+  /// Files here belong to *this lesson* — the player's Resources tab shows them
+  /// while the lesson is selected. They are not lectures, so they never appear
+  /// in the curriculum, which is the distinction that made a `pdf` lesson type a
+  /// mistake in the first place.
+  Widget _buildAttachments() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Expanded(
+              child: Text(
+                'Resources',
+                style: GoogleFonts.manrope(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w700,
+                  color: builderInk,
+                ),
+              ),
+            ),
+            TextButton(
+              onPressed: _uploadingResource ? null : _pickResources,
+              child: _uploadingResource
+                  ? const SizedBox(
+                      width: 14,
+                      height: 14,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: builderInk,
+                      ),
+                    )
+                  : Text(
+                      _attachments.isEmpty ? 'Attach files' : 'Add more',
+                      style: GoogleFonts.manrope(
+                        fontSize: 12.5,
+                        fontWeight: FontWeight.w700,
+                        color: builderInk,
+                      ),
+                    ),
+            ),
+          ],
+        ),
+        if (_attachments.isEmpty)
+          Text(
+            'Optional. Worksheets, templates or starter files shown on this '
+            'lesson’s Resources tab.',
+            style: GoogleFonts.figtree(fontSize: 11, color: builderMuted),
+          )
+        else
+          for (final attachment in _attachments)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 6),
+              child: Container(
+                padding: const EdgeInsets.fromLTRB(10, 8, 4, 8),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFF7F6F2),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Row(
+                  children: [
+                    Icon(
+                      CourseResourceType.fromFormat(attachment.format).icon,
+                      size: 18,
+                      color: CourseResourceType.fromFormat(
+                        attachment.format,
+                      ).color,
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Text(
+                        attachment.title,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: GoogleFonts.figtree(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                          color: builderInk,
+                        ),
+                      ),
+                    ),
+                    IconButton(
+                      onPressed: () =>
+                          setState(() => _attachments.remove(attachment)),
+                      icon: const Icon(Icons.close, size: 16),
+                      color: builderMuted,
+                      visualDensity: VisualDensity.compact,
+                      tooltip: 'Remove',
+                    ),
+                  ],
+                ),
+              ),
+            ),
+      ],
+    );
   }
 
   /// Turns an upload failure into something the user can act on.
   ///
-  /// **A 404 here is the expected case today**: the API has no asset endpoint, so
-  /// every upload lands on a missing route. Saying "not found" would read as a
-  /// broken app; naming the alternative the sheet can actually do is the honest
-  /// version, and the Link tab is one tap away.
+  /// **A 404 is no longer the expected case.** `POST /courses/{id}/assets/`
+  /// shipped on 2026-10-28, so a missing route here now means the course itself
+  /// is gone — not that uploads do not exist. The old message told the user to
+  /// paste a link, which was true then and would send them the long way round
+  /// now.
   String _uploadMessage(ApiException error) {
     if (error.statusCode == 404) {
-      return 'File uploads are not available yet. Paste a link instead.';
+      return 'That course could not be found. Reload and try again.';
     }
     if (error.statusCode == 413) {
       return 'That file is too large for the server.';
     }
+    // 400 is the asset route's "that content type is not accepted" — its own
+    // detail names the type, so it is better than anything generic here.
     return error.displayMessage;
   }
 
@@ -253,6 +410,89 @@ class _LessonEditorSheetState extends State<LessonEditorSheet> {
     LessonKind.ebook => const ['pdf', 'epub'],
     LessonKind.text => const [],
   };
+
+  /// What `kind=resource` accepts on the server
+  /// (`CourseAssetUploadAPIView.RESOURCE_TYPES`). Kept in step with it rather
+  /// than wider: a file the picker offers and the server refuses is a worse
+  /// error than one the picker never showed.
+  static const _resourceExtensions = [
+    'pdf',
+    'doc',
+    'docx',
+    'xls',
+    'xlsx',
+    'ppt',
+    'pptx',
+    'zip',
+    'csv',
+    'png',
+    'jpg',
+    'jpeg',
+    'svg',
+  ];
+
+  /// Uploads every picked resource, keeping the ones that succeeded.
+  ///
+  /// **One failure does not discard the rest.** A batch of five files where the
+  /// fourth is over the cap should leave four attached and say so, not make the
+  /// instructor pick all five again.
+  Future<void> _pickResources() async {
+    final upload = widget.onUploadResource;
+    if (upload == null || _uploadingResource) return;
+    final result = await FilePicker.platform.pickFiles(
+      type: FileType.custom,
+      allowedExtensions: _resourceExtensions,
+      withData: true,
+      allowMultiple: true,
+    );
+    if (result == null || result.files.isEmpty) return;
+
+    setState(() {
+      _uploadingResource = true;
+      _error = null;
+    });
+    final added = <PendingResource>[];
+    String? failure;
+    for (final file in result.files) {
+      final bytes = file.bytes;
+      if (bytes == null) {
+        failure = '${file.name} could not be read.';
+        continue;
+      }
+      try {
+        final url = await upload(bytes, file.name);
+        added.add(
+          PendingResource(
+            title: file.name,
+            url: url,
+            format: _formatOf(file.name),
+            sizeBytes: file.size,
+          ),
+        );
+      } on ApiException catch (error) {
+        failure = '${file.name}: ${_uploadMessage(error)}';
+      } on Object {
+        failure = '${file.name} did not upload.';
+      }
+    }
+    if (!mounted) return;
+    setState(() {
+      _uploadingResource = false;
+      _attachments.addAll(added);
+      if (failure != null) _error = failure;
+    });
+  }
+
+  /// The server's `file_format` vocabulary, from the file name.
+  ///
+  /// The picker filters to the same list, so this only ever sees known
+  /// extensions; `other` is the honest fallback rather than a crash.
+  String _formatOf(String fileName) {
+    final dot = fileName.lastIndexOf('.');
+    if (dot < 0 || dot == fileName.length - 1) return 'other';
+    final extension = fileName.substring(dot + 1).toLowerCase();
+    return extension == 'jpeg' ? 'jpg' : extension;
+  }
 
   String get _uploadTitle => switch (_kind) {
     LessonKind.video => 'Lesson video',
@@ -448,6 +688,10 @@ class _LessonEditorSheetState extends State<LessonEditorSheet> {
                         ),
                       ],
                     ),
+                    if (widget.onUploadResource != null) ...[
+                      const SizedBox(height: 16),
+                      _buildAttachments(),
+                    ],
                     if (_error != null) ...[
                       const SizedBox(height: 4),
                       Text(

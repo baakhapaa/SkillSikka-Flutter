@@ -5,7 +5,55 @@ import 'package:skillsikka/core/network/api_client.dart';
 import 'package:skillsikka/core/network/api_error.dart';
 import 'package:skillsikka/core/widgets/course_detail_view.dart';
 import 'package:skillsikka/features/courses/data/course_api.dart';
+import 'package:skillsikka/features/courses/data/course_resources_api.dart';
 import 'package:skillsikka/features/profile/data/reference_data.dart';
+
+/// A stand-in for `GET /courses/{id}/resources/`.
+///
+/// The player fetches the pack the first time the Resources tab opens, so every
+/// player test that taps that tab needs one of these — otherwise the request
+/// leaves for the real Dio stack, which answers 400 under `flutter test` and
+/// looks like a product bug.
+///
+/// **The default is an empty list, not a failure.** An empty answer is what a
+/// course with no resource rows returns, and the tab falls back to the
+/// `pdf`/`ebook` lessons the adapter lifted out of the curriculum — which is
+/// exactly the behaviour the older tests assert.
+class FakeCourseResourcesApi extends CourseResourcesApi {
+  FakeCourseResourcesApi({this.rows = const <CourseResource>[], this.failure})
+    : super(ApiClient(Dio()));
+
+  /// What [list] answers, whatever the course or lesson filter.
+  final List<CourseResource> rows;
+
+  /// Thrown from [list] instead of answering.
+  final ApiException? failure;
+
+  /// Every course id asked for, so a test can assert the tab asked at all.
+  final List<int> calls = <int>[];
+
+  @override
+  Future<List<CourseResource>> list(int courseId, {int? lessonId}) async {
+    calls.add(courseId);
+    final error = failure;
+    if (error != null) throw error;
+    return rows;
+  }
+
+  @override
+  Future<CourseResource> create(
+    int courseId, {
+    required String title,
+    required String fileUrl,
+    required String fileFormat,
+    int? lessonId,
+    int? sizeBytes,
+    int? order,
+  }) async => CourseResource(title, CourseResourceType.fromFormat(fileFormat));
+
+  @override
+  Future<void> remove(int courseId, int resourceId) async {}
+}
 
 /// A stand-in for the course endpoints.
 ///

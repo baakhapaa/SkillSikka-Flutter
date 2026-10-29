@@ -592,6 +592,11 @@ class _CourseBuilderPageState extends State<CourseBuilderPage> {
         bytes: bytes,
         fileName: fileName,
       ),
+      onUploadResource: (bytes, fileName) => widget.api.uploadResourceAsset(
+        courseId: id,
+        bytes: bytes,
+        fileName: fileName,
+      ),
     );
     if (result is! LessonSaved || !mounted) return;
     final lesson = result.lesson;
@@ -611,10 +616,53 @@ class _CourseBuilderPageState extends State<CourseBuilderPage> {
       _replaceLessons(moduleKey, (lessons) {
         return [...lessons, lesson.copyWith(id: created)];
       });
+      await _attachResources(
+        courseId: id,
+        lessonId: created,
+        resources: result.resources,
+      );
     } on ApiException catch (error) {
       if (mounted) showApiErrorSnack(context, error);
     } finally {
       if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  /// Creates the resource rows for the files the sheet already uploaded.
+  ///
+  /// **After the lesson exists, never before** — a row needs `lesson` and the id
+  /// is minted by the `POST /lessons/` above. The upload itself happened on pick
+  /// inside the sheet, so a failure here is a row that did not save, not bytes
+  /// that did not travel: the lesson is kept either way and the message says so.
+  Future<void> _attachResources({
+    required int courseId,
+    required int lessonId,
+    required List<PendingResource> resources,
+  }) async {
+    if (resources.isEmpty) return;
+    var failed = 0;
+    for (var index = 0; index < resources.length; index++) {
+      final resource = resources[index];
+      try {
+        await widget.api.createResource(
+          courseId: courseId,
+          lessonId: lessonId,
+          title: resource.title,
+          fileUrl: resource.url,
+          fileFormat: resource.format,
+          sizeBytes: resource.sizeBytes,
+          order: index,
+        );
+      } on Object {
+        failed++;
+      }
+    }
+    if (failed > 0 && mounted) {
+      _snack(
+        failed == resources.length
+            ? 'The lesson saved, but its files did not.'
+            : 'The lesson saved; $failed of ${resources.length} files did not.',
+      );
     }
   }
 
@@ -629,6 +677,11 @@ class _CourseBuilderPageState extends State<CourseBuilderPage> {
       context,
       initial: lesson,
       onUpload: (bytes, fileName) => widget.api.uploadLessonAsset(
+        courseId: courseId,
+        bytes: bytes,
+        fileName: fileName,
+      ),
+      onUploadResource: (bytes, fileName) => widget.api.uploadResourceAsset(
         courseId: courseId,
         bytes: bytes,
         fileName: fileName,
@@ -669,6 +722,11 @@ class _CourseBuilderPageState extends State<CourseBuilderPage> {
         (lessons) => [
           for (final row in lessons) row.key == lesson.key ? edited : row,
         ],
+      );
+      await _attachResources(
+        courseId: courseId,
+        lessonId: edited.id!,
+        resources: result.resources,
       );
     } on ApiException catch (error) {
       if (mounted) showApiErrorSnack(context, error);

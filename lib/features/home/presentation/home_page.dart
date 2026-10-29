@@ -5,6 +5,7 @@ import 'instructor_carousel.dart';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:skillsikka/core/widgets/course_grid_card.dart';
 import 'package:skillsikka/core/widgets/section_bar.dart';
 import 'package:skillsikka/features/events/data/event.dart';
 import 'package:skillsikka/features/events/data/event_page.dart';
@@ -1075,112 +1076,15 @@ class _HomePageState extends State<HomePage>
                           ),
                       itemBuilder: (context, index) {
                         final course = visible[index];
-                        // Same detail screen the Courses tab opens — one page for the
-                        // whole app, rather than a second copy of it here.
-                        return GestureDetector(
-                          behavior: HitTestBehavior.opaque,
+                        // The same card the Courses tab's "See All" grid draws,
+                        // and the same detail screen it opens. Both screens used
+                        // to carry their own copy and they drifted — the tag and
+                        // the rating sat in different places on each.
+                        return CourseGridCard(
+                          course: course,
                           onTap: () => Navigator.of(context).push(
                             MaterialPageRoute(
                               builder: (_) => CourseDetailPage(course: course),
-                            ),
-                          ),
-                          child: Container(
-                            decoration: BoxDecoration(
-                              color: Colors.white,
-                              borderRadius: BorderRadius.circular(16),
-                              border: Border.all(
-                                color: const Color(0xFFF3F4F6),
-                              ),
-                              boxShadow: const [
-                                BoxShadow(
-                                  color: Color(0x08000000),
-                                  blurRadius: 8,
-                                  offset: Offset(0, 2),
-                                ),
-                              ],
-                            ),
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                ClipRRect(
-                                  borderRadius: const BorderRadius.vertical(
-                                    top: Radius.circular(16),
-                                  ),
-                                  child: Image.asset(
-                                    course.image,
-                                    height: 98,
-                                    width: double.infinity,
-                                    fit: BoxFit.cover,
-                                    errorBuilder: (_, _, _) => Container(
-                                      height: 98,
-                                      color: Colors.grey.shade200,
-                                      child: const Icon(
-                                        Icons.image,
-                                        color: Colors.white,
-                                      ),
-                                    ),
-                                  ),
-                                ),
-                                Padding(
-                                  padding: const EdgeInsets.all(12),
-                                  child: Column(
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.start,
-                                    children: [
-                                      Row(
-                                        children: [
-                                          Container(
-                                            padding: const EdgeInsets.symmetric(
-                                              horizontal: 6,
-                                              vertical: 2,
-                                            ),
-                                            decoration: BoxDecoration(
-                                              color: const Color(0xFFF9FAFB),
-                                              borderRadius:
-                                                  BorderRadius.circular(4),
-                                            ),
-                                            child: Text(
-                                              course.category,
-                                              style: GoogleFonts.figtree(
-                                                fontSize: 9,
-                                                fontWeight: FontWeight.w600,
-                                                color: _gray,
-                                              ),
-                                            ),
-                                          ),
-                                          const Spacer(),
-                                          const Icon(
-                                            Icons.star,
-                                            color: Color(0xFFFBBF24),
-                                            size: 10,
-                                          ),
-                                          const SizedBox(width: 2),
-                                          Text(
-                                            course.rating,
-                                            style: GoogleFonts.figtree(
-                                              fontSize: 10,
-                                              fontWeight: FontWeight.w700,
-                                              color: _titleInk,
-                                            ),
-                                          ),
-                                        ],
-                                      ),
-                                      const SizedBox(height: 8),
-                                      Text(
-                                        course.title,
-                                        maxLines: 2,
-                                        overflow: TextOverflow.ellipsis,
-                                        style: GoogleFonts.manrope(
-                                          fontSize: 12,
-                                          fontWeight: FontWeight.w700,
-                                          height: 1.3,
-                                          color: _titleInk,
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                              ],
                             ),
                           ),
                         );

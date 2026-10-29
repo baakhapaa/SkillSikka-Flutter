@@ -1,23 +1,32 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:skillsikka/core/network/api_error.dart';
+import 'package:skillsikka/core/widgets/api_error_snack.dart';
 import 'package:skillsikka/core/widgets/course_detail_view.dart';
+import 'package:skillsikka/core/widgets/course_grid_card.dart';
 import 'package:skillsikka/core/widgets/pressable_chip.dart';
-import 'package:skillsikka/features/courses/data/course.dart';
+import 'package:skillsikka/features/courses/data/course_api.dart';
 import 'package:skillsikka/features/courses/presentation/course_details_page.dart';
+import 'package:skillsikka/features/profile/data/reference_data.dart';
 import 'package:skillsikka/features/search/presentation/search_page.dart';
 
 const _bg = Color(0xFFFAF9F6);
 const _ink = Color(0xFF111827);
 const _softGray = Color(0xFF8D887F);
 
-class AllCoursesPage extends StatefulWidget {
+/// The academic catalogue.
+///
+/// **Reads `GET /courses/?course_type=academic`.** It used to filter the const
+/// `coursePool`, which is why every chip appeared to do nothing until 2026-10-13.
+class AllCoursesPage extends ConsumerStatefulWidget {
   const AllCoursesPage({super.key});
 
   @override
-  State<AllCoursesPage> createState() => _AllCoursesPageState();
+  ConsumerState<AllCoursesPage> createState() => _AllCoursesPageState();
 }
 
-class _AllCoursesPageState extends State<AllCoursesPage> {
+class _AllCoursesPageState extends ConsumerState<AllCoursesPage> {
   int _selectedChip = 0;
 
   static const _chips = [
@@ -29,22 +38,108 @@ class _AllCoursesPageState extends State<AllCoursesPage> {
     'Class 10',
   ];
 
-  /// The catalogue filtered by the selected Class chip.
+  static const _pageSize = 20;
+
+  List<CourseDetailData> _courses = const [];
+  String? _next;
+  bool _loading = true;
+  bool _loadingMore = false;
+  String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  /// The grade id the selected chip stands for.
   ///
-  /// `All` is the **absence** of a filter, not a value on any course — see
-  /// [CourseDetailData.classLevel]. This used to ignore the chips entirely and
-  /// tile the six-entry pool to eighteen cards so the grid had something to
-  /// scroll, which is why every chip appeared to do nothing.
-  List<CourseDetailData> get _visibleCourses {
-    final chip = _chips[_selectedChip];
-    if (chip == 'All') return coursePool;
-    return coursePool.where((c) => c.classLevel == chip).toList();
+  /// `Class 6` is the chip label; the server's grade is `Grade 6` and the filter
+  /// takes its **id**. Sending the label instead would be silently ignored —
+  /// unknown query values do not 400 — and the grid would show the whole
+  /// catalogue while looking filtered. That is the trap this resolves.
+  Future<int?> _gradeIdForChip() async {
+    if (_selectedChip == 0) return null;
+    final grades = await ref.read(gradesProvider.future);
+    final wanted = 'grade ${_selectedChip + 5}';
+    for (final grade in grades) {
+      // `ReferenceItem.id` is a String on that model; the course filter wants an
+      // int, so this is the one place the two vocabularies meet.
+      if (grade.name.trim().toLowerCase() == wanted) {
+        return int.tryParse(grade.id);
+      }
+    }
+    return null;
+  }
+
+  Future<void> _load() async {
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
+
+    try {
+      final gradeId = await _gradeIdForChip();
+      // A class we cannot resolve is a real empty state, never "show
+      // everything": an unfiltered grid under a `Class 6` heading is a lie.
+      if (_selectedChip > 0 && gradeId == null) {
+        if (!mounted) return;
+        setState(() {
+          _courses = const [];
+          _next = null;
+          _loading = false;
+          _error = '${_chips[_selectedChip]} has no courses yet.';
+        });
+        return;
+      }
+
+      final page = await ref
+          .read(courseApiProvider)
+          .list(courseType: 'academic', grade: gradeId, pageSize: _pageSize);
+      if (!mounted) return;
+      setState(() {
+        _courses = page.courses;
+        _next = page.next;
+        _loading = false;
+      });
+    } on ApiException catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _loading = false;
+        _error = error.displayMessage;
+      });
+    }
+  }
+
+  Future<void> _loadMore() async {
+    final next = _next;
+    if (next == null || _loadingMore) return;
+    setState(() => _loadingMore = true);
+    try {
+      final page = await ref.read(courseApiProvider).nextPage(next);
+      if (!mounted) return;
+      setState(() {
+        _courses = [..._courses, ...page.courses];
+        _next = page.next;
+        _loadingMore = false;
+      });
+    } on ApiException catch (error) {
+      if (!mounted) return;
+      setState(() => _loadingMore = false);
+      // The page already on screen stays: losing it over a failed second page
+      // would be a worse outcome than a snack.
+      showApiErrorSnack(context, error);
+    }
+  }
+
+  void _selectChip(int index) {
+    if (index == _selectedChip) return;
+    setState(() => _selectedChip = index);
+    _load();
   }
 
   @override
   Widget build(BuildContext context) {
-    final courses = _visibleCourses;
-
     return Scaffold(
       backgroundColor: _bg,
       body: SafeArea(
@@ -62,10 +157,16 @@ class _AllCoursesPageState extends State<AllCoursesPage> {
                     const SizedBox(height: 28),
                     _buildSectionHeader(),
                     const SizedBox(height: 16),
-                    if (courses.isEmpty)
+                    if (_loading)
+                      _buildLoading()
+                    else if (_error != null)
+                      _buildError(_error!)
+                    else if (_courses.isEmpty)
                       _buildEmptyState()
-                    else
-                      _buildCoursesGrid(courses),
+                    else ...[
+                      _buildCoursesGrid(_courses),
+                      if (_next != null) _buildLoadMore(),
+                    ],
                   ],
                 ),
               ),
@@ -148,7 +249,7 @@ class _AllCoursesPageState extends State<AllCoursesPage> {
             child: PressableChip(
               label: _chips[index],
               selected: index == _selectedChip,
-              onTap: () => setState(() => _selectedChip = index),
+              onTap: () => _selectChip(index),
               fontSize: 12,
               fontWeight: FontWeight.w600,
               textColor: _ink,
@@ -193,6 +294,64 @@ class _AllCoursesPageState extends State<AllCoursesPage> {
   }
 
   // ─────────────────────────────────────────────────────────────
+  // LOADING / ERROR / LOAD MORE
+  // ─────────────────────────────────────────────────────────────
+  Widget _buildLoading() {
+    return const Center(
+      child: Padding(
+        padding: EdgeInsets.symmetric(vertical: 48),
+        child: SizedBox(
+          width: 22,
+          height: 22,
+          child: CircularProgressIndicator(strokeWidth: 2),
+        ),
+      ),
+    );
+  }
+
+  /// A failed load gets its own state and a retry, so it cannot be mistaken for
+  /// "this class has no courses".
+  Widget _buildError(String message) {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 40),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(Icons.cloud_off_outlined, size: 32, color: _softGray),
+            const SizedBox(height: 12),
+            Text(
+              message,
+              textAlign: TextAlign.center,
+              style: GoogleFonts.figtree(fontSize: 13, color: _softGray),
+            ),
+            const SizedBox(height: 8),
+            TextButton(onPressed: _load, child: const Text('Try again')),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildLoadMore() {
+    return Padding(
+      padding: const EdgeInsets.only(top: 16),
+      child: Center(
+        child: _loadingMore
+            ? const SizedBox(
+                width: 20,
+                height: 20,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              )
+            : TextButton(
+                onPressed: _loadMore,
+                child: const Text('Load more courses'),
+              ),
+      ),
+    );
+  }
+
+  // ─────────────────────────────────────────────────────────────
   // COURSES GRID (2 columns × N rows)
   // ─────────────────────────────────────────────────────────────
   /// Shown when a class has no courses yet, so a filter can never produce a
@@ -216,115 +375,34 @@ class _AllCoursesPageState extends State<AllCoursesPage> {
     );
   }
 
+  /// The same two-column grid the home rail draws, cell for cell.
+  ///
+  /// It used to be hand-built rows of [Expanded] cards, which meant each row
+  /// sized itself to its own titles — a one-line title and a two-line title
+  /// side by side made ragged rows — and the card inside was a *different*
+  /// card from the home rail's. A `GridView` with the rail's own delegate fixes
+  /// both: uniform cells, and one card widget behind both screens.
   Widget _buildCoursesGrid(List<CourseDetailData> courses) {
-    return Column(
-      children: [
-        for (var i = 0; i < courses.length; i += 2) ...[
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Expanded(child: _buildCourseCard(courses[i])),
-              const SizedBox(width: 12),
-              Expanded(
-                child: i + 1 < courses.length
-                    ? _buildCourseCard(courses[i + 1])
-                    : const SizedBox.shrink(),
-              ),
-            ],
+    return GridView.builder(
+      shrinkWrap: true,
+      physics: const NeverScrollableScrollPhysics(),
+      padding: EdgeInsets.zero,
+      itemCount: courses.length,
+      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+        crossAxisCount: 2,
+        childAspectRatio: 0.85,
+        crossAxisSpacing: 12,
+        mainAxisSpacing: 12,
+      ),
+      itemBuilder: (context, index) {
+        final course = courses[index];
+        return CourseGridCard(
+          course: course,
+          onTap: () => Navigator.of(context).push(
+            MaterialPageRoute(builder: (_) => CourseDetailPage(course: course)),
           ),
-          if (i + 2 < courses.length) const SizedBox(height: 12),
-        ],
-      ],
-    );
-  }
-
-  Widget _buildCourseCard(CourseDetailData course) {
-    return GestureDetector(
-      onTap: () => Navigator.of(context).push(
-        MaterialPageRoute(builder: (_) => CourseDetailPage(course: course)),
-      ),
-      child: Container(
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: const Color(0xFFF3F4F6)),
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // Thumbnail
-            ClipRRect(
-              borderRadius: const BorderRadius.vertical(
-                top: Radius.circular(12),
-              ),
-              child: SizedBox(
-                height: 105,
-                width: double.infinity,
-                child: Image.asset(
-                  course.image,
-                  fit: BoxFit.cover,
-                  errorBuilder: (_, _, _) => Container(
-                    color: Colors.grey.shade300,
-                    child: const Icon(
-                      Icons.image,
-                      color: Colors.white,
-                      size: 32,
-                    ),
-                  ),
-                ),
-              ),
-            ),
-            // Card info
-            Padding(
-              padding: const EdgeInsets.all(12),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    course.title,
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                    style: GoogleFonts.manrope(
-                      fontSize: 13,
-                      fontWeight: FontWeight.w700,
-                      height: 1.4,
-                      color: _ink,
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  Row(
-                    children: [
-                      const Icon(
-                        Icons.star,
-                        color: Color(0xFFFBBF24),
-                        size: 11,
-                      ),
-                      const SizedBox(width: 4),
-                      Text(
-                        course.rating,
-                        style: GoogleFonts.figtree(
-                          fontSize: 11,
-                          fontWeight: FontWeight.w700,
-                          color: _ink,
-                        ),
-                      ),
-                      const Spacer(),
-                      Text(
-                        course.level,
-                        style: GoogleFonts.figtree(
-                          fontSize: 11,
-                          fontWeight: FontWeight.w500,
-                          color: _softGray,
-                        ),
-                      ),
-                    ],
-                  ),
-                ],
-              ),
-            ),
-          ],
-        ),
-      ),
+        );
+      },
     );
   }
 }

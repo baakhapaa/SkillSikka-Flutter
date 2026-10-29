@@ -8,6 +8,8 @@ import 'package:google_fonts/src/google_fonts_base.dart' as font_assets;
 import 'package:skillsikka/features/courses/presentation/courses.dart';
 import 'package:skillsikka/features/search/presentation/search_page.dart';
 
+import 'support/courses_test_scope.dart';
+
 class _FontAssets extends Fake implements AssetManifest {
   _FontAssets(this.paths);
   final List<String> paths;
@@ -75,12 +77,14 @@ void main() {
     GoogleFonts.config.allowRuntimeFetching = originalFetching;
   });
 
-  Widget app() => MaterialApp(
-    theme: ThemeData(
-      fontFamily: 'Roboto',
-      textTheme: ThemeData().textTheme.apply(fontFamilyFallback: ['Roboto']),
+  Widget app() => coursesTestScope(
+    child: MaterialApp(
+      theme: ThemeData(
+        fontFamily: 'Roboto',
+        textTheme: ThemeData().textTheme.apply(fontFamilyFallback: ['Roboto']),
+      ),
+      home: const AllCoursesPage(),
     ),
-    home: const AllCoursesPage(),
   );
 
   for (final width in [360.0, 400.0]) {

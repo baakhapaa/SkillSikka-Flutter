@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:skillsikka/app.dart';
+import 'package:skillsikka/features/learning/data/learning_api.dart';
+import 'package:skillsikka/features/learning/data/my_learning.dart';
 import 'package:skillsikka/core/network/session.dart';
 import 'package:skillsikka/core/network/session_store.dart';
 import 'package:skillsikka/features/auth/data/auth_repository.dart';
@@ -42,6 +44,10 @@ void main() {
         sessionStoreProvider.overrideWithValue(
           FakeSessionStore(stored: stored),
         ),
+        // Landing inside the app mounts `MyLearningPage`, which fetches
+        // `/my-learning/`. dio answers 400 under `flutter test`, so without this
+        // the screen logs a failed request in a test about session restore.
+        myLearningProvider.overrideWith((ref) async => const MyLearning()),
       ],
     );
     addTearDown(container.dispose);

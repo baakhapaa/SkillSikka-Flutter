@@ -3,12 +3,26 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:skillsikka/core/widgets/course_detail_view.dart';
 import 'package:skillsikka/features/courses/data/course.dart';
+import 'package:skillsikka/features/courses/data/course_adapter.dart';
+import 'package:skillsikka/features/courses/data/course_api.dart';
 import 'package:skillsikka/features/courses/presentation/course_details_page.dart';
 import 'package:skillsikka/features/learning/data/enrollment.dart';
 import 'package:skillsikka/features/learning/presentation/course_player_page.dart';
+import 'package:skillsikka/features/learning/presentation/widgets/video_transport_controls.dart';
 import 'package:skillsikka/features/skill_courses/data/skill_course.dart';
 
+import 'support/courses_test_scope.dart';
 import 'support/home_page_font_harness.dart';
+
+/// An icon inside the player's top stage only.
+///
+/// The lesson rows below draw the same play/lock glyphs, so an unscoped
+/// `find.byIcon` matches the list as well as the stage and cannot tell them
+/// apart.
+Finder _stageIcon(IconData icon) => find.descendant(
+  of: find.byKey(CoursePlayerPage.stageKey),
+  matching: find.byIcon(icon),
+);
 
 /// Covers the screen a course opens into after enrolling, and the detail page's
 /// two bottom-bar states that lead into it.
@@ -22,7 +36,13 @@ import 'support/home_page_font_harness.dart';
 /// **No lecture in the catalogue has a video** (`CourseLesson.videoAsset` is null
 /// on all 297 of them), which is what keeps `video_player` — no platform
 /// implementation under `flutter test` — off this file entirely. The still-image
-/// branch is the one every test below exercises.
+/// branch is the one every catalogue test below exercises.
+///
+/// The `stage` group at the end uses **API-shaped** courses instead, built
+/// through `CourseMapper`, to cover the three new stage branches. None of them
+/// carries a playable video either — a text lesson renders its body, a gated
+/// lesson has no URL, and a PDF renders a document card — so `_syncVideo` returns
+/// before it ever constructs a controller.
 void main() {
   installHomePageFontHarness();
 
@@ -42,11 +62,17 @@ void main() {
     bool enrolled = true,
     int startIndex = 0,
     Size size = const Size(360, 800),
+    FakeCourseApi? api,
   }) async {
     await tester.binding.setSurfaceSize(size);
     addTearDown(() => tester.binding.setSurfaceSize(null));
 
-    final container = ProviderContainer();
+    // An API course makes the player fetch its progress on open. Every test that
+    // passes one hands over a fake, so no suite reaches the network — dio would
+    // answer 400 under `flutter test`, which looks like a product bug.
+    final container = ProviderContainer(
+      overrides: [if (api != null) courseApiProvider.overrideWithValue(api)],
+    );
     addTearDown(container.dispose);
     if (enrolled) {
       container
@@ -130,7 +156,13 @@ void main() {
     // Leaving a lecture is this demo's stand-in for finishing it — there is no
     // playback-completed event without a video. Without this the progress on the
     // My Learning tab could never leave zero.
-    expect(store.of(geometry)?.completed, contains(0));
+    //
+    // The stored key is the lesson's **id**, or a negative position for a
+    // catalogue lesson that has none — not the index it used to be.
+    expect(
+      store.of(geometry)?.completed,
+      contains(lessonProgressKey(geometry.modules.first.lessons.first, 0)),
+    );
   });
 
   testWidgets('Prev is disabled on the first lecture rather than wrapping', (
@@ -345,8 +377,9 @@ void main() {
       expect(store.of(geometry)?.total, lessons);
       expect(store.of(geometry)?.progress, 0);
 
-      store.markComplete(geometry, 0);
-      store.markComplete(geometry, 0); // idempotent
+      final first = geometry.modules.first.lessons.first;
+      store.markComplete(geometry, first, 0);
+      store.markComplete(geometry, first, 0); // idempotent
       expect(store.of(geometry)?.done, 1);
       expect(store.of(geometry)?.percentLabel, '${(100 / lessons).round()}%');
     });
@@ -367,6 +400,356 @@ void main() {
           reason: '${course.title} has no discussions',
         );
       }
+    });
+  });
+
+  group('stage', () {
+    /// A course shaped like `GET /courses/{id}/` + its lessons.
+    ///
+    /// Built through [CourseMapper] rather than by hand so these tests exercise
+    /// the real wire-to-view mapping: `content_type` becomes a
+    /// [CourseLessonKind], and a null `content_url` stays null so the paywall
+    /// branch can see it.
+    CourseDetailData apiCourse(List<Map<String, dynamic>> lessons) {
+      final course = CourseMapper.detail(
+        course: {
+          'id': 99,
+          'title': 'Drawing from Observation',
+          'description': 'Learn by doing.',
+          'course_type': 'skill',
+          'skill_category': 13,
+          'skill_category_name': 'Drawing',
+          'is_paid': false,
+          'price': null,
+          'thumbnail_url': '',
+          'is_published': true,
+          'average_rating': null,
+          'review_count': 0,
+          'students_enrolled': 0,
+          'lessons_count': lessons.length,
+          'total_duration_seconds': 900,
+          'instructor': 4,
+          'instructor_name': 'Test Instructor',
+          'learning_outcomes': <String>[],
+          'requirements': <String>[],
+          'updated_at': '2026-10-27T06:04:13.639481Z',
+        },
+        lessons: lessons,
+      );
+      // `CourseMapper` leaves `id` from the payload, so the player knows this is
+      // an API course and that a null URL means gated.
+      return course;
+    }
+
+    Map<String, dynamic> lesson(
+      int id,
+      String kind, {
+      String? url,
+      String? text,
+      String? section = 'Foundations',
+    }) => {
+      'id': id,
+      'title': 'Lesson $id',
+      'content_type': kind,
+      'content_url': url,
+      'content_text': text,
+      'section': section,
+      'duration_seconds': 300,
+      'is_preview': false,
+      'order': id,
+    };
+
+    testWidgets('a text lesson renders its body instead of a player', (
+      tester,
+    ) async {
+      await pumpPlayer(
+        tester,
+        apiCourse([
+          lesson(
+            1,
+            'text',
+            text: 'Work through the example and explain your reasoning.',
+          ),
+        ]),
+        api: FakeCourseApi(),
+      );
+
+      expect(
+        find.text('Work through the example and explain your reasoning.'),
+        findsOneWidget,
+      );
+      expect(
+        _stageIcon(Icons.play_circle_outline),
+        findsNothing,
+        reason: 'a reading lesson is not a video',
+      );
+    });
+
+    testWidgets('a gated video lesson shows a lock, not a play button', (
+      tester,
+    ) async {
+      // `content_url: null` is what the paywall returns for a student who is not
+      // enrolled. Rendering a play button over the still would promise a video
+      // that cannot start.
+      await pumpPlayer(
+        tester,
+        apiCourse([lesson(1, 'video')]),
+        api: FakeCourseApi(),
+      );
+
+      expect(find.text('Enrol to watch this lesson'), findsOneWidget);
+      expect(_stageIcon(Icons.lock_outline), findsOneWidget);
+      expect(_stageIcon(Icons.play_circle_outline), findsNothing);
+      // And no transport bar: there is no controller behind a gated lesson, so
+      // a play/pause or a seek bar over the lock would be a control that
+      // cannot act.
+      expect(find.byType(VideoTransportControls), findsNothing);
+    });
+
+    testWidgets('a pdf lesson is a resource, so it never reaches the stage', (
+      tester,
+    ) async {
+      // **A PDF is a resource, not a lecture** — `CourseMapper._resources` lifts
+      // those rows out of the curriculum. So there is no pdf stage to draw: the
+      // lecture list holds the one lecture and the file is in Resources.
+      final course = apiCourse([
+        lesson(1, 'text', text: 'Body one'),
+        lesson(2, 'pdf', url: 'https://example.com/worksheet.pdf'),
+      ]);
+      await pumpPlayer(tester, course, api: FakeCourseApi());
+
+      expect(find.text('Lesson 1'), findsWidgets);
+      expect(
+        find.text('Lesson 2'),
+        findsNothing,
+        reason: 'a pdf must not be listed as a lecture',
+      );
+
+      await tester.tap(find.text('Resources'));
+      await tester.pump();
+      drainUnrelatedOverflows(tester);
+
+      expect(find.text('1 file'), findsOneWidget);
+      expect(find.text('Lesson 2'), findsOneWidget);
+    });
+  });
+
+  group('progress', () {
+    /// The same API-shaped course the `stage` group builds, kept local so the
+    /// two groups can drift independently.
+    CourseDetailData apiCourse(List<Map<String, dynamic>> lessons) =>
+        CourseMapper.detail(
+          course: {
+            'id': 99,
+            'title': 'Drawing from Observation',
+            'description': '',
+            'course_type': 'skill',
+            'skill_category': 13,
+            'skill_category_name': 'Drawing',
+            'is_paid': false,
+            'price': null,
+            'thumbnail_url': '',
+            'is_published': true,
+            'average_rating': null,
+            'review_count': 0,
+            'students_enrolled': 0,
+            'lessons_count': lessons.length,
+            'total_duration_seconds': 900,
+            'instructor': 4,
+            'instructor_name': 'Test Instructor',
+            'learning_outcomes': <String>[],
+            'requirements': <String>[],
+            'updated_at': '2026-10-27T06:04:13.639481Z',
+          },
+          lessons: lessons,
+        );
+
+    Map<String, dynamic> textLesson(int id) => {
+      'id': id,
+      'title': 'Lesson $id',
+      'content_type': 'text',
+      'content_url': '',
+      'content_text': 'Body $id',
+      'section': 'Foundations',
+      'duration_seconds': 300,
+      'is_preview': false,
+      'order': id,
+    };
+
+    testWidgets('the server decides which lecture to resume on', (
+      tester,
+    ) async {
+      final course = apiCourse([
+        for (var id = 1; id <= 3; id++) textLesson(id),
+      ]);
+      final api = FakeCourseApi()
+        ..nextLesson = 3
+        ..progressValue = const CourseProgress(
+          courseId: 99,
+          totalLessons: 3,
+          completedLessons: 2,
+          percentage: 66.67,
+          isCompleted: false,
+        );
+
+      final container = await pumpPlayer(tester, course, api: api);
+      await tester.pumpAndSettle();
+
+      final enrollment = container
+          .read(enrolledCoursesProvider.notifier)
+          .of(course);
+
+      // Lesson 3 is the first incomplete one, so 1 and 2 are complete — the
+      // server's own definition of `next_lesson` makes that exact, not a guess.
+      expect(enrollment?.lastIndex, 2);
+      expect(enrollment?.done, 2);
+      expect(enrollment?.completed, containsAll(<int>[1, 2]));
+    });
+
+    testWidgets('an explicit startIndex is not overridden by the server', (
+      tester,
+    ) async {
+      final course = apiCourse([
+        for (var id = 1; id <= 3; id++) textLesson(id),
+      ]);
+      final api = FakeCourseApi()
+        ..nextLesson = 3
+        ..progressValue = const CourseProgress(
+          courseId: 99,
+          totalLessons: 3,
+          completedLessons: 2,
+          percentage: 66.67,
+          isCompleted: false,
+        );
+
+      // The user tapped a specific lecture; resuming elsewhere would be rude.
+      await pumpPlayer(tester, course, api: api, startIndex: 1);
+      await tester.pumpAndSettle();
+
+      expect(find.text('Body 2'), findsOneWidget);
+    });
+
+    testWidgets('advancing posts the completion for that lesson', (
+      tester,
+    ) async {
+      final course = apiCourse([textLesson(1), textLesson(2)]);
+      final api = FakeCourseApi();
+
+      await pumpPlayer(tester, course, api: api);
+      await tester.pumpAndSettle();
+      expect(api.completions, isEmpty);
+
+      await tester.tap(find.text('Next'));
+      await tester.pumpAndSettle();
+
+      // The lesson's server id, not its position.
+      expect(api.completions, [1]);
+    });
+
+    testWidgets('a catalogue course never calls the API', (tester) async {
+      // Catalogue lessons have no ids, so there is nothing to post and nothing
+      // to fetch — the store stays the only source.
+      final api = FakeCourseApi();
+      await pumpPlayer(tester, geometry, api: api);
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('Next'));
+      await tester.pumpAndSettle();
+
+      expect(api.completions, isEmpty);
+    });
+  });
+
+  group('completing a course', () {
+    /// One API-backed course with [count] text lectures.
+    CourseDetailData course(int count) => CourseMapper.detail(
+      course: {
+        'id': 99,
+        'title': 'Drawing from Observation',
+        'description': '',
+        'course_type': 'skill',
+        'skill_category': 13,
+        'skill_category_name': 'Drawing',
+        'is_paid': false,
+        'price': null,
+        'thumbnail_url': '',
+        'is_published': true,
+        'average_rating': null,
+        'review_count': 0,
+        'students_enrolled': 0,
+        'lessons_count': count,
+        'total_duration_seconds': count * 300,
+        'instructor': 4,
+        'instructor_name': 'Test Instructor',
+        'learning_outcomes': <String>[],
+        'requirements': <String>[],
+        'updated_at': '2026-10-27T06:04:13.639481Z',
+      },
+      lessons: [
+        for (var id = 1; id <= count; id++)
+          {
+            'id': id,
+            'title': 'Lesson $id',
+            'content_type': 'text',
+            'content_url': '',
+            'content_text': 'Body $id',
+            'section': 'Foundations',
+            'duration_seconds': 300,
+            'is_preview': false,
+            'order': id,
+          },
+      ],
+    );
+
+    testWidgets('the last lecture can be finished from its own row', (
+      tester,
+    ) async {
+      // **The gap this closes:** `_select` only ticks the lecture being *left*,
+      // so the final lecture — which has no Next — could never be completed and
+      // the course could never reach 100%.
+      final api = FakeCourseApi();
+      await pumpPlayer(tester, course(1), api: api);
+      await tester.pumpAndSettle();
+
+      expect(find.text('Mark complete'), findsOneWidget);
+      await tester.tap(find.text('Mark complete'));
+      await tester.pumpAndSettle();
+
+      expect(api.completions, [1]);
+      expect(find.text('Mark complete'), findsNothing);
+    });
+
+    testWidgets('finishing the course offers a review that really submits', (
+      tester,
+    ) async {
+      final api = FakeCourseApi();
+      await pumpPlayer(tester, course(1), api: api);
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('Mark complete'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('You finished this course'), findsOneWidget);
+
+      await tester.tap(find.text('Write a review'));
+      await tester.pumpAndSettle();
+      expect(find.text('Rate this course'), findsOneWidget);
+
+      await tester.tap(find.byKey(const ValueKey('review-star-5')));
+      await tester.pump();
+      await tester.tap(find.text('Submit review'));
+      await tester.pumpAndSettle();
+
+      expect(api.submitted.single.courseId, 99);
+      expect(api.submitted.single.rating, 5);
+    });
+
+    testWidgets('an unfinished course offers no review card', (tester) async {
+      final api = FakeCourseApi();
+      await pumpPlayer(tester, course(2), api: api);
+      await tester.pumpAndSettle();
+
+      expect(find.text('You finished this course'), findsNothing);
     });
   });
 }

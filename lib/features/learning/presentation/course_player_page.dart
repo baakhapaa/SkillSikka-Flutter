@@ -3,8 +3,15 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:video_player/video_player.dart';
 
+import '../../../core/widgets/course_image.dart';
+import '../../../core/network/api_error.dart';
+import '../../../core/widgets/api_error_snack.dart';
+import '../../courses/data/course_api.dart';
+import '../../courses/presentation/widgets/review_sheet.dart';
+
 import '../../../core/widgets/course_detail_view.dart';
 import '../data/enrollment.dart';
+import 'widgets/video_transport_controls.dart';
 
 const _ink = Color(0xFF111827);
 const _gray = Color(0xFF4B5563);
@@ -30,6 +37,11 @@ const _previewGreen = Color(0xFF16A34A);
 /// first section; it is deliberately not built, because the catalogue has no
 /// day axis and inventing one would be a model change for a decoration.
 class CoursePlayerPage extends ConsumerStatefulWidget {
+  /// Identifies the top stage — player, reading pane or document card.
+  ///
+  /// Public so tests can scope to it; see `_buildStage`.
+  static const stageKey = ValueKey('lesson-stage');
+
   const CoursePlayerPage({
     super.key,
     required this.course,
@@ -101,6 +113,14 @@ class _CoursePlayerPageState extends ConsumerState<CoursePlayerPage> {
   VideoPlayerController? _videoController;
   bool _videoReady = false;
 
+  /// Set when `initialize()` rejects.
+  ///
+  /// Without it a failed video is indistinguishable from one that has not
+  /// started yet: the poster stays up, no transport bar appears, and the reason
+  /// is only in logcat. That is how a blocked cleartext request looked on device
+  /// — a poster and a play glyph, forever (2026-10-28).
+  String? _videoError;
+
   CourseDetailData get _course => widget.course;
 
   @override
@@ -113,6 +133,7 @@ class _CoursePlayerPageState extends ConsumerState<CoursePlayerPage> {
         ? 0
         : widget.startIndex.clamp(0, _lessons.length - 1);
     _syncVideo();
+    _loadServerProgress();
   }
 
   @override
@@ -126,25 +147,52 @@ class _CoursePlayerPageState extends ConsumerState<CoursePlayerPage> {
   /// Points the controller at the current lecture's video, or tears it down when
   /// the lecture has none.
   ///
-  /// The null branch is the one every catalogue lecture takes, and it is what
+  /// **Two sources, two constructors.** An API lesson carries `contentUrl` — an
+  /// http URL — and needs `networkUrl`; a catalogue lesson would carry a bundled
+  /// `videoAsset`. Neither is set on most lessons, and the null branch is what
   /// keeps `video_player` — which has no platform implementation under
   /// `flutter test` — off the path of any test that renders this screen.
+  ///
+  /// Non-video lessons never reach here: a `text` lecture renders its body and a
+  /// `pdf`/`ebook` renders a document panel, both in `_buildStage`.
   void _syncVideo() {
     _videoController?.dispose();
     _videoController = null;
     _videoReady = false;
+    _videoError = null;
 
-    final asset = _lessons.isEmpty ? null : _lessons[_currentIndex].videoAsset;
-    if (asset == null) return;
+    if (_lessons.isEmpty) return;
+    final lesson = _lessons[_currentIndex];
+    if (lesson.kind != CourseLessonKind.video) return;
 
-    final controller = VideoPlayerController.asset(asset);
-    _videoController = controller;
-    controller.initialize().then((_) {
+    final remote = lesson.contentUrl?.trim() ?? '';
+    final asset = lesson.videoAsset?.trim() ?? '';
+    final VideoPlayerController? controller;
+    if (remote.isNotEmpty) {
+      controller = VideoPlayerController.networkUrl(Uri.parse(remote));
+    } else if (asset.isNotEmpty) {
+      controller = VideoPlayerController.asset(asset);
+    } else {
+      controller = null;
+    }
+    if (controller == null) return;
+
+    // Promoted to a non-null local: the closure below captures it, and
+    // null-promotion does not survive into a closure.
+    final player = controller;
+    _videoController = player;
+    player.initialize().then((_) {
       if (!mounted) return;
       setState(() => _videoReady = true);
-      if (_autoPlay) controller.play();
+      if (_autoPlay) player.play();
+    }).catchError((Object error) {
+      // A platform video error carries no user-facing message, so the frame is
+      // the only place the failure can surface. The detail goes to logcat.
+      debugPrint('course player: video failed to load: $error');
+      if (!mounted) return;
+      setState(() => _videoError = 'This video could not be loaded.');
     });
-    controller.addListener(_onVideoTick);
+    player.addListener(_onVideoTick);
   }
 
   /// `Auto Next` lives here: the lecture is finished when its video is.
@@ -184,7 +232,12 @@ class _CoursePlayerPageState extends ConsumerState<CoursePlayerPage> {
     final store = ref.read(enrolledCoursesProvider.notifier);
     store.setLast(_course, index);
     if (countPrevious && leaving != index) {
-      store.markComplete(_course, leaving);
+      final finished = _lessons[leaving];
+      // The store keys on the lesson's id, not its position — see
+      // `lessonProgressKey`. It is handed the lesson so no caller can get that
+      // wrong.
+      store.markComplete(_course, finished, leaving);
+      _postCompletion(finished);
     }
   }
 
@@ -195,9 +248,52 @@ class _CoursePlayerPageState extends ConsumerState<CoursePlayerPage> {
   /// lecture would keep its play icon until something else happened to rebuild.
   Enrollment? get _enrollment {
     for (final enrollment in ref.watch(enrolledCoursesProvider)) {
-      if (enrollment.course.title == _course.title) return enrollment;
+      final a = enrollment.course;
+      final b = _course;
+      // Id first, title only for a catalogue entry that has none — the same
+      // rule the store itself uses. Two courses may share a title.
+      final same = a.id != null && b.id != null
+          ? a.id == b.id
+          : a.title == b.title;
+      if (same) return enrollment;
     }
     return null;
+  }
+
+  /// Marks the lecture being watched as finished.
+  ///
+  /// **This is the only way to complete the last lecture.** `_select` records a
+  /// completion for the lecture being *left*, so the final one — which has no
+  /// `Next` — could never be finished, and a course could never reach 100%.
+  void _markCurrentComplete() {
+    final lesson = _currentLesson;
+    if (lesson == null) return;
+    ref
+        .read(enrolledCoursesProvider.notifier)
+        .markComplete(_course, lesson, _currentIndex);
+    _postCompletion(lesson);
+  }
+
+  /// True once every lecture in an API-backed course is finished.
+  ///
+  /// The review card hangs off this. A catalogue course has no id and no
+  /// endpoint, so it never offers one.
+  bool get _isCourseComplete {
+    if (_course.id == null) return false;
+    final enrollment = _enrollment;
+    return enrollment != null &&
+        enrollment.total > 0 &&
+        enrollment.done >= enrollment.total;
+  }
+
+  Future<void> _openReview() async {
+    final id = _course.id;
+    if (id == null) return;
+    await openCourseReview(
+      context,
+      api: ref.read(courseApiProvider),
+      courseId: id,
+    );
   }
 
   @override
@@ -208,7 +304,7 @@ class _CoursePlayerPageState extends ConsumerState<CoursePlayerPage> {
         bottom: false,
         child: Column(
           children: [
-            _buildVideoArea(),
+            _buildStage(),
             _buildPlaybackBar(),
             _buildTabBar(),
             Expanded(
@@ -228,9 +324,34 @@ class _CoursePlayerPageState extends ConsumerState<CoursePlayerPage> {
   // VIDEO
   // ─────────────────────────────────────────────────────────────
 
+  /// Hands the same controller to a black landscape page.
+  ///
+  /// **The controller is not re-created and not disposed here.** It stays owned
+  /// by this screen, so playback continues across the route and the lecture is
+  /// still playing when the user comes back — the alternative is a re-init gap
+  /// and a second controller briefly existing for the same video.
+  Future<void> _openFullscreen(
+    VideoPlayerController controller,
+    CourseLesson? lesson,
+  ) async {
+    await Navigator.of(context).push<void>(
+      MaterialPageRoute(
+        builder: (_) => FullscreenVideoPage(
+          controller: controller,
+          title: lesson?.title ?? _course.title,
+        ),
+      ),
+    );
+    // The route restores orientation and system UI in its own `dispose`.
+    if (mounted) setState(() {});
+  }
+
   Widget _buildVideoArea() {
-    final controller = _videoController;
     final lesson = _lessons.isEmpty ? null : _lessons[_currentIndex];
+    // One non-null local rather than a `controller != null && _videoReady`
+    // check repeated three times: the type has to be promoted for `VideoPlayer`
+    // and the transport bar, and a bool cannot carry that.
+    final controller = _videoReady ? _videoController : null;
 
     return AspectRatio(
       aspectRatio: 16 / 9,
@@ -239,7 +360,7 @@ class _CoursePlayerPageState extends ConsumerState<CoursePlayerPage> {
         child: Stack(
           fit: StackFit.expand,
           children: [
-            if (controller != null && _videoReady)
+            if (controller != null)
               FittedBox(
                 fit: BoxFit.cover,
                 child: SizedBox(
@@ -249,42 +370,19 @@ class _CoursePlayerPageState extends ConsumerState<CoursePlayerPage> {
                 ),
               )
             else
-              // The lecture's still. Every catalogue lecture has a null video,
-              // so this is what actually renders — the course's own thumbnail,
-              // dimmed, with the lecture's title over it.
-              Stack(
-                fit: StackFit.expand,
-                children: [
-                  Image.asset(_course.image, fit: BoxFit.cover),
-                  const ColoredBox(color: Color(0x8C0B0B0B)),
-                  Center(
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(
-                          Icons.play_circle_outline,
-                          size: 44,
-                          color: Colors.white.withValues(alpha: 0.92),
-                        ),
-                        const SizedBox(height: 8),
-                        Padding(
-                          padding: const EdgeInsets.symmetric(horizontal: 32),
-                          child: Text(
-                            lesson?.title ?? _course.title,
-                            textAlign: TextAlign.center,
-                            maxLines: 2,
-                            overflow: TextOverflow.ellipsis,
-                            style: GoogleFonts.figtree(
-                              fontSize: 12,
-                              fontWeight: FontWeight.w600,
-                              color: Colors.white.withValues(alpha: 0.92),
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
+              _buildPosterOrLock(lesson),
+            // The transport layer sits over the picture but under the back
+            // pill, so leaving the screen is always the easiest thing to hit.
+            // No controller means nothing to transport: a poster or a gated
+            // lesson gets no bar.
+            if (controller != null)
+              VideoTransportControls(
+                // Keyed by controller so switching lecture rebuilds the bar
+                // against the new one instead of reusing the old State.
+                key: ValueKey(controller),
+                controller: controller,
+                title: lesson?.title ?? _course.title,
+                onFullscreen: () => _openFullscreen(controller, lesson),
               ),
             Positioned(
               left: 12,
@@ -308,6 +406,312 @@ class _CoursePlayerPageState extends ConsumerState<CoursePlayerPage> {
       ),
     );
   }
+
+  // ─────────────────────────────────────────────────────────────
+  // SERVER PROGRESS
+  // ─────────────────────────────────────────────────────────────
+
+  /// Seeds the local store from what the server already knows, and resumes
+  /// where the server says.
+  ///
+  /// **The prefix inference is exact, not an estimate.** The server picks
+  /// `next_lesson` as the first lesson in `order` that is not complete, so every
+  /// lesson before it *is* complete. What this cannot see is a completion
+  /// *after* that point — no endpoint lists completed lesson ids, so a user who
+  /// skipped ahead shows ticks only up to the gap. That is a backend ask, not a
+  /// guess we can fix here.
+  ///
+  /// A catalogue course has no id, so nothing is fetched and the local store
+  /// stays the only source.
+  Future<void> _loadServerProgress() async {
+    final id = _course.id;
+    if (id == null) return;
+    final api = ref.read(courseApiProvider);
+    try {
+      final progress = await api.progress(id);
+      final nextId = await api.nextLessonId(id);
+      if (!mounted) return;
+
+      final nextIndex = nextId == null
+          ? -1
+          : _lessons.indexWhere((lesson) => lesson.id == nextId);
+
+      // Without a next lesson the course is either finished or absent from My
+      // Learning; fall back to the count the progress endpoint reported.
+      final doneCount = nextIndex >= 0
+          ? nextIndex
+          : progress.completedLessons.clamp(0, _lessons.length);
+
+      final completed = <int>{};
+      for (var index = 0; index < doneCount; index++) {
+        final lesson = _lessons[index];
+        if (lesson.id != null) completed.add(lesson.id!);
+      }
+
+      final resumeIndex = nextIndex >= 0 ? nextIndex : 0;
+      ref
+          .read(enrolledCoursesProvider.notifier)
+          .adoptProgress(_course, completed: completed, lastIndex: resumeIndex);
+
+      // Only move the cursor if the caller did not ask for a specific lecture —
+      // an explicit `startIndex` is a deliberate destination.
+      if (nextIndex > 0 && widget.startIndex == 0 && _currentIndex == 0) {
+        setState(() => _currentIndex = nextIndex);
+        _syncVideo();
+      }
+    } on ApiException {
+      // Not enrolled, or the read failed: the local state is still usable and
+      // the screen has already rendered. Nothing to show the user.
+    }
+  }
+
+  /// `POST /lessons/{id}/complete/`.
+  ///
+  /// The tick is already drawn, so a failure is a snack rather than a rollback:
+  /// un-ticking a lecture the user just finished would be a worse lie than a
+  /// server row that is one request behind.
+  Future<void> _postCompletion(CourseLesson lesson) async {
+    final id = lesson.id;
+    if (id == null) return;
+    try {
+      await ref.read(courseApiProvider).completeLesson(id);
+    } on ApiException catch (error) {
+      if (mounted) showApiErrorSnack(context, error);
+    }
+  }
+
+  // ─────────────────────────────────────────────────────────────
+  // STAGE — a player, a reading pane, or a document card
+  // ─────────────────────────────────────────────────────────────
+
+  CourseLesson? get _currentLesson =>
+      _lessons.isEmpty ? null : _lessons[_currentIndex];
+
+  /// A lecture whose content the server withheld.
+  ///
+  /// `Lesson.content_url` is null for a student who is not enrolled — that is
+  /// the paywall — so on a course that came from the API a missing source is a
+  /// **lock**, not an empty lesson. A catalogue course has no id and no URLs at
+  /// all, and there the still poster is the right thing.
+  bool _isGated(CourseLesson lesson) {
+    if (_course.id == null) return false;
+    if (lesson.kind.isInlineText) return false;
+    final url = lesson.contentUrl?.trim() ?? '';
+    return url.isEmpty;
+  }
+
+  Widget _buildStage() {
+    final lesson = _currentLesson;
+    final Widget stage;
+    if (lesson == null) {
+      stage = _buildVideoArea();
+    } else if (lesson.kind.isInlineText) {
+      stage = _buildTextStage(lesson);
+    } else if (lesson.kind.isDocument) {
+      stage = _buildDocumentStage(lesson);
+    } else {
+      stage = _buildVideoArea();
+    }
+    // Keyed so a test can scope an icon assertion to the stage: the lesson rows
+    // below it draw the same play/lock glyphs, so an unscoped `find.byIcon`
+    // cannot tell the stage apart from the list.
+    return KeyedSubtree(key: CoursePlayerPage.stageKey, child: stage);
+  }
+
+  /// A `text` lecture: the prose is the lesson, so it replaces the video.
+  Widget _buildTextStage(CourseLesson lesson) {
+    final body = lesson.contentText?.trim() ?? '';
+    return Container(
+      width: double.infinity,
+      constraints: const BoxConstraints(minHeight: 150, maxHeight: 260),
+      color: const Color(0xFF0B0B0B),
+      padding: const EdgeInsets.fromLTRB(52, 12, 16, 12),
+      child: SingleChildScrollView(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              lesson.title,
+              style: GoogleFonts.figtree(
+                fontSize: 13,
+                fontWeight: FontWeight.w700,
+                color: Colors.white.withValues(alpha: 0.92),
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              body.isEmpty ? 'This lesson has no text yet.' : body,
+              style: GoogleFonts.figtree(
+                fontSize: 12,
+                height: 1.5,
+                color: Colors.white.withValues(alpha: 0.78),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// A `pdf` or `ebook` lecture.
+  ///
+  /// **There is no document viewer in this app.** No PDF package, no
+  /// `url_launcher`, no webview — so this panel names the lesson and says so
+  /// rather than pretending a button will open it. Adding a viewer is its own
+  /// piece of work; the shape here is what that work plugs into.
+  Widget _buildDocumentStage(CourseLesson lesson) {
+    final gated = _isGated(lesson);
+    final isPdf = lesson.kind == CourseLessonKind.pdf;
+    return AspectRatio(
+      aspectRatio: 16 / 9,
+      child: ColoredBox(
+        color: const Color(0xFF0B0B0B),
+        child: Stack(
+          fit: StackFit.expand,
+          children: [
+            Center(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(
+                    gated
+                        ? Icons.lock_outline
+                        : (isPdf
+                              ? Icons.picture_as_pdf_outlined
+                              : Icons.menu_book_outlined),
+                    size: 40,
+                    color: Colors.white.withValues(alpha: 0.92),
+                  ),
+                  const SizedBox(height: 10),
+                  Text(
+                    gated
+                        ? 'Enrol to open this lesson'
+                        : (isPdf ? 'PDF lesson' : 'Ebook lesson'),
+                    style: GoogleFonts.figtree(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
+                      color: Colors.white.withValues(alpha: 0.92),
+                    ),
+                  ),
+                  if (!gated) ...[
+                    const SizedBox(height: 4),
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 32),
+                      child: Text(
+                        lesson.title,
+                        textAlign: TextAlign.center,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: GoogleFonts.figtree(
+                          fontSize: 11,
+                          color: Colors.white.withValues(alpha: 0.7),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    TextButton(
+                      onPressed: _explainNoDocumentViewer,
+                      child: const Text('Open document'),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+            Positioned(left: 12, top: 12, child: _buildBackButton()),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _explainNoDocumentViewer() {
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text(
+          'Opening documents needs a viewer that is not in the app yet.',
+        ),
+      ),
+    );
+  }
+
+  /// The still, with a play affordance — or a lock when the paywall withheld
+  /// the lecture.
+  Widget _buildPosterOrLock(CourseLesson? lesson) {
+    final gated = lesson != null && _isGated(lesson);
+    final failure = gated ? null : _videoError;
+    final tint = Colors.white.withValues(alpha: 0.92);
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        // Asset for the catalogue, http URL from the API.
+        CourseImage(
+          _course.image,
+          fallback: const ColoredBox(color: Color(0xFF1F1F1F)),
+        ),
+        const ColoredBox(color: Color(0x8C0B0B0B)),
+        Center(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                failure != null
+                    ? Icons.error_outline
+                    : (gated ? Icons.lock_outline : Icons.play_circle_outline),
+                size: 44,
+                color: tint,
+              ),
+              const SizedBox(height: 8),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 32),
+                child: Text(
+                  failure ??
+                      (gated
+                          ? 'Enrol to watch this lesson'
+                          : (lesson?.title ?? _course.title)),
+                  textAlign: TextAlign.center,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: GoogleFonts.figtree(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                    color: tint,
+                  ),
+                ),
+              ),
+              if (failure != null) ...[
+                const SizedBox(height: 4),
+                TextButton(
+                  onPressed: _syncVideo,
+                  style: TextButton.styleFrom(foregroundColor: _gold),
+                  child: Text(
+                    'Retry',
+                    style: GoogleFonts.figtree(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+              ],
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildBackButton() => GestureDetector(
+    onTap: () => Navigator.of(context).maybePop(),
+    behavior: HitTestBehavior.opaque,
+    child: Container(
+      width: 38,
+      height: 38,
+      decoration: const BoxDecoration(
+        color: Colors.white,
+        shape: BoxShape.circle,
+      ),
+      child: const Icon(Icons.arrow_back, size: 19, color: _ink),
+    ),
+  );
 
   // ─────────────────────────────────────────────────────────────
   // PLAYBACK BAR
@@ -422,8 +826,87 @@ class _CoursePlayerPageState extends ConsumerState<CoursePlayerPage> {
         flatIndex++;
       }
     }
+    if (_isCourseComplete) rows.add(_buildCourseCompletedCard());
 
     return ListView(padding: const EdgeInsets.only(bottom: 32), children: rows);
+  }
+
+  /// Shown under the curriculum once the last lecture is ticked.
+  ///
+  /// The design has no equivalent — it is the missing half of "a student can
+  /// review a course": the detail page can be reached any time, but the moment a
+  /// student is actually *finished* is here, and this is where the review is
+  /// worth asking for.
+  Widget _buildCourseCompletedCard() {
+    return Container(
+      margin: const EdgeInsets.fromLTRB(16, 12, 16, 8),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: const Color(0xFFFFFBF0),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: const Color(0xFFF1E4B8)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                width: 32,
+                height: 32,
+                decoration: const BoxDecoration(
+                  color: Color(0xFFFFF4CC),
+                  shape: BoxShape.circle,
+                ),
+                child: const Icon(
+                  Icons.workspace_premium_rounded,
+                  size: 18,
+                  color: Color(0xFFE6B800),
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  'You finished this course',
+                  style: GoogleFonts.manrope(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w700,
+                    color: _ink,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'How was it? Your review helps other students pick a course.',
+            style: GoogleFonts.figtree(fontSize: 12, color: _gray, height: 1.5),
+          ),
+          const SizedBox(height: 12),
+          GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onTap: _openReview,
+            child: Container(
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(vertical: 10),
+              alignment: Alignment.center,
+              decoration: BoxDecoration(
+                color: _gold,
+                borderRadius: BorderRadius.circular(100),
+              ),
+              child: Text(
+                'Write a review',
+                style: GoogleFonts.figtree(
+                  fontSize: 12.5,
+                  fontWeight: FontWeight.w700,
+                  color: _ink,
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
   }
 
   Widget _buildSectionHeader(CourseModule module) {
@@ -457,7 +940,12 @@ class _CoursePlayerPageState extends ConsumerState<CoursePlayerPage> {
 
   Widget _buildLessonRow(CourseLesson lesson, int index) {
     final current = index == _currentIndex;
-    final complete = _enrollment?.completed.contains(index) ?? false;
+    // Keyed by the lesson's id, not its position — the store keys completions
+    // that way, so comparing against `index` ticked the wrong rows (and never
+    // ticked a server lesson, whose id is a primary key).
+    final complete =
+        _enrollment?.completed.contains(lessonProgressKey(lesson, index)) ??
+        false;
 
     return Column(
       mainAxisSize: MainAxisSize.min,
@@ -528,19 +1016,27 @@ class _CoursePlayerPageState extends ConsumerState<CoursePlayerPage> {
                   ),
                 ),
                 const SizedBox(width: 10),
-                Container(
-                  width: 26,
-                  height: 26,
-                  decoration: const BoxDecoration(
-                    color: _ink,
-                    shape: BoxShape.circle,
+                // **The lecture you are watching is the one you can finish.**
+                // Moving away through Prev/Next ticks the lecture being left,
+                // but the *last* one is never left — so without this control a
+                // course could not reach 100% and the review prompt could never
+                // appear. Every other row keeps the design's play badge.
+                if (current && !complete)
+                  _MarkCompleteButton(onTap: _markCurrentComplete)
+                else
+                  Container(
+                    width: 26,
+                    height: 26,
+                    decoration: const BoxDecoration(
+                      color: _ink,
+                      shape: BoxShape.circle,
+                    ),
+                    child: const Icon(
+                      Icons.play_arrow,
+                      size: 16,
+                      color: Colors.white,
+                    ),
                   ),
-                  child: const Icon(
-                    Icons.play_arrow,
-                    size: 16,
-                    color: Colors.white,
-                  ),
-                ),
               ],
             ),
           ),
@@ -577,7 +1073,9 @@ class _CoursePlayerPageState extends ConsumerState<CoursePlayerPage> {
                 ),
               ),
               Text(
-                '${resources.length} files',
+                // A one-file pack used to read `1 files`.
+                '${resources.length} '
+                '${resources.length == 1 ? 'file' : 'files'}',
                 style: GoogleFonts.inter(fontSize: 11, color: _softGray),
               ),
             ],
@@ -1203,13 +1701,52 @@ class _ToggleDot extends StatelessWidget {
   }
 }
 
+/// `Mark complete` on the lecture currently being watched.
+///
+/// Deliberately quiet — outlined, 10.5pt — because it sits where the design puts
+/// the play badge, and the row's job is still to name the lecture.
+class _MarkCompleteButton extends StatelessWidget {
+  const _MarkCompleteButton({required this.onTap});
+
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      behavior: HitTestBehavior.opaque,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 6),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(100),
+          border: Border.all(color: _border),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(Icons.check_rounded, size: 12, color: _ink),
+            const SizedBox(width: 3),
+            Text(
+              'Mark complete',
+              style: GoogleFonts.figtree(
+                fontSize: 10.5,
+                fontWeight: FontWeight.w700,
+                color: _ink,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 class _SkipButton extends StatelessWidget {
   const _SkipButton({
     required this.label,
     required this.icon,
     required this.onTap,
   });
-
   final String label;
   final IconData icon;
 

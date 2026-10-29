@@ -2,44 +2,71 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 
-import '../data/enrollment.dart';
+import '../../../core/network/api_error.dart';
+import '../../../core/widgets/course_image.dart';
+import '../../auth/data/auth_repository.dart';
+import '../../profile/data/user_profile.dart';
+import '../data/learning_api.dart';
+import '../data/my_learning.dart';
 import 'start_course.dart';
 
 /// The My Learning tab.
 ///
-/// **Provider-driven since 2026-10-16.** Everything here used to be hardcoded —
-/// `68% Complete`, `Lesson 12 of 18`, `24.5h` — so enrolling in a course changed
-/// nothing on the one screen whose job is to show what you are enrolled in. The
-/// "Continue Learning" section and the stat strip now read
-/// [enrolledCoursesProvider], which closes the loop the enrolment flow opens.
+/// **Reads `GET /my-learning/` since 2026-10-27.** Everything here was hardcoded
+/// until 2026-10-16 (`68% Complete`, `Lesson 12 of 18`, `24.5h`), then driven by
+/// an in-memory store, which at least responded to enrolling but died with the
+/// process. It is now the server's answer: a reopened app shows the same courses,
+/// the same progress, and the same resume point.
 ///
-/// **Certificates and Completed Courses are still mock content**, and
-/// deliberately so: both need a certificates API that does not exist. Wiring
-/// them to the enrolment store would only let them show courses the user just
-/// started, which is a different and worse lie than an obvious placeholder.
+/// **What the payload does not give, and what the screen therefore does not
+/// show.** `hours_learned` is always null — there are no watch times to sum — so
+/// the strip prints `—` rather than a number. A `pending_payment` enrolment is
+/// excluded from this endpoint entirely, so there is nowhere here to show
+/// "payment pending" without a second call; that is a backend ask.
+///
+/// **Certificates are metadata only.** The API returns an id, a type and a
+/// title — no file, no URL, no serial — so the cards cannot be opened. They show
+/// the real title and the real issue date and stop there.
 class MyLearningPage extends ConsumerWidget {
   const MyLearningPage({super.key});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final learning = ref.watch(myLearningProvider);
+
     return ColoredBox(
       key: const ValueKey('destination-My Learning'),
       color: const Color(0xFFFAF9F6),
       child: SafeArea(
         bottom: false,
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.fromLTRB(16, 60, 16, 100),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: const [
-              _ContinueLearning(),
-              SizedBox(height: 24),
-              _LearningStats(),
-              SizedBox(height: 28),
-              _Certificates(),
-              SizedBox(height: 28),
-              _CompletedCourses(),
-            ],
+        child: RefreshIndicator(
+          onRefresh: () => ref.refresh(myLearningProvider.future),
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.fromLTRB(16, 60, 16, 100),
+            physics: const AlwaysScrollableScrollPhysics(),
+            child: learning.when(
+              loading: () => const _Loading(),
+              // A failure keeps a retry rather than an empty screen: "no courses
+              // in progress" and "we could not load your courses" are different
+              // statements, and only one of them is true.
+              error: (error, _) => _LoadFailed(
+                error: error,
+                onRetry: () => ref.invalidate(myLearningProvider),
+                onSignInAgain: () => _signInAgain(context),
+              ),
+              data: (data) => Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  _ContinueLearning(learning: data),
+                  const SizedBox(height: 24),
+                  _LearningStats(learning: data),
+                  const SizedBox(height: 28),
+                  _Certificates(certificates: data.certificates),
+                  const SizedBox(height: 28),
+                  _CompletedCourses(courses: data.completed),
+                ],
+              ),
+            ),
           ),
         ),
       ),
@@ -47,40 +74,200 @@ class MyLearningPage extends ConsumerWidget {
   }
 }
 
-class _ContinueLearning extends ConsumerWidget {
-  const _ContinueLearning();
+class _Loading extends StatelessWidget {
+  const _Loading();
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final enrollments = ref.watch(enrolledCoursesProvider);
+  Widget build(BuildContext context) => const Padding(
+    padding: EdgeInsets.symmetric(vertical: 80),
+    child: Center(
+      child: SizedBox(
+        width: 22,
+        height: 22,
+        child: CircularProgressIndicator(strokeWidth: 2),
+      ),
+    ),
+  );
+}
+
+/// What the failure screen says, and which action it offers.
+///
+/// `signInAgain` is not decoration: it decides whether the button re-sends the
+/// request or ends the session. Retrying a 401 or a 403 re-sends a request the
+/// server has already refused, so the button would look broken.
+///
+/// [actionLabel] is separate from the flag because the two auth failures need
+/// different words. A 401 is a dead session — "Sign in again" is the fix. A 403
+/// is a **live** session on the wrong kind of account, so signing in again with
+/// the same account reproduces it exactly; only switching accounts helps, and
+/// "Sign in again" there sends the user in a circle.
+typedef MyLearningFailure = ({
+  String title,
+  String body,
+  bool signInAgain,
+  String actionLabel,
+});
+
+/// Turns whatever `/my-learning/` threw into something true.
+///
+/// **This screen used to say "Check your connection and try again" for every
+/// failure**, and offered "Try again" for all of them. Measured 2026-10-28
+/// against the dev backend, `/my-learning/` can fail three ways and only one is
+/// connectivity:
+///
+/// | account | answer |
+/// |---|---|
+/// | verified student | **200** |
+/// | unverified student | **401** `Verify your email before signing in.` |
+/// | instructor | **403** `Only active students can access My Learning.` |
+///
+/// So a signed-in instructor — the account the course builder is used from —
+/// saw a Wi-Fi error, and tapping "Try again" reproduced it forever. The
+/// distinction was already available: `ApiException.kind` and `.isAuthFailure`
+/// exist for exactly this, and `displayMessage` already prefers the server's own
+/// wording. This function only decides *which* of those to trust.
+///
+/// Pure on purpose, so the copy is testable without pumping a screen.
+MyLearningFailure myLearningFailureCopy(Object? error) {
+  final api = error is ApiException ? error : null;
+  final kind = api?.kind;
+
+  if (kind == ApiErrorKind.unauthorized || kind == ApiErrorKind.forbidden) {
+    // An expired access token answers `token_not_valid` with DRF's own wording
+    // ("Given token not valid for any token type"), which is developer prose.
+    // The session genuinely ended, so say that instead of quoting it.
+    final expired = api?.code == ApiErrorCode.tokenNotValid;
+    final serverSaid = (api?.message ?? '').trim();
+
+    return (
+      title: kind == ApiErrorKind.forbidden
+          ? 'My Learning is not available for this account.'
+          : 'Your session has ended.',
+      body: expired || serverSaid.isEmpty
+          ? 'Sign in again to see your courses.'
+          : api!.displayMessage,
+      signInAgain: true,
+      // A 403 keeps a valid session, so the honest action is changing account,
+      // not signing the same one in again.
+      actionLabel: kind == ApiErrorKind.forbidden
+          ? 'Switch account'
+          : 'Sign in again',
+    );
+  }
+
+  // Everything else — offline, timeout, 5xx, an unparseable body — is worth
+  // another attempt, and `displayMessage` already names the right one.
+  return (
+    title: 'We could not load your courses.',
+    body: api?.displayMessage ?? 'Something went wrong. Please try again.',
+    signInAgain: false,
+    actionLabel: 'Try again',
+  );
+}
+
+/// Ends the session so the router's `redirect` sends the user to login.
+///
+/// Reads from the [ProviderScope] container rather than the widget's `ref`,
+/// because `logOut` clears `sessionProvider` and that redirect disposes this
+/// page mid-call — a `ref.read` after the `await` would throw on a disposed
+/// widget. The container outlives the page, so the profile clear still lands.
+Future<void> _signInAgain(BuildContext context) async {
+  final container = ProviderScope.containerOf(context, listen: false);
+  // Best effort on the server side (it blacklists the refresh token); the
+  // repository clears the local session either way.
+  await container.read(authRepositoryProvider).logOut();
+  container.read(userProfileProvider.notifier).clear();
+}
+
+class _LoadFailed extends StatelessWidget {
+  const _LoadFailed({
+    required this.error,
+    required this.onRetry,
+    required this.onSignInAgain,
+  });
+
+  /// Whatever the provider threw — an [ApiException] in every case that comes
+  /// from the network, but typed as `Object?` because the provider is not
+  /// obliged to.
+  final Object? error;
+
+  final VoidCallback onRetry;
+  final VoidCallback onSignInAgain;
+
+  @override
+  Widget build(BuildContext context) {
+    final copy = myLearningFailureCopy(error);
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 60),
+      child: Column(
+        children: [
+          // The cloud was the whole problem: it says "offline" before the reader
+          // gets to the words, and offline is the one thing that was often not
+          // true. A lock for a session problem, a warning for anything else.
+          Icon(
+            copy.signInAgain ? Icons.lock_outline : Icons.cloud_off_outlined,
+            size: 34,
+            color: const Color(0xFF9CA3AF),
+          ),
+          const SizedBox(height: 10),
+          Text(
+            copy.title,
+            textAlign: TextAlign.center,
+            style: const TextStyle(
+              fontSize: 14,
+              fontWeight: FontWeight.w700,
+              color: Color(0xFF111827),
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(copy.body, textAlign: TextAlign.center, style: _mutedSmall()),
+          const SizedBox(height: 8),
+          TextButton(
+            onPressed: copy.signInAgain ? onSignInAgain : onRetry,
+            child: Text(copy.actionLabel),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ContinueLearning extends StatelessWidget {
+  const _ContinueLearning({required this.learning});
+
+  final MyLearning learning;
+
+  @override
+  Widget build(BuildContext context) {
+    final hero = learning.continueLearning;
+    final rest = learning.courses;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         const _SectionTitle('Continue Learning'),
         const SizedBox(height: 12),
-        if (enrollments.isEmpty)
+        if (hero == null)
+          // Nothing resumable. Distinct from an empty account: `rest` can still
+          // hold courses, they just have no next lesson.
           const _NothingInProgress()
-        else ...[
-          // The most recent enrolment is the best proxy for "where I left off"
-          // that an in-memory store can offer — it keeps insertion order, not
-          // access times, and there is no timestamp to sort on.
-          _CourseInProgress(enrollment: enrollments.last),
-          for (final enrollment in enrollments.reversed.skip(1))
-            Padding(
-              padding: const EdgeInsets.only(top: 10),
-              child: _MiniCourse(enrollment: enrollment),
-            ),
-        ],
+        else
+          _CourseInProgress(learning: hero),
+        for (final course in rest)
+          Padding(
+            padding: const EdgeInsets.only(top: 10),
+            child: _MiniCourse(learning: course),
+          ),
       ],
     );
   }
 }
 
-/// Shown when nothing is enrolled in yet.
+/// Shown when nothing is resumable.
 ///
-/// An empty state rather than the old hardcoded card: with a real store behind
-/// this section, a fake course sitting in it would read as a bug.
+/// An empty state rather than a hardcoded card: with a real endpoint behind this
+/// section, a fake course sitting in it would read as a bug.
 class _NothingInProgress extends StatelessWidget {
   const _NothingInProgress();
 
@@ -121,15 +308,15 @@ class _NothingInProgress extends StatelessWidget {
   }
 }
 
-/// The hero card: the course most recently enrolled in, with a Resume button.
+/// The hero card: the course the server says to resume, with a Resume button.
 class _CourseInProgress extends StatelessWidget {
-  const _CourseInProgress({required this.enrollment});
+  const _CourseInProgress({required this.learning});
 
-  final Enrollment enrollment;
+  final LearningCourse learning;
 
   @override
   Widget build(BuildContext context) {
-    final course = enrollment.course;
+    final course = learning.course;
 
     return Container(
       clipBehavior: Clip.antiAlias,
@@ -143,7 +330,10 @@ class _CourseInProgress extends StatelessWidget {
         children: [
           AspectRatio(
             aspectRatio: 16 / 7.1,
-            child: Image.asset(course.image, fit: BoxFit.cover),
+            child: CourseImage(
+              course.image,
+              fallback: const ColoredBox(color: Color(0xFFEDEDED)),
+            ),
           ),
           Padding(
             padding: const EdgeInsets.all(16),
@@ -153,9 +343,11 @@ class _CourseInProgress extends StatelessWidget {
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
+                    // `level` has no column on the server, so this badge is
+                    // empty for every API course. It is kept for the catalogue.
                     _Badge(course.level),
                     Text(
-                      '${enrollment.percentLabel} Complete',
+                      '${learning.percentLabel} Complete',
                       style: _boldSmall(),
                     ),
                   ],
@@ -166,7 +358,7 @@ class _CourseInProgress extends StatelessWidget {
                 ClipRRect(
                   borderRadius: BorderRadius.circular(100),
                   child: LinearProgressIndicator(
-                    value: enrollment.progress,
+                    value: learning.progress,
                     minHeight: 6,
                     backgroundColor: const Color(0xFFF3F4F6),
                     valueColor: const AlwaysStoppedAnimation(Color(0xFFFFD233)),
@@ -176,9 +368,13 @@ class _CourseInProgress extends StatelessWidget {
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    Text(enrollment.positionLabel, style: _mutedSmall()),
+                    Text(learning.positionLabel, style: _mutedSmall()),
                     TextButton(
-                      onPressed: () => continueCourse(context, course),
+                      onPressed: () => continueCourse(
+                        context,
+                        course,
+                        startIndex: learning.resumeIndex,
+                      ),
                       style: TextButton.styleFrom(
                         backgroundColor: const Color(0xFFFFD233),
                         foregroundColor: const Color(0xFF111827),
@@ -206,16 +402,17 @@ class _CourseInProgress extends StatelessWidget {
 }
 
 class _MiniCourse extends StatelessWidget {
-  const _MiniCourse({required this.enrollment});
+  const _MiniCourse({required this.learning});
 
-  final Enrollment enrollment;
+  final LearningCourse learning;
 
   @override
   Widget build(BuildContext context) {
-    final course = enrollment.course;
+    final course = learning.course;
 
     return GestureDetector(
-      onTap: () => continueCourse(context, course),
+      onTap: () =>
+          continueCourse(context, course, startIndex: learning.resumeIndex),
       behavior: HitTestBehavior.opaque,
       child: Container(
         height: 84,
@@ -229,11 +426,11 @@ class _MiniCourse extends StatelessWidget {
           children: [
             ClipRRect(
               borderRadius: BorderRadius.circular(8),
-              child: Image.asset(
+              child: CourseImage(
                 course.image,
                 width: 60,
                 height: 60,
-                fit: BoxFit.cover,
+                fallback: const ColoredBox(color: Color(0xFFEDEDED)),
               ),
             ),
             const SizedBox(width: 12),
@@ -253,7 +450,7 @@ class _MiniCourse extends StatelessWidget {
                     children: [
                       Expanded(
                         child: LinearProgressIndicator(
-                          value: enrollment.progress,
+                          value: learning.progress,
                           minHeight: 4,
                           backgroundColor: const Color(0xFFF3F4F6),
                           valueColor: const AlwaysStoppedAnimation(
@@ -262,12 +459,12 @@ class _MiniCourse extends StatelessWidget {
                         ),
                       ),
                       const SizedBox(width: 8),
-                      Text(enrollment.percentLabel, style: _boldTiny()),
+                      Text(learning.percentLabel, style: _boldTiny()),
                     ],
                   ),
                   const SizedBox(height: 4),
                   Text(
-                    enrollment.positionLabel,
+                    learning.positionLabel,
                     style: _tiny(color: const Color(0xFF9CA3AF)),
                   ),
                 ],
@@ -280,21 +477,19 @@ class _MiniCourse extends StatelessWidget {
   }
 }
 
-/// The stat strip, now derived.
+/// The stat strip, now from the server.
 ///
-/// The three values are all counted off the enrolment store. `HOURS LEARNED`
-/// and `DAY STREAK` are gone: neither is derivable from anything the app has —
-/// a streak needs its own backend work (`streak-integration-readiness`) and
-/// there are no watch times to add up — and an authored number sitting beside
-/// two live ones is the kind of thing that gets trusted.
-class _LearningStats extends ConsumerWidget {
-  const _LearningStats();
+/// `HOURS LEARNED` prints `—` because the endpoint always sends null — there are
+/// no watch times to sum. A made-up number sitting beside two real ones is the
+/// kind of thing that gets trusted.
+class _LearningStats extends StatelessWidget {
+  const _LearningStats({required this.learning});
+
+  final MyLearning learning;
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final enrollments = ref.watch(enrolledCoursesProvider);
-    final completed = enrollments.where((e) => e.progress >= 1).length;
-    final lessons = enrollments.fold<int>(0, (sum, e) => sum + e.done);
+  Widget build(BuildContext context) {
+    final stats = learning.stats;
 
     return Container(
       padding: const EdgeInsets.symmetric(vertical: 16),
@@ -305,9 +500,13 @@ class _LearningStats extends ConsumerWidget {
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceAround,
         children: [
-          _Stat(value: '${enrollments.length}', label: 'ENROLLED'),
-          _Stat(value: '$completed', label: 'COMPLETED'),
-          _Stat(value: '$lessons', label: 'LESSONS DONE'),
+          _Stat(value: '${learning.all.length}', label: 'ENROLLED'),
+          _Stat(value: '${stats.coursesCompleted}', label: 'COMPLETED'),
+          _Stat(
+            value: stats.hoursLearned == null ? '—' : '${stats.hoursLearned}',
+            label: 'HOURS LEARNED',
+          ),
+          _Stat(value: '${stats.dayStreak}', label: 'DAY STREAK'),
         ],
       ),
     );
@@ -338,7 +537,9 @@ class _Stat extends StatelessWidget {
 }
 
 class _Certificates extends StatelessWidget {
-  const _Certificates();
+  const _Certificates({required this.certificates});
+
+  final List<CourseCertificate> certificates;
 
   @override
   Widget build(BuildContext context) {
@@ -347,33 +548,55 @@ class _Certificates extends StatelessWidget {
       children: [
         const _SectionLabel(),
         const SizedBox(height: 8),
-        Row(
-          children: const [
-            Expanded(
-              child: _Certificate(
-                title: 'Basic Geometry',
-                image: 'assets/figma/learning/certificate_geometry.png',
-              ),
+        if (certificates.isEmpty)
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 22),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              border: Border.all(color: const Color(0xFFEAEAEA)),
+              borderRadius: BorderRadius.circular(12),
             ),
-            SizedBox(width: 10),
-            Expanded(
-              child: _Certificate(
-                title: 'React Native Mobile',
-                image: 'assets/figma/learning/certificate_react.png',
-              ),
+            child: Column(
+              children: [
+                const Icon(
+                  Icons.workspace_premium_outlined,
+                  size: 28,
+                  color: Color(0xFF9CA3AF),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  'No certificates yet',
+                  style: _mutedSmall(),
+                  textAlign: TextAlign.center,
+                ),
+              ],
             ),
-          ],
-        ),
+          )
+        else
+          // A wrap rather than a fixed two-column row: the API returns any
+          // number of certificates, and a Row of Expanded children would
+          // overflow at three.
+          Wrap(
+            spacing: 10,
+            runSpacing: 10,
+            children: [
+              for (final certificate in certificates)
+                SizedBox(
+                  width: (MediaQuery.sizeOf(context).width - 42) / 2,
+                  child: _Certificate(certificate: certificate),
+                ),
+            ],
+          ),
       ],
     );
   }
 }
 
 class _Certificate extends StatelessWidget {
-  const _Certificate({required this.title, required this.image});
+  const _Certificate({required this.certificate});
 
-  final String title;
-  final String image;
+  final CourseCertificate certificate;
 
   @override
   Widget build(BuildContext context) {
@@ -387,25 +610,31 @@ class _Certificate extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          ClipRRect(
-            borderRadius: BorderRadius.circular(6),
-            child: Image.asset(
-              image,
-              height: 70,
-              width: double.infinity,
-              fit: BoxFit.cover,
+          Container(
+            height: 70,
+            width: double.infinity,
+            decoration: BoxDecoration(
+              color: const Color(0xFFF3F4F6),
+              borderRadius: BorderRadius.circular(6),
+            ),
+            child: const Icon(
+              Icons.workspace_premium_outlined,
+              color: Color(0xFF9CA3AF),
             ),
           ),
           const SizedBox(height: 8),
           Text(
-            title,
-            maxLines: 1,
+            certificate.title,
+            maxLines: 2,
             overflow: TextOverflow.ellipsis,
             style: _cardTitle(),
           ),
           const SizedBox(height: 4),
+          // Not "download" — the API returns no file. See the class doc.
           Text(
-            'Verified Certificate',
+            certificate.type == 'grade'
+                ? 'Grade Certificate'
+                : 'Course Certificate',
             style: _tiny(color: const Color(0xFF1E751E)),
           ),
         ],
@@ -415,86 +644,123 @@ class _Certificate extends StatelessWidget {
 }
 
 class _CompletedCourses extends StatelessWidget {
-  const _CompletedCourses();
+  const _CompletedCourses({required this.courses});
+
+  final List<LearningCourse> courses;
 
   @override
   Widget build(BuildContext context) {
+    if (courses.isEmpty) return const SizedBox.shrink();
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         const _SectionTitle('Completed Courses'),
         const SizedBox(height: 12),
-        const _CompletedCard(),
-        const SizedBox(height: 10),
-        const _CompletedCard(),
-        const SizedBox(height: 10),
-        Center(child: Text('View All', style: _actionText())),
+        for (final course in courses)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 10),
+            child: _CompletedCard(learning: course),
+          ),
       ],
     );
   }
 }
 
 class _CompletedCard extends StatelessWidget {
-  const _CompletedCard();
+  const _CompletedCard({required this.learning});
+
+  final LearningCourse learning;
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      height: 90,
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        border: Border.all(color: const Color(0xFFEAEAEA)),
-        borderRadius: BorderRadius.circular(14),
-      ),
-      child: Row(
-        children: [
-          ClipRRect(
-            borderRadius: BorderRadius.circular(10),
-            child: Image.asset(
-              'assets/figma/learning/completed_course.png',
-              width: 64,
-              height: 64,
-              fit: BoxFit.cover,
+    return GestureDetector(
+      onTap: () => continueCourse(context, learning.course),
+      behavior: HitTestBehavior.opaque,
+      child: Container(
+        height: 90,
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          border: Border.all(color: const Color(0xFFEAEAEA)),
+          borderRadius: BorderRadius.circular(14),
+        ),
+        child: Row(
+          children: [
+            ClipRRect(
+              borderRadius: BorderRadius.circular(10),
+              child: CourseImage(
+                learning.course.image,
+                width: 64,
+                height: 64,
+                fallback: const ColoredBox(color: Color(0xFFEDEDED)),
+              ),
             ),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Text(
-                  'Figma Foundations & Layout Basics',
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: _miniTitle(),
-                ),
-                Text('Completed May 14, 2026', style: _mutedSmall()),
-                Row(
-                  children: [
-                    SvgPicture.asset(
-                      'assets/figma/learning/check.svg',
-                      width: 12,
-                      height: 12,
-                    ),
-                    const SizedBox(width: 4),
-                    Text(
-                      'Certificate Issued',
-                      style: _tiny(
-                        color: Color(0xFF10B981),
-                        weight: FontWeight.w600,
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Text(
+                    learning.course.title,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: _miniTitle(),
+                  ),
+                  Text(
+                    learning.completedAt == null
+                        ? 'Completed'
+                        : 'Completed ${_monthYear(learning.completedAt!)}',
+                    style: _mutedSmall(),
+                  ),
+                  Row(
+                    children: [
+                      SvgPicture.asset(
+                        'assets/figma/learning/check.svg',
+                        width: 12,
+                        height: 12,
                       ),
-                    ),
-                  ],
-                ),
-              ],
+                      const SizedBox(width: 4),
+                      Text(
+                        'Certificate Issued',
+                        style: _tiny(
+                          color: Color(0xFF10B981),
+                          weight: FontWeight.w600,
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
+}
+
+/// `May 2026` from an ISO timestamp, or `''` when it does not parse.
+String _monthYear(String iso) {
+  final parsed = DateTime.tryParse(iso);
+  if (parsed == null) return '';
+  const months = [
+    'Jan',
+    'Feb',
+    'Mar',
+    'Apr',
+    'May',
+    'Jun',
+    'Jul',
+    'Aug',
+    'Sep',
+    'Oct',
+    'Nov',
+    'Dec',
+  ];
+  final local = parsed.toLocal();
+  return '${months[local.month - 1]} ${local.year}';
 }
 
 class _SectionTitle extends StatelessWidget {
@@ -576,9 +842,4 @@ TextStyle _statValue() => const TextStyle(
   fontSize: 16,
   fontWeight: FontWeight.w800,
   color: Color(0xFF111827),
-);
-TextStyle _actionText() => const TextStyle(
-  fontSize: 13,
-  fontWeight: FontWeight.w600,
-  color: Color(0xFF4B5563),
 );

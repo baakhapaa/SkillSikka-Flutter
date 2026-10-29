@@ -2,6 +2,20 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/widgets/course_detail_view.dart';
 
+/// The key a lesson's completion is tracked by.
+///
+/// **Server lessons use their id; catalogue lessons use a negative position.**
+/// A position alone was the old scheme, and it shifts every time a lesson is
+/// inserted — fine for a frozen mock catalogue, wrong for anything the backend
+/// can reorder. A real id is stable and is what
+/// `POST /lessons/{id}/complete/` needs.
+///
+/// The position fallback is negative so it can never collide with a real id
+/// (primary keys are positive), and a set mixing the two can never confuse one
+/// for the other.
+int lessonProgressKey(CourseLesson lesson, int index) =>
+    lesson.id ?? -(index + 1);
+
 /// What the app knows about one course the user has enrolled in.
 ///
 /// Small on purpose. Everything it exposes is derived from the course's own
@@ -16,13 +30,8 @@ class Enrollment {
 
   final CourseDetailData course;
 
-  /// Indices into [lessonOrder].
-  ///
-  /// Indices rather than titles because the order is derived the same way on
-  /// every screen, so an index means the same lecture everywhere. This is also
-  /// the fragile half of the model — inserting a lecture shifts every index
-  /// after it. Fine while the catalogue is `const` and the store is in-memory;
-  /// it needs a real lesson id before any of this is persisted.
+  /// Keys from [lessonProgressKey] — a server lesson id, or a negative position
+  /// for a catalogue lesson.
   final Set<int> completed;
 
   /// The lecture to resume on.
@@ -38,8 +47,16 @@ class Enrollment {
 
   int get total => lessonOrder.length;
 
-  /// Finished lectures, ignoring any index the course no longer has.
-  int get done => completed.where((i) => i >= 0 && i < total).length;
+  /// Finished lectures, ignoring any key the course no longer has.
+  int get done {
+    var count = 0;
+    for (var index = 0; index < total; index++) {
+      if (completed.contains(lessonProgressKey(lessonOrder[index], index))) {
+        count++;
+      }
+    }
+    return count;
+  }
 
   double get progress => total == 0 ? 0 : done / total;
 
@@ -59,24 +76,29 @@ class Enrollment {
 
 /// The courses this session has enrolled in.
 ///
-/// **In-memory and session-scoped, deliberately.** There is no `enrollments/`
-/// endpoint and no course API at all, so nothing here is written to disk: an
-/// enrolment survives navigation and dies with the process. A user who enrols,
-/// closes the app and reopens it sees `Enroll Now` again — that is the honest
-/// state of a feature with no backend, not a bug to paper over.
+/// **Still in-memory, but no longer the source of truth.** The enrolment itself
+/// is created server-side by `POST /courses/{id}/enroll/` (see `startCourse`),
+/// and each completion is posted by the player. This store is what the UI reads
+/// during a session so a tap does not wait for a round trip; the server's answer
+/// is authoritative and is what a reopened app reads (phase 4,
+/// `GET /my-learning/`).
 ///
-/// Courses are identified by [CourseDetailData.title]. The model has no id and
-/// no `==` override, and the two catalogue pools' titles are unique.
+/// Courses are matched by [CourseDetailData.id] when they have one. The title
+/// comparison remains for catalogue entries, which have no id — the two pools'
+/// titles are unique, and that is the only reason it ever worked.
 class EnrolledCourses extends Notifier<List<Enrollment>> {
   @override
   List<Enrollment> build() => const <Enrollment>[];
 
+  static bool _same(CourseDetailData a, CourseDetailData b) =>
+      a.id != null && b.id != null ? a.id == b.id : a.title == b.title;
+
   bool isEnrolled(CourseDetailData course) =>
-      state.any((e) => e.course.title == course.title);
+      state.any((e) => _same(e.course, course));
 
   Enrollment? of(CourseDetailData course) {
     for (final enrollment in state) {
-      if (enrollment.course.title == course.title) return enrollment;
+      if (_same(enrollment.course, course)) return enrollment;
     }
     return null;
   }
@@ -93,11 +115,48 @@ class EnrolledCourses extends Notifier<List<Enrollment>> {
     ];
   }
 
+  /// Seeds the store from the server's view of this course.
+  ///
+  /// Called when the player opens on a course that came from the API, so a
+  /// reopened app shows the ticks the server already has rather than starting at
+  /// zero. Creates the row when `record` has not run — a course reached from My
+  /// Learning has no local enrolment yet.
+  void adoptProgress(
+    CourseDetailData course, {
+    required Set<int> completed,
+    required int lastIndex,
+  }) {
+    final existing = of(course);
+    if (existing == null) {
+      state = <Enrollment>[
+        ...state,
+        Enrollment(
+          course: course,
+          completed: completed,
+          lastIndex: lastIndex,
+        ),
+      ];
+      return;
+    }
+    state = <Enrollment>[
+      for (final enrollment in state)
+        if (_same(enrollment.course, course))
+          enrollment.copyWith(
+            // Union rather than replace: a completion posted during this
+            // session is at least as new as the server's answer.
+            completed: {...enrollment.completed, ...completed},
+            lastIndex: lastIndex,
+          )
+        else
+          enrollment,
+    ];
+  }
+
   /// Remembers where the user stopped, so `Continue Learning` resumes there.
   void setLast(CourseDetailData course, int index) {
     state = <Enrollment>[
       for (final enrollment in state)
-        if (enrollment.course.title == course.title)
+        if (_same(enrollment.course, course))
           enrollment.copyWith(lastIndex: index)
         else
           enrollment,
@@ -105,11 +164,17 @@ class EnrolledCourses extends Notifier<List<Enrollment>> {
   }
 
   /// Marks one lecture finished. Idempotent.
-  void markComplete(CourseDetailData course, int index) {
+  ///
+  /// Takes the lesson and its position rather than a bare key: an `int` would
+  /// invite a caller to pass the index, which is exactly the bug this replaced —
+  /// the key is [lessonProgressKey], and nothing outside this file should have to
+  /// know that.
+  void markComplete(CourseDetailData course, CourseLesson lesson, int index) {
+    final key = lessonProgressKey(lesson, index);
     state = <Enrollment>[
       for (final enrollment in state)
-        if (enrollment.course.title == course.title)
-          enrollment.copyWith(completed: {...enrollment.completed, index})
+        if (_same(enrollment.course, course))
+          enrollment.copyWith(completed: {...enrollment.completed, key})
         else
           enrollment,
     ];

@@ -7,8 +7,11 @@ import 'package:skillsikka/features/navigation/presentation/app_shell.dart';
 import 'package:skillsikka/features/profile/data/profile_role.dart';
 import 'package:skillsikka/features/profile/data/user_profile.dart';
 import 'package:skillsikka/features/profile/presentation/profile_page.dart';
+import 'package:skillsikka/features/learning/presentation/my_learning_page.dart';
 
 import 'support/events_test_scope.dart';
+import 'support/home_page_font_harness.dart';
+import 'support/learning_test_scope.dart';
 
 /// Rewritten 2026-09-24. Every assertion that used to fail here was asserting
 /// UI that no longer exists — see the notes on each test. Nothing in this file
@@ -17,10 +20,13 @@ void main() {
   testWidgets('footer switches between all learning destinations', (
     WidgetTester tester,
   ) async {
-    // `AppShell` mounts `HomePage`, whose events rail now reads a provider —
-    // so this needs a scope even though the assertions are about the footer.
+    // `AppShell` mounts `HomePage`, whose events rail reads a provider, and
+    // `MyLearningPage`, which fetches `/my-learning/` — so this needs scopes
+    // even though the assertions are about the footer.
     await tester.pumpWidget(
-      eventsTestScope(child: const MaterialApp(home: AppShell())),
+      learningTestScope(
+        child: eventsTestScope(child: const MaterialApp(home: AppShell())),
+      ),
     );
 
     // The footer is the only chrome on this screen.
@@ -219,5 +225,50 @@ void main() {
     expect(find.text('Rating'), findsOneWidget);
     expect(find.text('Badges'), findsNothing);
     expect(find.text('Challenge'), findsNothing);
+  });
+
+  testWidgets('every page fills the shell body, so its background has no seam', (
+    WidgetTester tester,
+  ) async {
+    // Reported 2026-10-28 as "a white card floating on cream": the page's own
+    // background stopped short and the theme's amber surface showed around it.
+    // A `Scaffold` body is laid out with *loose* constraints, so `IndexedStack`'s
+    // default `StackFit.loose` sized each page to its content — measured at
+    // 360x683 inside a 360x715 body — and the gap was visible on every tab.
+    await tester.binding.setSurfaceSize(const Size(360, 800));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    await tester.pumpWidget(
+      learningTestScope(
+        child: eventsTestScope(child: const MaterialApp(home: AppShell())),
+      ),
+    );
+    await tester.pumpAndSettle();
+    // The home rail's events Row overflows at this width — pre-existing, and not
+    // what this test is about. Without draining it the assertion below would
+    // never be reached. The helper asserts it is only an overflow, so a real
+    // exception cannot hide behind it.
+    drainUnrelatedOverflows(tester);
+
+    // `.first` because a page may use an `IndexedStack` of its own; the shell's
+    // is the outermost, and depth-first order reaches it first.
+    final body = tester.getSize(find.byType(IndexedStack).first);
+
+    // Measure the tab the report was about, on screen. A non-selected page is
+    // wrapped in `_VisibilityScope`, which the default finders skip.
+    await tester.tap(find.text('My Learning'));
+    await tester.pumpAndSettle();
+    drainUnrelatedOverflows(tester);
+
+    expect(
+      tester.getSize(find.byType(MyLearningPage)),
+      body,
+      reason: 'a content-sized page leaves the theme surface showing around it',
+    );
+    expect(
+      tester.getTopLeft(find.byType(MyLearningPage)),
+      Offset.zero,
+      reason: 'and it must start at the body origin, not be centred',
+    );
   });
 }

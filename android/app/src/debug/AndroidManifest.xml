@@ -4,4 +4,20 @@
          to allow setting breakpoints, to provide hot reload, etc.
     -->
     <uses-permission android:name="android.permission.INTERNET"/>
+
+    <!-- Dev media is served over plain HTTP by the Django box on the LAN
+         (`http://192.168.1.64:8000/media/...`), and Android 9+ blocks cleartext
+         for the Java HTTP stack by default.
+
+         **This is not the same stack as the API client.** `dio` rides on Dart's
+         `dart:io` sockets, which never consult `NetworkSecurityPolicy`, so
+         `GET /courses/` works while `video_player` fails — ExoPlayer's
+         `DefaultHttpDataSource` goes through `HttpURLConnection` and throws
+         `CleartextNotPermittedException`, which surfaces as a bare
+         `PlatformException(VideoError, ... Source error)` and a poster that
+         never starts. Verified on device 2026-10-28.
+
+         Debug-only on purpose: a release build should talk HTTPS, and this
+         attribute is the narrowest thing that unblocks local playback. -->
+    <application android:usesCleartextTraffic="true" />
 </manifest>

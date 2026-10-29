@@ -34,7 +34,22 @@ class _AppShellState extends State<AppShell> {
   Widget build(BuildContext context) {
     return Scaffold(
       resizeToAvoidBottomInset: false,
-      body: IndexedStack(index: _selectedIndex, children: _pages),
+      body: IndexedStack(
+        index: _selectedIndex,
+        // **`expand` is load-bearing.** A `Scaffold` body is laid out with
+        // *loose* constraints, and `StackFit.loose` (the default) then sizes each
+        // page to its own content. A page whose root is a coloured box therefore
+        // painted only as far as its content reached: measured 2026-10-28, the
+        // body was 360x715 while `MyLearningPage` laid out at **360x683**, so a
+        // 32pt strip of the theme's amber surface showed below it — and on a
+        // device whose text wraps narrower, the seam ran down the right edge too,
+        // making the page look like a white card floating on cream.
+        //
+        // Every page here is a full-screen destination, so tight constraints are
+        // what they all want.
+        sizing: StackFit.expand,
+        children: _pages,
+      ),
       bottomNavigationBar: SkillSikkaFooter(
         selectedIndex: _selectedIndex,
         onSelected: _selectPage,

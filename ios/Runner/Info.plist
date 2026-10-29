@@ -47,5 +47,19 @@
 	<true/>
 	<key>UIApplicationSupportsIndirectInputEvents</key>
 	<true/>
+	<!-- The dev backend serves lesson video over plain HTTP on the LAN
+	     (http://192.168.1.64:8000/media/...). ATS blocks cleartext for AVPlayer
+	     the same way Android blocks it for ExoPlayer, so without this exemption
+	     the iOS player would sit on the poster exactly as Android did.
+
+	     NSAllowsLocalNetworking is the narrow key: it exempts local-network
+	     hosts only and leaves ATS enforced for everything on the public
+	     internet. Not verified on an iOS device (no Mac here) — but the failure
+	     it prevents is the one measured on Android on 2026-10-28. -->
+	<key>NSAppTransportSecurity</key>
+	<dict>
+		<key>NSAllowsLocalNetworking</key>
+		<true/>
+	</dict>
 </dict>
 </plist>

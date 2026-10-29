@@ -10,6 +10,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:skillsikka/app.dart';
+import 'package:skillsikka/features/learning/data/learning_api.dart';
+import 'package:skillsikka/features/learning/data/my_learning.dart';
 import 'package:skillsikka/core/network/session.dart';
 import 'package:skillsikka/core/network/session_store.dart';
 import 'package:skillsikka/features/auth/data/auth_repository.dart';
@@ -62,6 +64,9 @@ void main() {
         // required — but a test should not depend on a production fallback firing,
         // and the fake also lets this test assert on what was persisted.
         sessionStoreProvider.overrideWithValue(FakeSessionStore()),
+        // `/` builds `AppShell`, which mounts `MyLearningPage` — see the note in
+        // `session_restore_boot_test`.
+        myLearningProvider.overrideWith((ref) async => const MyLearning()),
       ],
     );
     addTearDown(container.dispose);

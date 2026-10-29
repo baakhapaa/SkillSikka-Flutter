@@ -44,6 +44,10 @@ app.*.map.json
 /android/app/profile
 /android/app/release
 
+# `matchesGoldenFile` writes the master, test and diff images here on a mismatch.
+# They are a debugging aid for the run that failed, not a fixture to review later.
+/test/failures/
+
 # AI assistant tool data (never push)
 .workbuddy-ai/
 workbuddy-ai/

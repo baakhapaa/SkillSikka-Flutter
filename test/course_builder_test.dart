@@ -358,12 +358,10 @@ void main() {
     expect(api.published, isEmpty);
   });
 
-  testWidgets('choosing Paid says checkout does not exist yet', (tester) async {
-    // The price is stored and the student is enrolled `pending_payment`, but
-    // nothing in the app can take the money — so a published paid course is a
-    // course nobody can start. The instructor is the only one who can act on
-    // that, so the warning lives next to the choice rather than surfacing as a
-    // broken student screen later.
+  testWidgets('choosing Paid says how the student pays', (tester) async {
+    // The instructor sets a price and never sees the student's screen, so the
+    // one thing they cannot otherwise know — that the money is taken by eSewa
+    // before the course opens — is said next to the choice.
     final api = _FakeCourseApi();
     await tester.pumpWidget(_app(api, verified: true));
 
@@ -373,12 +371,12 @@ void main() {
     await tester.tap(find.text('Continue'));
     await tester.pumpAndSettle();
 
-    expect(find.textContaining('In-app checkout is not built yet'), findsNothing);
+    expect(find.textContaining('Students pay with eSewa'), findsNothing);
 
     await tester.tap(find.text('Paid'));
     await tester.pumpAndSettle();
 
-    expect(find.textContaining('In-app checkout is not built yet'), findsOneWidget);
+    expect(find.textContaining('Students pay with eSewa'), findsOneWidget);
     expect(
       find.text('Students pay once and keep lifetime access.'),
       findsOneWidget,

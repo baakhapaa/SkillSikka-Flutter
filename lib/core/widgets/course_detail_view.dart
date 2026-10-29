@@ -37,6 +37,7 @@ class CourseDetailView extends StatefulWidget {
     this.onContinue,
     this.onWriteReview,
     this.hasReviewed = false,
+    this.ctaLabel,
   });
 
   final CourseDetailData data;
@@ -73,6 +74,19 @@ class CourseDetailView extends StatefulWidget {
   /// Only changes the button's label — `Write a review` becomes
   /// `Edit your review`. The sheet itself decides between POST and PATCH.
   final bool hasReviewed;
+
+  /// Overrides the bottom bar's call to action when the caller knows more than
+  /// the course does.
+  ///
+  /// `Enroll Now` is the right label for a free course and for a caller that
+  /// does not know the enrolment status. A paid course needs two more: `Buy
+  /// Rs. 1,299` before the enrolment exists, and `Continue payment` once the row
+  /// is `pending_payment` — a button that still says `Enroll Now` on a course the
+  /// student has already started buying is how the first tap gets repeated.
+  ///
+  /// Null falls back to [CourseDetailData.enrollLabel], so every existing caller
+  /// renders exactly what it did.
+  final String? ctaLabel;
 
   @override
   State<CourseDetailView> createState() => _CourseDetailViewState();
@@ -1309,7 +1323,7 @@ class _CourseDetailViewState extends State<CourseDetailView> {
                   child: Text(
                     widget.isEnrolled
                         ? 'Continue Learning'
-                        : widget.data.enrollLabel,
+                        : widget.ctaLabel ?? widget.data.enrollLabel,
                     style: GoogleFonts.figtree(
                       fontSize: 14,
                       fontWeight: FontWeight.w700,

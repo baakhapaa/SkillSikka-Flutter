@@ -5,6 +5,8 @@ import '../../../core/network/api_error.dart';
 import '../../../core/widgets/api_error_snack.dart';
 import '../../../core/widgets/course_detail_view.dart';
 import '../../courses/data/course_api.dart';
+import '../../payment/data/payment_api.dart';
+import '../../payment/presentation/checkout_sheet.dart';
 import '../../profile/presentation/complete_profile_gate.dart';
 import '../data/enrollment.dart';
 import 'course_player_page.dart';
@@ -47,8 +49,13 @@ bool isCourseEnrolled(BuildContext context, CourseDetailData course) =>
 ///
 /// **Two refusals happen here rather than in the player.** A `pending_payment`
 /// enrolment grants no lesson access, so the player must not open; and a failed
-/// enrolment must not push a screen the user cannot use. Both return with a
-/// message instead.
+/// enrolment must not push a screen the user cannot use.
+///
+/// The first one is no longer a refusal. It opens the checkout sheet, which is
+/// the only thing that can turn a `pending_payment` row into an `active` one, and
+/// returns `true` once the gateway has confirmed to the server. A `false` there
+/// — cancelled, failed, or closed — leaves the user on the detail page, which is
+/// exactly where a refused enrolment used to leave them.
 Future<void> startCourse(
   BuildContext context,
   CourseDetailData course, {
@@ -118,10 +125,18 @@ Future<void> startCourse(
 
     if (enrollment != null && !enrollment.grantsAccess) {
       if (!context.mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(_awaitingPaymentMessage(course))),
+      // A `pending_payment` row is not a refusal, it is an unfinished purchase.
+      // The sheet starts the payment, waits for the gateway to confirm to the
+      // server, and only answers `true` once the enrolment is `active` — so the
+      // player below can only open on a course that has actually been paid for.
+      final paid = await showCheckoutSheet(
+        context,
+        course: course,
+        api: container.read(paymentApiProvider),
+        openUrl: container.read(urlOpenerProvider),
+        links: container.read(paymentLinkStreamProvider),
       );
-      return;
+      if (!paid || !context.mounted) return;
     }
   }
 
@@ -135,19 +150,6 @@ Future<void> startCourse(
       builder: (_) => CoursePlayerPage(course: course, startIndex: startIndex),
     ),
   );
-}
-
-/// What a student is told when the course will not open until it is paid for.
-///
-/// Names the price when the course carries one, because "needs payment" over a
-/// screen that also shows `Rs. 1,299` reads like the price was not applied. A
-/// course with no price string falls back to the plain sentence — that is a
-/// paid course whose price the API did not send, not a free one.
-String _awaitingPaymentMessage(CourseDetailData course) {
-  final price = course.price.trim();
-  return price.isEmpty
-      ? 'This course needs payment before you can start it.'
-      : 'This course costs $price and needs payment before you can start it.';
 }
 
 /// Reopens the player for a course already enrolled in, resuming on the lecture

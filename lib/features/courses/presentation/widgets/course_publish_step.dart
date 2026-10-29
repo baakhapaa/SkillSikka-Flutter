@@ -89,17 +89,19 @@ class CoursePublishStep extends StatelessWidget {
               style: GoogleFonts.figtree(fontSize: 11, color: builderMuted),
             ),
             const SizedBox(height: 10),
-            // The price is stored, the student is enrolled `pending_payment`, and
-            // nothing in the app can take the payment — so a published paid
-            // course is a course nobody can start. The instructor is the only
-            // person who can act on that, so it is said here rather than
-            // discovered by a student.
+            // A paid course is startable now: the student enrols into
+            // `pending_payment`, pays eSewa in the checkout sheet, and the
+            // server flips the enrolment to `active` when the gateway confirms.
+            // Said here because the instructor sets a price and cannot otherwise
+            // see what the student will meet.
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
               decoration: BoxDecoration(
                 color: builderCream,
                 borderRadius: BorderRadius.circular(8),
-                border: Border.all(color: builderYellow.withValues(alpha: 0.35)),
+                border: Border.all(
+                  color: builderYellow.withValues(alpha: 0.35),
+                ),
               ),
               child: Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -112,8 +114,8 @@ class CoursePublishStep extends StatelessWidget {
                   const SizedBox(width: 8),
                   Expanded(
                     child: Text(
-                      'In-app checkout is not built yet. A published paid '
-                      'course shows its price, but no student can start it.',
+                      'Students pay with eSewa before they can start. '
+                      'The course unlocks as soon as the payment is confirmed.',
                       style: GoogleFonts.figtree(
                         fontSize: 11,
                         height: 1.4,

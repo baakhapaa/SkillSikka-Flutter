@@ -47,6 +47,15 @@ class _CourseDetailPageState extends ConsumerState<CourseDetailPage> {
   /// the same rule `POST /courses/{id}/reviews/` enforces.
   bool? _canReview;
 
+  /// This student's enrolment, straight from the server.
+  ///
+  /// **The local store cannot answer this**, and for a paid course the answer is
+  /// the whole call to action: `pending_payment` means "Continue payment",
+  /// `active` means "Continue Learning", no row means "Buy". The store only knows
+  /// about enrolments made since the app started, so a returning student would be
+  /// sold a course they had already paid for.
+  CourseEnrollment? _enrollment;
+
   @override
   void initState() {
     super.initState();
@@ -60,6 +69,19 @@ class _CourseDetailPageState extends ConsumerState<CourseDetailPage> {
     if (id == null) return;
     final api = ref.read(courseApiProvider);
     final localEnrolment = isCourseEnrolled(context, _course);
+
+    // **Read first, and independently of the detail fetch.** A paid course's call
+    // to action is `Buy` or `Continue payment` depending on this row, and that
+    // must be right even when the curriculum call fails — the bar is the thing
+    // the user taps, and it is the only place the enrolment is visible.
+    CourseEnrollment? enrollment;
+    try {
+      enrollment = await api.enrollmentFor(id);
+    } on ApiException {
+      enrollment = null;
+    }
+    if (mounted) setState(() => _enrollment = enrollment);
+
     try {
       final detail = await api.detail(id);
       // Best effort: a failed `reviews/me/` must not cost the whole page. It
@@ -70,7 +92,11 @@ class _CourseDetailPageState extends ConsumerState<CourseDetailPage> {
       } on ApiException {
         mine = null;
       }
-      var canReview = localEnrolment;
+      // The enrolment read is also the review probe's first half: an `active`
+      // row means the student may review without asking `/progress/` at all. It
+      // cannot replace the probe outright, because an **academic** course has no
+      // enrolment row and is still accessible by grade.
+      var canReview = localEnrolment || (enrollment?.grantsAccess ?? false);
       if (!canReview) {
         try {
           await api.progress(id);
@@ -111,20 +137,41 @@ class _CourseDetailPageState extends ConsumerState<CourseDetailPage> {
   /// Enrolment needs a complete profile, so the fields signup stopped asking for
   /// are collected here, on the way in, and the user lands in the player rather
   /// than back on this screen with a toast.
+  ///
+  /// A paid course does not land in the player on the first tap: it enrols into
+  /// `pending_payment`, the checkout sheet takes over, and only a confirmed
+  /// payment lets `startCourse` continue. Either way the enrolment is re-read
+  /// afterwards, so the bar cannot keep selling a course the student just bought.
   Future<void> _enrol() async {
     await startCourse(context, _course);
-    // `build` asks the store whether this course is enrolled in, and the answer
-    // changed while the player was open. Without this the bar would still read
-    // `Enroll Now` on the way back.
-    if (mounted) setState(() {});
+    if (!mounted) return;
+    await _refreshEnrollment();
+  }
+
+  Future<void> _refreshEnrollment() async {
+    final id = _course.id;
+    if (id == null) return;
+    try {
+      final enrollment = await ref.read(courseApiProvider).enrollmentFor(id);
+      if (mounted) setState(() => _enrollment = enrollment);
+    } on ApiException {
+      // Keep the last known state. The next open refetches, and the player has
+      // already answered the only question that matters: can this student read
+      // the lessons.
+      if (mounted) setState(() {});
+    }
   }
 
   @override
   Widget build(BuildContext context) {
-    final enrolled = isCourseEnrolled(context, _course);
+    final enrolled =
+        isCourseEnrolled(context, _course) ||
+        (_enrollment?.grantsAccess ?? false);
+    final awaiting = !enrolled && (_enrollment?.awaitsPayment ?? false);
     return CourseDetailView(
       data: _course,
       isEnrolled: enrolled,
+      ctaLabel: _ctaLabel(enrolled: enrolled, awaiting: awaiting),
       onEnrol: _enrol,
       onContinue: () => continueCourse(context, _course),
       hasReviewed: _myReview != null,
@@ -135,5 +182,22 @@ class _CourseDetailPageState extends ConsumerState<CourseDetailPage> {
           ? _writeReview
           : null,
     );
+  }
+
+  /// What the bottom bar offers, given the enrolment the server reported.
+  ///
+  /// Null means "let the view use its own label", which is `Enroll Now` — right
+  /// for a free course and for every caller that does not know the status.
+  ///
+  /// **Academic courses are excluded even when `is_paid` is set.** They are
+  /// opened by grade with no enrolment row, so `POST /courses/{id}/enroll/`
+  /// answers `COURSE_NOT_ENROLLABLE` and there is nothing to pay against; a
+  /// `Buy` button there would lead straight into a 400.
+  String? _ctaLabel({required bool enrolled, required bool awaiting}) {
+    if (enrolled || _course.isAcademic) return null;
+    if (awaiting) return 'Continue payment';
+    if (!_course.isPaid) return null;
+    final price = _course.price.trim();
+    return price.isEmpty ? 'Buy now' : 'Buy $price';
   }
 }

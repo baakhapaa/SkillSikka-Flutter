@@ -7,6 +7,7 @@ import '../../../core/widgets/course_image.dart';
 import '../../../core/network/api_error.dart';
 import '../../../core/widgets/api_error_snack.dart';
 import '../../courses/data/course_api.dart';
+import '../../courses/data/course_discussions_api.dart';
 import '../../courses/presentation/widgets/review_sheet.dart';
 
 import '../../../core/widgets/course_detail_view.dart';
@@ -73,13 +74,36 @@ class _CoursePlayerPageState extends ConsumerState<CoursePlayerPage> {
   bool _autoPlay = true;
   bool _autoNext = true;
 
-  /// Discussions the user has reacted to in this session. Local, because there
-  /// is no endpoint to send a reaction to.
+  /// The reaction this screen is showing for a card, keyed by [_QaCard.key].
+  ///
+  /// **A replacement, not an increment.** `GET .../discussions/` reports both
+  /// `likes_count` and `is_liked`, and the like endpoint answers the
+  /// authoritative count, so an entry here overrides the card's own numbers.
+  /// That is also what makes an optimistic tap safe to undo: the previous entry
+  /// is all that has to be put back.
   ///
   /// Keyed by [_QaCard.key], not by list position: a card's index moves the
   /// moment a newer comment is posted above it, and a reaction that jumped to
   /// a different message would be worse than one that is forgotten.
-  final Set<String> _reacted = <String>{};
+  final Map<String, _Like> _likes = <String, _Like>{};
+
+  /// The course's real threads, newest first.
+  ///
+  /// **Null means "not a server course"**, not "empty": a catalogue entry has
+  /// no `id`, so its Q&A stays the hardcoded [CourseDetailData.discussions]
+  /// list and nothing here ever loads.
+  List<CourseThread>? _threads;
+
+  /// The server's total, which is what the tab badge prints — the loaded list
+  /// may be a single page of it.
+  int _threadCount = 0;
+
+  /// The absolute `next` page URL, or null on the last page.
+  String? _threadNext;
+
+  bool _loadingThreads = false;
+  String? _threadError;
+  bool _posting = false;
 
   /// Top-level comments posted from the composer, newest first.
   final List<_QaCard> _localComments = <_QaCard>[];
@@ -181,17 +205,20 @@ class _CoursePlayerPageState extends ConsumerState<CoursePlayerPage> {
     // null-promotion does not survive into a closure.
     final player = controller;
     _videoController = player;
-    player.initialize().then((_) {
-      if (!mounted) return;
-      setState(() => _videoReady = true);
-      if (_autoPlay) player.play();
-    }).catchError((Object error) {
-      // A platform video error carries no user-facing message, so the frame is
-      // the only place the failure can surface. The detail goes to logcat.
-      debugPrint('course player: video failed to load: $error');
-      if (!mounted) return;
-      setState(() => _videoError = 'This video could not be loaded.');
-    });
+    player
+        .initialize()
+        .then((_) {
+          if (!mounted) return;
+          setState(() => _videoReady = true);
+          if (_autoPlay) player.play();
+        })
+        .catchError((Object error) {
+          // A platform video error carries no user-facing message, so the frame is
+          // the only place the failure can surface. The detail goes to logcat.
+          debugPrint('course player: video failed to load: $error');
+          if (!mounted) return;
+          setState(() => _videoError = 'This video could not be loaded.');
+        });
     player.addListener(_onVideoTick);
   }
 
@@ -773,7 +800,7 @@ class _CoursePlayerPageState extends ConsumerState<CoursePlayerPage> {
           ])
             Expanded(
               child: GestureDetector(
-                onTap: () => setState(() => _tabIndex = index),
+                onTap: () => _selectTab(index),
                 behavior: HitTestBehavior.opaque,
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
@@ -1157,12 +1184,201 @@ class _CoursePlayerPageState extends ConsumerState<CoursePlayerPage> {
   }
 
   // ─────────────────────────────────────────────────────────────
+  // DISCUSSIONS (wire)
+  // ─────────────────────────────────────────────────────────────
+
+  /// Switches tabs, and fetches the thread the first time Q&A is opened.
+  ///
+  /// **Lazy on purpose.** The tab's count badge lives inside the Q&A body, not
+  /// on the tab strip, so nothing needs the thread until the user asks for it —
+  /// and a player opened to watch one lecture should not spend a request on a
+  /// panel nobody looked at.
+  void _selectTab(int index) {
+    setState(() => _tabIndex = index);
+    if (index != 2) return;
+    if (_course.id == null || _threads != null || _loadingThreads) return;
+    _loadThreads();
+  }
+
+  /// Loads the first page, or the next one when [more] is set.
+  ///
+  /// A catalogue course has no `id` and returns immediately: its thread is the
+  /// hardcoded list the detail page already carries, and there is no server to
+  /// ask. That null check is the whole reason this screen has two modes.
+  Future<void> _loadThreads({bool more = false}) async {
+    final courseId = _course.id;
+    if (courseId == null) return;
+    if (more && _threadNext == null) return;
+    setState(() {
+      _loadingThreads = true;
+      _threadError = null;
+    });
+    try {
+      final api = ref.read(courseDiscussionsApiProvider);
+      final page = more
+          ? await api.nextPage(_threadNext!)
+          : await api.list(courseId, pageSize: 20);
+      if (!mounted) return;
+      setState(() {
+        _threads = <CourseThread>[...?_threads, ...page.threads];
+        _threadCount = page.count;
+        _threadNext = page.next;
+        _loadingThreads = false;
+      });
+      _fileReplies();
+    } on ApiException catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _loadingThreads = false;
+        _threadError = error.displayMessage;
+      });
+    } on Object {
+      if (!mounted) return;
+      setState(() {
+        _loadingThreads = false;
+        _threadError = 'The discussion could not be loaded.';
+      });
+    }
+  }
+
+  /// Moves each thread's inline replies into [_replies].
+  ///
+  /// The list endpoint already returns up to 50 replies per thread, so the tab
+  /// needs no per-thread fetch. Overwriting is correct: after a reload the
+  /// server's copy is the one that includes what was just posted.
+  void _fileReplies() {
+    for (final thread in _threads ?? const <CourseThread>[]) {
+      if (thread.replies.isEmpty) continue;
+      _replies['remote:${thread.id}'] = [
+        for (final reply in thread.replies) _asDiscussion(reply),
+      ];
+    }
+  }
+
+  /// The wire row as the card the design draws.
+  CourseDiscussion _asDiscussion(CourseThread thread) => CourseDiscussion(
+    thread.authorName,
+    thread.authorRole ?? 'Student',
+    thread.when,
+    thread.body,
+    isStaff: thread.isStaff,
+    reactions: thread.likesCount,
+    id: thread.id,
+    isMine: thread.isMine,
+    isLiked: thread.isLiked,
+  );
+
+  /// What the card should show right now: the local override if there is one,
+  /// otherwise the row's own numbers.
+  _Like _likeFor(_QaCard card) =>
+      _likes[card.key] ??
+      _Like(liked: card.comment.isLiked, count: card.comment.reactions);
+
+  /// Flips a reaction, then reconciles with the server's answer.
+  ///
+  /// **The tap is applied first.** The endpoint is idempotent in both
+  /// directions and answers the authoritative count, so the optimistic value is
+  /// only a placeholder for the ~200ms before the response replaces it — and
+  /// the previous entry is restored if the call fails.
+  Future<void> _toggleLike(_QaCard card) async {
+    final current = _likeFor(card);
+    final next = _Like(
+      liked: !current.liked,
+      count: current.count + (current.liked ? -1 : 1),
+    );
+    setState(() => _likes[card.key] = next);
+
+    final id = card.comment.id;
+    final courseId = _course.id;
+    // Catalogue card, or a course with no server row: the tap stays local,
+    // exactly as it did before this tab had an endpoint.
+    if (id == null || courseId == null) return;
+
+    try {
+      final result = await ref
+          .read(courseDiscussionsApiProvider)
+          .setLiked(courseId, id, liked: next.liked);
+      if (!mounted) return;
+      setState(
+        () => _likes[card.key] = _Like(
+          liked: result.isLiked,
+          count: result.likesCount,
+        ),
+      );
+    } on ApiException catch (error) {
+      if (!mounted) return;
+      setState(() => _likes[card.key] = current);
+      showApiErrorSnack(context, error);
+    } on Object {
+      if (!mounted) return;
+      setState(() => _likes[card.key] = current);
+    }
+  }
+
+  /// The server id the composer's next post should answer, or null for a new
+  /// thread.
+  ///
+  /// A `local:` key can only exist on a catalogue course, and this branch is
+  /// only reached on a server one, so an unparseable key means "new thread"
+  /// rather than an error.
+  int? _parentIdFor(_ReplyTarget? target) {
+    if (target == null) return null;
+    const prefix = 'remote:';
+    if (!target.key.startsWith(prefix)) return null;
+    return int.tryParse(target.key.substring(prefix.length));
+  }
+
+  Future<void> _confirmDelete(_QaCard card) async {
+    final id = card.comment.id;
+    final courseId = _course.id;
+    if (id == null || courseId == null) return;
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Delete this message?'),
+        content: const Text(
+          'It will be removed for everyone, along with any replies.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+
+    try {
+      await ref.read(courseDiscussionsApiProvider).remove(courseId, id);
+      if (!mounted) return;
+      setState(() {
+        _threads = [
+          for (final thread in _threads ?? const <CourseThread>[])
+            if (thread.id != id) thread,
+        ];
+        _threadCount = _threadCount > 0 ? _threadCount - 1 : 0;
+        _replies.remove(card.key);
+        _likes.remove(card.key);
+      });
+    } on ApiException catch (error) {
+      if (!mounted) return;
+      showApiErrorSnack(context, error);
+    }
+  }
+
+  // ─────────────────────────────────────────────────────────────
   // Q&A
   // ─────────────────────────────────────────────────────────────
 
   Widget _buildQaTab() {
-    // Comments posted on this screen sit on top of the course's thread, newest
-    // first. See `_postComment` for why they are held here and not in the store.
+    // Server rows for an API course, the hardcoded catalogue thread otherwise;
+    // plus anything posted here that has not been reloaded yet. See [_qaCards].
     final discussions = _qaCards;
     final visible = _showAllComments
         ? discussions
@@ -1194,7 +1410,7 @@ class _CoursePlayerPageState extends ConsumerState<CoursePlayerPage> {
                   borderRadius: BorderRadius.circular(20),
                 ),
                 child: Text(
-                  '${discussions.length}',
+                  '$_discussionCount',
                   style: GoogleFonts.manrope(
                     fontSize: 11,
                     fontWeight: FontWeight.w700,
@@ -1263,8 +1479,16 @@ class _CoursePlayerPageState extends ConsumerState<CoursePlayerPage> {
                       ),
                     ),
                     IconButton(
-                      onPressed: _postComment,
-                      icon: const Icon(Icons.send, size: 18),
+                      // Disabled in flight: a second tap would post the same
+                      // text twice, and the server has no dedupe.
+                      onPressed: _posting ? null : _postComment,
+                      icon: _posting
+                          ? const SizedBox(
+                              width: 16,
+                              height: 16,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            )
+                          : const Icon(Icons.send, size: 18),
                       color: _ink,
                       tooltip: _replyTarget == null ? 'Post' : 'Reply',
                     ),
@@ -1274,45 +1498,93 @@ class _CoursePlayerPageState extends ConsumerState<CoursePlayerPage> {
             ),
           ),
         ),
-        Expanded(
-          child: discussions.isEmpty
-              ? const _EmptyState(
-                  icon: Icons.forum_outlined,
-                  title: 'No discussions yet',
-                  body: 'Be the first to ask something about this course.',
-                )
-              : ListView(
-                  padding: const EdgeInsets.fromLTRB(16, 0, 16, 32),
-                  children: [
-                    for (final card in visible) _buildDiscussionCard(card),
-                    if (!_showAllComments &&
-                        discussions.length > _commentPreview)
-                      Center(
-                        child: TextButton(
-                          onPressed: () =>
-                              setState(() => _showAllComments = true),
-                          child: Text(
-                            'View more',
-                            style: GoogleFonts.figtree(
-                              fontSize: 12,
-                              fontWeight: FontWeight.w600,
-                              color: _gray,
-                            ),
-                          ),
-                        ),
-                      ),
-                  ],
-                ),
-        ),
+        Expanded(child: _buildThreadBody(visible)),
       ],
     );
+  }
+
+  /// The list under the composer: spinner, retry, empty state, or cards.
+  ///
+  /// The first load is the only one that hides the list. A **reload** after the
+  /// list is on screen keeps it there — replacing a thread the user is reading
+  /// with a spinner because a "load more" failed would lose their place.
+  Widget _buildThreadBody(List<_QaCard> visible) {
+    if (_loadingThreads && _threads == null) {
+      return const Center(
+        child: SizedBox(
+          width: 22,
+          height: 22,
+          child: CircularProgressIndicator(strokeWidth: 2.2),
+        ),
+      );
+    }
+    if (_threadError != null && _threads == null) {
+      return _ThreadErrorState(message: _threadError!, onRetry: _loadThreads);
+    }
+    if (visible.isEmpty) {
+      return const _EmptyState(
+        icon: Icons.forum_outlined,
+        title: 'No discussions yet',
+        body: 'Be the first to ask something about this course.',
+      );
+    }
+    // Two different controls, and they must not both show: `View more` reveals
+    // cards already fetched, `Load more` fetches the next page.
+    final showViewMore = !_showAllComments && _qaCards.length > _commentPreview;
+    final showLoadMore = _showAllComments && _threadNext != null;
+    return ListView(
+      padding: const EdgeInsets.fromLTRB(16, 0, 16, 32),
+      children: [
+        for (final card in visible) _buildDiscussionCard(card),
+        if (showViewMore)
+          Center(
+            child: TextButton(
+              onPressed: _showMoreThread,
+              child: Text(
+                'View more',
+                style: GoogleFonts.figtree(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                  color: _gray,
+                ),
+              ),
+            ),
+          ),
+        if (showLoadMore)
+          Center(
+            child: TextButton(
+              onPressed: _loadingThreads
+                  ? null
+                  : () => _loadThreads(more: true),
+              child: Text(
+                _loadingThreads ? 'Loading...' : 'Load more',
+                style: GoogleFonts.figtree(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                  color: _gray,
+                ),
+              ),
+            ),
+          ),
+      ],
+    );
+  }
+
+  /// Expands the preview, and pulls the next page when the loaded one is all
+  /// that is on screen.
+  ///
+  /// Without the second half, `View more` on a 60-message thread would reveal
+  /// the 20 that were fetched and then stop — which looks like the thread ends
+  /// there.
+  void _showMoreThread() {
+    setState(() => _showAllComments = true);
+    if (_threadNext != null) _loadThreads(more: true);
   }
 
   Widget _buildDiscussionCard(_QaCard card) {
     final discussion = card.comment;
     final replies = _replies[card.key] ?? const <CourseDiscussion>[];
-    final reacted = _reacted.contains(card.key);
-    final reactions = discussion.reactions + (reacted ? 1 : 0);
+    final like = _likeFor(card);
 
     return Container(
       margin: const EdgeInsets.only(bottom: 10),
@@ -1405,12 +1677,10 @@ class _CoursePlayerPageState extends ConsumerState<CoursePlayerPage> {
           Row(
             children: [
               _CardAction(
-                icon: reacted ? Icons.thumb_up : Icons.thumb_up_outlined,
-                label: reactions == 0 ? 'React' : '$reactions',
-                active: reacted,
-                onTap: () => setState(() {
-                  if (!_reacted.remove(card.key)) _reacted.add(card.key);
-                }),
+                icon: like.liked ? Icons.thumb_up : Icons.thumb_up_outlined,
+                label: like.count == 0 ? 'React' : '${like.count}',
+                active: like.liked,
+                onTap: () => _toggleLike(card),
               ),
               const SizedBox(width: 18),
               _CardAction(
@@ -1421,6 +1691,16 @@ class _CoursePlayerPageState extends ConsumerState<CoursePlayerPage> {
                 // underneath it instead of at the top of the list.
                 onTap: () => _startReply(card.key, discussion.author),
               ),
+              // Only your own server rows can be deleted, and only the server
+              // can delete them — a catalogue card has no id to address.
+              if (discussion.isMine && discussion.id != null) ...[
+                const SizedBox(width: 18),
+                _CardAction(
+                  icon: Icons.delete_outline,
+                  label: 'Delete',
+                  onTap: () => _confirmDelete(card),
+                ),
+              ],
             ],
           ),
           if (replies.isNotEmpty) _buildReplyList(card.key, replies),
@@ -1581,25 +1861,89 @@ class _CoursePlayerPageState extends ConsumerState<CoursePlayerPage> {
     );
   }
 
-  /// The thread as it renders: local comments first, then the course's own.
+  /// The thread as it renders: what was posted here, then the course's own.
+  ///
+  /// **Two sources, chosen by whether the course has a server id.** An API
+  /// course reads [_threads]; a catalogue entry has none, so it keeps the
+  /// hardcoded [CourseDetailData.discussions] list it has always shown. The two
+  /// are never mixed — a catalogue course cannot have server rows.
   List<_QaCard> get _qaCards => [
     ..._localComments,
-    for (var i = 0; i < _course.discussions.length; i++)
-      _QaCard(key: 'course:$i', comment: _course.discussions[i]),
+    if (_threads case final threads?)
+      for (final thread in threads)
+        _QaCard(key: 'remote:${thread.id}', comment: _asDiscussion(thread))
+    else
+      for (var i = 0; i < _course.discussions.length; i++)
+        _QaCard(key: 'course:$i', comment: _course.discussions[i]),
   ];
+
+  /// The number the tab's badge prints.
+  ///
+  /// The server's `count` is the whole thread, not the page that is loaded, so
+  /// a badge of `20` on a course with 300 messages would be wrong — and the
+  /// list behind it would look complete.
+  int get _discussionCount =>
+      _threads == null ? _qaCards.length : _threadCount + _localComments.length;
 
   /// Posts the composer's text — under the card being answered, or as a new
   /// discussion when nothing is targeted.
   ///
-  /// **Local only.** There is no discussions endpoint, so the message is held in
-  /// this screen's state and is gone when it closes. It is not written to the
-  /// store, because the store is not persisted either — a comment that survived
-  /// one screen and not the next would be worse than one that does not survive
-  /// at all.
-  void _postComment() {
+  /// **Server course:** the message is written to the endpoint and the row it
+  /// returns is inserted, so the card carries the real id (and can be liked or
+  /// deleted). A failed post leaves the text in the composer and says why —
+  /// clearing it would throw away what the user wrote.
+  ///
+  /// **Catalogue course:** local only, as before. There is no course id to post
+  /// against, so the message is held in this screen's state and is gone when it
+  /// closes.
+  Future<void> _postComment() async {
     final text = _composer.text.trim();
-    if (text.isEmpty) return;
+    if (text.isEmpty || _posting) return;
     final target = _replyTarget;
+    final courseId = _course.id;
+
+    if (courseId != null) {
+      setState(() => _posting = true);
+      try {
+        final thread = await ref
+            .read(courseDiscussionsApiProvider)
+            .post(courseId, body: text, parentId: _parentIdFor(target));
+        if (!mounted) return;
+        setState(() {
+          _posting = false;
+          _composer.clear();
+          _replyTarget = null;
+          _showAllComments = true;
+          if (thread.parentId == null) {
+            _threads = <CourseThread>[thread, ...?_threads];
+            _threadCount += 1;
+          } else {
+            _replies
+                .putIfAbsent(
+                  'remote:${thread.parentId}',
+                  () => <CourseDiscussion>[],
+                )
+                .add(_asDiscussion(thread));
+          }
+        });
+        _composerFocus.unfocus();
+      } on ApiException catch (error) {
+        if (!mounted) return;
+        setState(() => _posting = false);
+        showApiErrorSnack(context, error);
+      } on Object {
+        if (!mounted) return;
+        setState(() => _posting = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('That did not send. Check your connection.'),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+      return;
+    }
+
     setState(() {
       final comment = CourseDiscussion('You', 'Student', 'Just now', text);
       if (target != null) {
@@ -1635,15 +1979,28 @@ class _CoursePlayerPageState extends ConsumerState<CoursePlayerPage> {
 
 /// One top-level card: a message, and the key its replies are filed under.
 ///
-/// [key] is a string and not the [CourseDiscussion] itself because the model
-/// has no identity — two messages with the same body are the same value — and
-/// keying a map by value would merge two real threads into one. Authored cards
-/// use `course:<index>`; cards posted here use `local:<n>`.
+/// [key] is a string rather than the id because three kinds of card share this
+/// list and only one of them has a server id: a server thread is `remote:<id>`,
+/// a catalogue thread is `course:<index>`, and one posted on a catalogue course
+/// is `local:<n>`. Keying a map by [CourseDiscussion] itself would merge two
+/// real threads with the same text, and keying by list position would move a
+/// reaction whenever a newer comment is posted above it.
 class _QaCard {
   const _QaCard({required this.key, required this.comment});
 
   final String key;
   final CourseDiscussion comment;
+}
+
+/// The reaction a card is showing: the user's own state and the count.
+///
+/// Held as one value rather than two maps so an optimistic tap and its rollback
+/// can never disagree about which half was applied.
+class _Like {
+  const _Like({required this.liked, required this.count});
+
+  final bool liked;
+  final int count;
 }
 
 /// The card the composer is answering, and the name to show it is answering.
@@ -1815,6 +2172,65 @@ class _CardAction extends StatelessWidget {
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+/// The Q&A tab when the first load failed.
+///
+/// Separate from [_EmptyState] because a failure is not an empty thread: it
+/// needs a way back, and `No discussions yet` on a course with 300 of them
+/// would be a lie.
+class _ThreadErrorState extends StatelessWidget {
+  const _ThreadErrorState({required this.message, required this.onRetry});
+
+  final String message;
+  final VoidCallback onRetry;
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 40),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(Icons.cloud_off_outlined, size: 34, color: _softGray),
+            const SizedBox(height: 10),
+            Text(
+              'Could not load the discussion',
+              textAlign: TextAlign.center,
+              style: GoogleFonts.figtree(
+                fontSize: 13.5,
+                fontWeight: FontWeight.w700,
+                color: _ink,
+              ),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              message,
+              textAlign: TextAlign.center,
+              style: GoogleFonts.figtree(
+                fontSize: 12,
+                height: 1.35,
+                color: _gray,
+              ),
+            ),
+            const SizedBox(height: 6),
+            TextButton(
+              onPressed: onRetry,
+              child: Text(
+                'Try again',
+                style: GoogleFonts.figtree(
+                  fontSize: 12.5,
+                  fontWeight: FontWeight.w700,
+                  color: _ink,
+                ),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }

@@ -1811,6 +1811,9 @@ class CourseDiscussion {
     this.body, {
     this.isStaff = false,
     this.reactions = 0,
+    this.id,
+    this.isMine = false,
+    this.isLiked = false,
   });
 
   final String author;
@@ -1826,9 +1829,26 @@ class CourseDiscussion {
   /// Marks the instructor's own replies, which the design badges.
   final bool isStaff;
 
-  /// Reactions the message arrived with. The player's own tap adds to this
-  /// locally — there is no endpoint to send it to.
+  /// Reactions the message arrived with.
+  ///
+  /// For a **server** row this is `likes_count` and the player replaces it with
+  /// the server's answer after a tap. For a catalogue row it is a fixed number
+  /// and the player adds one locally, because there is nothing to send it to.
   final int reactions;
+
+  /// The server's `discussion.id`, or null for a message that only exists in
+  /// the hardcoded catalogue.
+  ///
+  /// **Null is the demo switch**, exactly as it is on [CourseDetailData.id]: a
+  /// card without an id cannot be liked, answered or deleted on the server, so
+  /// the player keeps those three local instead of firing a request at nothing.
+  final int? id;
+
+  /// The signed-in user wrote this row — the server's `is_mine`.
+  final bool isMine;
+
+  /// The signed-in user has liked this row — the server's `is_liked`.
+  final bool isLiked;
 
   /// The letter the avatar circle shows. The design has no photos, so every
   /// avatar is an initial.

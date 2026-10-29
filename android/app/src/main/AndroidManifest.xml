@@ -42,6 +42,22 @@
                 <action android:name="android.intent.action.MAIN"/>
                 <category android:name="android.intent.category.LAUNCHER"/>
             </intent-filter>
+            <!--
+              The payment return. After the student pays, eSewa redirects to the
+              backend's return URL, and the backend redirects the browser to
+              `PAYMENT_APP_RETURN_URL` — `skillsikka://payment?payment_id=…&status=…`.
+
+              Without this filter the browser cannot hand control back and the
+              student is left on a "page not found" after a successful payment.
+              `launchMode="singleTop"` above is what makes the link arrive at the
+              running app instead of starting a second copy of it.
+            -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW"/>
+                <category android:name="android.intent.category.DEFAULT"/>
+                <category android:name="android.intent.category.BROWSABLE"/>
+                <data android:scheme="skillsikka" android:host="payment"/>
+            </intent-filter>
         </activity>
         <!-- Don't delete the meta-data below.
              This is used by the Flutter tool to generate GeneratedPluginRegistrant.java -->
@@ -58,6 +74,12 @@
         <intent>
             <action android:name="android.intent.action.PROCESS_TEXT"/>
             <data android:mimeType="text/plain"/>
+        </intent>
+        <!-- Checkout hands the gateway URL to the browser. Package visibility
+             (Android 11+) requires this to resolve an http(s) handler at all. -->
+        <intent>
+            <action android:name="android.intent.action.VIEW"/>
+            <data android:scheme="https"/>
         </intent>
     </queries>
 </manifest>

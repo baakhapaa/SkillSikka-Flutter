@@ -47,6 +47,23 @@
 	<true/>
 	<key>UIApplicationSupportsIndirectInputEvents</key>
 	<true/>
+	<!-- The payment return. eSewa redirects to the backend's return URL, and the
+	     backend redirects the browser to `PAYMENT_APP_RETURN_URL` —
+	     skillsikka://payment?payment_id=…&status=… — which iOS only delivers to
+	     an app that has registered the scheme. -->
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleTypeRole</key>
+			<string>Editor</string>
+			<key>CFBundleURLName</key>
+			<string>com.skillsikka.payment</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>skillsikka</string>
+			</array>
+		</dict>
+	</array>
 	<!-- The dev backend serves lesson video over plain HTTP on the LAN
 	     (http://192.168.1.64:8000/media/...). ATS blocks cleartext for AVPlayer
 	     the same way Android blocks it for ExoPlayer, so without this exemption

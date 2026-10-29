@@ -65,6 +65,8 @@ class UserProfile {
     this.values = const {},
     this.documents = const {},
     this.interests = const [],
+    this.verificationStatus,
+    this.id,
   });
 
   final Uint8List? photoBytes;
@@ -93,6 +95,29 @@ class UserProfile {
   /// Topic names picked at the last signup step. Order is the user's tap order.
   final List<String> interests;
 
+  /// `/me/`'s `verification_status`: `not_applicable`, `pending`, `verified` or
+  /// `rejected`.
+  ///
+  /// Read from `/me/` and never written by the app — an instructor is verified by
+  /// an admin, not by their own client. It exists here because the course builder
+  /// has to know whether *Publish* can work **before** the user builds a course
+  /// and hits a 403 at the end.
+  final String? verificationStatus;
+
+  /// Whether this account may publish. Role is checked too: a student's status is
+  /// `not_applicable`, but the name of the flag should not be the only thing
+  /// stopping a student from being treated as a verified instructor.
+  bool get canPublish =>
+      effectiveRole == ProfileRole.instructor &&
+      verificationStatus == 'verified';
+
+  /// `/me/`'s user id, as a string.
+  ///
+  /// Needed by the profile grid to ask `/courses/?instructor=<id>`. Null until
+  /// `/me/` has been read once, which is why the grid keeps its previous contents
+  /// rather than showing an empty list on a cold start.
+  final String? id;
+
   String valueFor(String key) => values[key] ?? '';
 
   /// Read outside the edit form, so it gets a name of its own.
@@ -109,6 +134,8 @@ class UserProfile {
     Map<String, String>? values,
     Map<String, PickedDocument>? documents,
     List<String>? interests,
+    String? verificationStatus,
+    String? id,
   }) {
     return UserProfile(
       photoBytes: photoBytes ?? this.photoBytes,
@@ -121,6 +148,9 @@ class UserProfile {
       values: values ?? this.values,
       documents: documents ?? this.documents,
       interests: interests ?? this.interests,
+      // Not user-editable, so it rides along untouched through every other copy.
+      verificationStatus: verificationStatus ?? this.verificationStatus,
+      id: id ?? this.id,
     );
   }
 
@@ -140,9 +170,16 @@ class UserProfile {
     values: values,
     documents: documents,
     interests: interests,
+    verificationStatus: verificationStatus,
+    id: id,
   );
 
   UserProfile withRole(ProfileRole next) => _copy(role: next);
+
+  UserProfile withId(String? next) => _copy(id: next);
+
+  UserProfile withVerificationStatus(String? next) =>
+      _copy(verificationStatus: next);
 
   UserProfile withDocument(String slot, PickedDocument document) =>
       _copy(documents: {...documents, slot: document});
@@ -170,6 +207,19 @@ class UserProfileNotifier extends StateNotifier<UserProfile> {
   /// Records the role chosen at the first signup step, and the one the profile
   /// screens branch on afterwards.
   void setRole(ProfileRole role) => state = state.withRole(role);
+
+  /// Records `/me/`'s verification status. Blank is ignored: an older server that
+  /// omits the field must not clear a status already known.
+  void setVerificationStatus(String? status) {
+    if (status == null || status.trim().isEmpty) return;
+    state = state.withVerificationStatus(status);
+  }
+
+  /// Records `/me/`'s user id. Blank is ignored, like the status above.
+  void setId(String? id) {
+    if (id == null || id.trim().isEmpty) return;
+    state = state.withId(id);
+  }
 
   /// Stores a file for an upload slot. See [ProfileDocumentSlot] for the slots.
   void setDocument(String slot, PickedDocument document) =>

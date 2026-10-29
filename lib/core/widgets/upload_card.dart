@@ -20,6 +20,7 @@ class UploadCard extends StatelessWidget {
     required this.onClear,
     this.requiredField = false,
     this.removeTooltip = 'Remove file',
+    this.actionLabel = 'Upload Document',
   });
 
   /// Label above the card, e.g. `Student ID Card`.
@@ -41,6 +42,13 @@ class UploadCard extends StatelessWidget {
   final bool requiredField;
 
   final String removeTooltip;
+
+  /// The empty state's call to action.
+  ///
+  /// `Upload Document` is right for an ID card or a certificate; a lesson is a
+  /// **video**, so that screen passes `Upload Video` rather than telling an
+  /// instructor to upload a document that the player cannot play.
+  final String actionLabel;
 
   @override
   Widget build(BuildContext context) {
@@ -90,7 +98,7 @@ class UploadCard extends StatelessWidget {
       _icon(),
       const SizedBox(height: 12),
       Text(
-        'Upload Document',
+        actionLabel,
         style: GoogleFonts.manrope(
           color: const Color(0xFF2F2600),
           fontSize: 14,

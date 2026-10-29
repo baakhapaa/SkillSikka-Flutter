@@ -4,6 +4,11 @@ import 'package:go_router/go_router.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 import '../../auth/data/auth_repository.dart';
+import '../../courses/data/course_builder_api.dart';
+import '../../courses/data/course_summary.dart';
+import '../../courses/data/my_courses_api.dart';
+import '../../courses/presentation/course_builder_page.dart';
+import '../../../core/network/api_error.dart';
 import '../data/profile_role.dart';
 import '../data/user_profile.dart';
 import 'complete_profile_gate.dart';
@@ -87,6 +92,19 @@ class _InstructorProfilePageState extends State<InstructorProfilePage> {
   ProviderContainer? _profileContainer;
   ProviderSubscription<UserProfile>? _profileSubscription;
 
+  /// The instructor's own courses, or null while they have not been fetched.
+  ///
+  /// **Null is not the same as empty.** Null means "we have no answer yet", and
+  /// the grid falls back to what it rendered before rather than flashing an empty
+  /// shelf at a user whose session is still booting. Empty means the instructor
+  /// really has no courses, and the grid shows only the add tile.
+  List<CourseSummary>? _liveCourses;
+  bool _coursesLoading = false;
+
+  /// The id [_liveCourses] was loaded for, so a profile refresh does not refetch
+  /// the same list. Cleared to force a reload after a course is created or edited.
+  String? _coursesForId;
+
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
@@ -125,7 +143,46 @@ class _InstructorProfilePageState extends State<InstructorProfilePage> {
       next,
     ) {
       if (mounted) setState(() {});
+      // The id arrives with the same `/me/` fetch, so this is the first moment
+      // the grid can ask for the instructor's courses.
+      _maybeLoadCourses();
     });
+    _maybeLoadCourses();
+  }
+
+  /// Fetches the instructor's own courses, once per signed-in user.
+  ///
+  /// Silent on failure on purpose: the grid is a shelf, not a screen whose job is
+  /// to report a catalogue outage, and it already has content to show. The next
+  /// profile change retries.
+  Future<void> _maybeLoadCourses() async {
+    final container = _profileContainer;
+    if (container == null || !_isInstructor || _coursesLoading) return;
+
+    final id = container.read(userProfileProvider).id;
+    if (id == null || id == _coursesForId) return;
+
+    _coursesLoading = true;
+    try {
+      final courses = await container.read(myCoursesApiProvider).list(id);
+      if (!mounted) return;
+      setState(() {
+        _liveCourses = courses;
+        _coursesForId = id;
+      });
+    } on ApiException {
+      // Cleared so a later rebuild can try again — see the doc above.
+      _coursesForId = null;
+    } finally {
+      _coursesLoading = false;
+    }
+  }
+
+  /// Reloads after the builder returns, whether the course was published, saved
+  /// as a draft, or edited.
+  Future<void> _refreshCourses() async {
+    _coursesForId = null;
+    await _maybeLoadCourses();
   }
 
   /// The instructor's own course list, as drawn in the reference: five cards
@@ -352,7 +409,9 @@ class _InstructorProfilePageState extends State<InstructorProfilePage> {
                 behavior: HitTestBehavior.opaque,
                 onTap: () {},
                 child: Text(
-                  'See All (40)',
+                  // The count is the grid's own count. It was hardcoded to 40,
+                  // which read as a real figure beside four real courses.
+                  'See All (${_visibleCourseCount()})',
                   style: GoogleFonts.figtree(
                     fontSize: 13,
                     fontWeight: FontWeight.w600,
@@ -409,8 +468,32 @@ class _InstructorProfilePageState extends State<InstructorProfilePage> {
         _buildAddCourseTile()
       else
         _buildMyCourseCard(_studentCourseSlot),
-      for (final course in _myCourses) _buildMyCourseCard(course),
+      ..._courseTiles(),
     ]);
+  }
+
+  /// The instructor's real courses when they are known, the reference fixtures
+  /// otherwise.  ///
+  /// The fixtures stay because several tests pump this page with no
+  /// `ProviderScope` at all, and a grid with nothing in it would not exercise the
+  /// two-column layout those tests are actually about. A student keeps them too:
+  /// this list is the instructor's authored courses, and a student authors none.
+  List<Widget> _courseTiles() {
+    final live = _liveCourses;
+    if (_isInstructor && live != null) {
+      return [for (final course in live) _buildLiveCourseCard(course)];
+    }
+    return [for (final course in _myCourses) _buildMyCourseCard(course)];
+  }
+
+  /// How many courses the grid is actually showing.
+  ///
+  /// Mirrors [_courseTiles] rather than counting `_liveCourses` directly, so the
+  /// heading can never disagree with the tiles beneath it.
+  int _visibleCourseCount() {
+    final live = _liveCourses;
+    if (_isInstructor && live != null) return live.length;
+    return _myCourses.length;
   }
 
   /// Two tiles per row, 32pt between columns, 12pt between rows.
@@ -461,7 +544,16 @@ class _InstructorProfilePageState extends State<InstructorProfilePage> {
       behavior: HitTestBehavior.opaque,
       onTap: _openAddCourse,
       child: CustomPaint(
-        painter: const _DashedRoundedBorder(color: _yellow, radius: 10),
+        // **`foregroundPainter`, not `painter`.** A `painter` draws *before* the
+        // child, and the child here is a `Container` with an opaque
+        // `_addTileFill` — so the dashed outline was painted and then covered by
+        // the very tile it outlines. The tile has been a plain cream rectangle
+        // since it was built; nothing in the code read wrong, which is why it
+        // survived review.
+        foregroundPainter: const _DashedRoundedBorder(
+          color: _yellow,
+          radius: 10,
+        ),
         child: Container(
           decoration: BoxDecoration(
             color: _addTileFill,
@@ -613,6 +705,192 @@ class _InstructorProfilePageState extends State<InstructorProfilePage> {
     );
   }
 
+  /// A card for one of the instructor's real courses.
+  ///
+  /// Same geometry as [_buildMyCourseCard] — 90pt cover, 10/10/10/9 text block,
+  /// the Edit pill — because the two sit in the same grid and a difference in
+  /// either would read as a different component. What it adds is the state: an
+  /// unpublished course is marked **DRAFT**, so a course that is not visible to
+  /// students cannot be mistaken for one that is.
+  Widget _buildLiveCourseCard(CourseSummary course) {
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: () => _openCourse(course),
+      child: Container(
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(color: _cardBorder),
+        ),
+        clipBehavior: Clip.antiAlias,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            SizedBox(
+              height: 90,
+              width: double.infinity,
+              child: Stack(
+                fit: StackFit.expand,
+                children: [
+                  _courseCover(course),
+                  // Both states are labelled. Showing a chip only for drafts
+                  // left a published course with no marker at all, which reads as
+                  // "unknown" next to one that says DRAFT.
+                  Positioned(
+                    top: 8,
+                    left: 8,
+                    child: _statusChip(course.isPublished),
+                  ),
+                ],
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(10, 10, 10, 9),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    course.title,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: GoogleFonts.manrope(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w700,
+                      color: _ink,
+                    ),
+                  ),
+                  const SizedBox(height: 3),
+                  Row(
+                    children: [
+                      Flexible(
+                        child: Text(
+                          course.priceLabel,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: GoogleFonts.figtree(
+                            fontSize: 11,
+                            fontWeight: FontWeight.w700,
+                            color: _yellow,
+                          ),
+                        ),
+                      ),
+                      const Spacer(),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 6,
+                          vertical: 2,
+                        ),
+                        decoration: BoxDecoration(
+                          color: _cardBorder,
+                          borderRadius: BorderRadius.circular(4),
+                        ),
+                        child: Text(
+                          'Edit',
+                          style: GoogleFonts.figtree(
+                            fontSize: 9,
+                            fontWeight: FontWeight.w600,
+                            color: _gray,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// The course's own image when the server has one, otherwise a tinted tile.
+  ///
+  /// The tint is chosen from the course id rather than at random, so a course
+  /// keeps its colour between launches — a grid that reshuffles its colours on
+  /// every rebuild reads as a loading state that never settles.
+  Widget _courseCover(CourseSummary course) {
+    final url = course.thumbnailUrl;
+    if (url != null) {
+      return Image.network(
+        url,
+        fit: BoxFit.cover,
+        errorBuilder: (_, _, _) => _generatedCover(course),
+      );
+    }
+    return _generatedCover(course);
+  }
+
+  /// Four tints, matching the palette the design uses for course covers.
+  static const _coverTints = <({Color from, Color to, Color ink})>[
+    (from: Color(0xFFFBE8A8), to: Color(0xFFEFCB63), ink: Color(0xFF6B5410)),
+    (from: Color(0xFFCFE3F7), to: Color(0xFF9CC4E8), ink: Color(0xFF274B6B)),
+    (from: Color(0xFFE7DCF7), to: Color(0xFFC3A9EA), ink: Color(0xFF4A3570)),
+    (from: Color(0xFFD7EBD3), to: Color(0xFFA8D3A0), ink: Color(0xFF33512C)),
+  ];
+
+  Widget _generatedCover(CourseSummary course) {
+    final tint = _coverTints[course.id.abs() % _coverTints.length];
+    return Container(
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [tint.from, tint.to],
+        ),
+      ),
+      alignment: Alignment.center,
+      child: Text(
+        course.initials,
+        style: GoogleFonts.manrope(
+          fontSize: 22,
+          fontWeight: FontWeight.w800,
+          color: tint.ink,
+        ),
+      ),
+    );
+  }
+
+  /// `LIVE` for a published course, `DRAFT` for one students cannot see yet.
+  Widget _statusChip(bool isPublished) => Container(
+    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
+    decoration: BoxDecoration(
+      color: Colors.white.withValues(alpha: 0.95),
+      borderRadius: BorderRadius.circular(4),
+    ),
+    child: Text(
+      isPublished ? 'LIVE' : 'DRAFT',
+      style: GoogleFonts.figtree(
+        fontSize: 9,
+        fontWeight: FontWeight.w700,
+        letterSpacing: 0.5,
+        color: isPublished ? const Color(0xFF1C7C3C) : const Color(0xFF8A7A2E),
+      ),
+    ),
+  );
+
+  /// Reopens the builder on this course.
+  ///
+  /// Drafts and published courses both land here: the builder is the instructor's
+  /// editing surface, and the student-facing detail page needs a full
+  /// `CourseDetailData` this grid does not have.
+  Future<void> _openCourse(CourseSummary course) async {
+    final container = _profileContainer;
+    if (container == null) return;
+
+    await Navigator.of(context).push<bool>(
+      MaterialPageRoute(
+        builder: (_) => CourseBuilderPage(
+          api: container.read(courseBuilderApiProvider),
+          instructorVerified: container.read(userProfileProvider).canPublish,
+          courseId: course.id,
+        ),
+      ),
+    );
+    if (!mounted) return;
+    await _refreshCourses();
+  }
+
   // ─────────────────────────────────────────────────────────────
   // PROFILE HEADER  (avatar + camera badge + name + stats + edit)
   // ─────────────────────────────────────────────────────────────
@@ -701,11 +979,26 @@ class _InstructorProfilePageState extends State<InstructorProfilePage> {
     final allowed = await ensureCanAddCourse(context, container);
     if (!allowed || !mounted) return;
 
-    // There is no course-creation screen yet. The gate is what this tile owes
-    // the user today; this is the seam the real screen drops into.
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Course creation is coming soon.')),
+    // Both dependencies are read here rather than inside the builder so the
+    // builder itself needs no provider scope — which is what lets a widget test
+    // drive it with a fake API and no container.
+    final published = await Navigator.of(context).push<bool>(
+      MaterialPageRoute(
+        builder: (_) => CourseBuilderPage(
+          api: container.read(courseBuilderApiProvider),
+          instructorVerified: container.read(userProfileProvider).canPublish,
+        ),
+      ),
     );
+    if (published == true && mounted) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Course published.')));
+    }
+    // Reload whether it was published, saved as a draft, or discarded: this grid
+    // is the only place a course can appear, so a stale list is the difference
+    // between "published" and "vanished".
+    if (mounted) await _refreshCourses();
   }
 
   /// The user's own photo, or a neutral placeholder when there is none.

@@ -181,6 +181,12 @@ class SessionBootstrap {
     if (values.isNotEmpty) notifier.save(values);
     final role = profile.role;
     if (role != null) notifier.setRole(role);
+    // Read here rather than fetched by the course builder: the builder's publish
+    // gate needs it before the user starts, and `/me/` has already been called.
+    notifier.setVerificationStatus(profile.verificationStatus);
+    // The profile grid asks `/courses/?instructor=<id>`, so the id has to be in
+    // the store before the grid can load anything.
+    notifier.setId(profile.userId);
   }
 
   /// Identifies the session `/me/` was last loaded for.

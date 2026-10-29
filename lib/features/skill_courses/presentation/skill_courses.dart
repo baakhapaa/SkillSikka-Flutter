@@ -1,9 +1,12 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:skillsikka/core/network/api_error.dart';
 import 'package:skillsikka/core/widgets/course_detail_view.dart';
+import 'package:skillsikka/core/widgets/course_image.dart';
 import 'package:skillsikka/core/widgets/section_bar.dart';
+import 'package:skillsikka/features/courses/data/course_api.dart';
 import 'package:skillsikka/features/search/presentation/search_page.dart';
-import 'package:skillsikka/features/skill_courses/data/skill_course.dart';
 import 'package:skillsikka/features/skill_courses/presentation/skill_course_detail_page.dart';
 
 const _cream = Color(0xFFFAF9F6);
@@ -12,7 +15,13 @@ const _gray = Color(0xFF4B5563);
 const _titleInk = Color(0xFF111827);
 const _gold = Color(0xFF816501);
 
-class SkillCoursesPage extends StatefulWidget {
+/// The skill catalogue.
+///
+/// **Reads `GET /courses/?course_type=skill`** and filters by category in the
+/// client, because the four chips print a course **count** each — one request
+/// per chip could not populate the other three. A skill catalogue is small, so
+/// fetching it once is cheaper than four requests and keeps the counts honest.
+class SkillCoursesPage extends ConsumerStatefulWidget {
   const SkillCoursesPage({super.key, this.initialSkill});
 
   /// The skill to open on, e.g. `Coding`.
@@ -24,11 +33,10 @@ class SkillCoursesPage extends StatefulWidget {
   final String? initialSkill;
 
   @override
-  State<SkillCoursesPage> createState() => _SkillCoursesPageState();
+  ConsumerState<SkillCoursesPage> createState() => _SkillCoursesPageState();
 }
 
-class _SkillCoursesPageState extends State<SkillCoursesPage> {
-  int _selectedSkillIndex = 0;
+class _SkillCoursesPageState extends ConsumerState<SkillCoursesPage> {
   int _hoveredSkillIndex = -1;
 
   /// Drives the chip row, so a preselected skill can be scrolled into view.
@@ -38,27 +46,150 @@ class _SkillCoursesPageState extends State<SkillCoursesPage> {
   /// makes the offset arithmetic below exact rather than a guess.
   static const _chipStride = 154.0;
 
-  /// The four skills, in chip order. Each label must match a
-  /// [CourseDetailData.category] in [skillCoursePool] **exactly** — the chips
-  /// filter on it, so a typo here silently empties a chip.
+  /// The four skills the design opens with, in chip order.
   ///
-  /// The course count under each label is derived from the pool rather than
-  /// authored: the old hardcoded `'32 Courses'` could claim more than the chip
-  /// actually showed.
-  static const _skills = <(IconData, String)>[
+  /// **These are the starting chips, not the whole list.** The server's
+  /// `LearningInterest` table has fifteen rows and the course builder offers all
+  /// of them, so a skill course in any of the other eleven used to be published,
+  /// present in this fetch, and reachable by no chip at all — the "I added a
+  /// course and it is not in the app" bug. [_chips] appends whatever else the
+  /// catalogue actually contains.
+  static const _knownSkills = <(IconData, String)>[
     (Icons.code, 'Coding'),
     (Icons.brush, 'Drawing'),
     (Icons.mic, 'Public Speaking'),
     (Icons.music_note, 'Music'),
   ];
 
-  /// The pool narrowed to the selected skill.
+  /// The chip a course with no `skill_category` falls into.
+  ///
+  /// Only added when such a course exists. A published course without a
+  /// category is a data fault, but hiding it from the catalogue is a worse one:
+  /// the instructor would have no way to tell it apart from a course that never
+  /// saved.
+  static const _otherSkill = 'Other';
+
+  /// The label the user picked. Null means "whatever the first chip is", which
+  /// is what keeps the selection stable while the chip list is still empty.
+  String? _selectedSkill;
+
+  /// Every published skill course, fetched once — see the class doc.
+  List<CourseDetailData> _courses = const [];
+  bool _loading = true;
+  String? _error;
+
+  /// The chip row: the four design skills, then every other category the
+  /// catalogue actually has, most-used first.
+  ///
+  /// Derived rather than authored so a newly created course is reachable the
+  /// moment it is published. The four known chips stay even at zero — they are
+  /// part of the screen's design, and an empty chip explains itself.
+  List<(IconData, String)> get _chips {
+    final counts = <String, int>{};
+    for (final course in _courses) {
+      final category = course.category.trim();
+      final key = category.isEmpty ? _otherSkill : category;
+      counts[key] = (counts[key] ?? 0) + 1;
+    }
+
+    final known = {for (final skill in _knownSkills) skill.$2};
+    final extra = counts.keys.where((label) => !known.contains(label)).toList()
+      ..sort((a, b) {
+        final byCount = counts[b]!.compareTo(counts[a]!);
+        return byCount != 0 ? byCount : a.compareTo(b);
+      });
+
+    return [..._knownSkills, for (final label in extra) (_iconFor(label), label)];
+  }
+
+  /// The selected label, resolved against the current chip list.
+  String get _selectedLabel {
+    final chips = _chips;
+    final wanted = _selectedSkill;
+    if (wanted != null && chips.any((chip) => chip.$2 == wanted)) return wanted;
+    return chips.first.$2;
+  }
+
+  int get _selectedSkillIndex {
+    final index = _chips.indexWhere((chip) => chip.$2 == _selectedLabel);
+    return index < 0 ? 0 : index;
+  }
+
+  /// The fetched list narrowed to the selected skill.
   ///
   /// There is no `All` chip on this tab, so the selection is always a real
   /// skill — never the absence of a filter.
   List<CourseDetailData> get _visibleSkillCourses {
-    final skill = _skills[_selectedSkillIndex].$2;
-    return skillCoursePool.where((c) => c.category == skill).toList();
+    final skill = _selectedLabel;
+    return _courses.where((course) {
+      final category = course.category.trim();
+      if (skill == _otherSkill) return category.isEmpty;
+      return category == skill;
+    }).toList();
+  }
+
+  int _countFor(String skill) => _courses.where((course) {
+    final category = course.category.trim();
+    if (skill == _otherSkill) return category.isEmpty;
+    return category == skill;
+  }).length;
+
+  /// A glyph for a category the design did not name.
+  ///
+  /// Keyword matching, not a lookup table of all fifteen rows: the server's
+  /// category list is editable, and an unknown label has to land on something
+  /// sensible rather than on an assertion.
+  static IconData _iconFor(String label) {
+    final value = label.toLowerCase();
+    if (value.contains('code') || value.contains('program')) return Icons.code;
+    if (value.contains('draw') ||
+        value.contains('art') ||
+        value.contains('paint') ||
+        value.contains('design')) {
+      return Icons.brush;
+    }
+    if (value.contains('speak') || value.contains('present')) return Icons.mic;
+    if (value.contains('music') ||
+        value.contains('sing') ||
+        value.contains('dance')) {
+      return Icons.music_note;
+    }
+    if (value.contains('math')) return Icons.calculate_outlined;
+    if (value.contains('science') || value.contains('physic')) {
+      return Icons.science_outlined;
+    }
+    if (value.contains('language')) return Icons.translate;
+    if (value.contains('photo') || value.contains('camera')) {
+      return Icons.photo_camera_outlined;
+    }
+    if (value.contains('business') || value.contains('market')) {
+      return Icons.trending_up;
+    }
+    return Icons.school_outlined;
+  }
+
+  Future<void> _load() async {
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
+    try {
+      final page = await ref
+          .read(courseApiProvider)
+          .list(courseType: 'skill', pageSize: 50);
+      if (!mounted) return;
+      setState(() {
+        _courses = page.courses;
+        _loading = false;
+      });
+      _revealSelectedChip();
+    } on ApiException catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _loading = false;
+        _error = error.displayMessage;
+      });
+    }
   }
 
   void _openCourse(CourseDetailData course) {
@@ -70,16 +201,20 @@ class _SkillCoursesPageState extends State<SkillCoursesPage> {
   @override
   void initState() {
     super.initState();
+    _selectedSkill = widget.initialSkill;
+    _load();
+  }
 
-    final skill = widget.initialSkill;
-    if (skill == null) return;
-
-    final index = _skills.indexWhere((s) => s.$2 == skill);
-    if (index < 0) return;
-    _selectedSkillIndex = index;
-
-    // The chip row scrolls horizontally and the last chip sits off screen at
-    // 360pt, so a preselected `Music` would otherwise be selected but invisible.
+  /// Scrolls a preselected chip into view once the chip list exists.
+  ///
+  /// The chip row scrolls horizontally and the later chips sit off screen at
+  /// 360pt, so a preselected `Music` would otherwise be selected but invisible.
+  /// Runs after the fetch, because the list is derived from the courses — before
+  /// it lands, `_chips` is only the four design skills and a category added
+  /// since would not be found.
+  void _revealSelectedChip() {
+    final index = _selectedSkillIndex;
+    if (index <= 0) return;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted || !_chipScrollController.hasClients) return;
       final max = _chipScrollController.position.maxScrollExtent;
@@ -209,6 +344,8 @@ class _SkillCoursesPageState extends State<SkillCoursesPage> {
   }
 
   Widget _buildSkillsGrid() {
+    final chips = _chips;
+    final selected = _selectedSkillIndex;
     return Padding(
       padding: const EdgeInsets.only(top: 8),
       child: SizedBox(
@@ -217,16 +354,14 @@ class _SkillCoursesPageState extends State<SkillCoursesPage> {
           controller: _chipScrollController,
           scrollDirection: Axis.horizontal,
           padding: const EdgeInsets.symmetric(horizontal: 16),
-          itemCount: _skills.length,
+          itemCount: chips.length,
           separatorBuilder: (_, _) => const SizedBox(width: 14),
           itemBuilder: (context, index) {
-            final s = _skills[index];
-            final isSelected = index == _selectedSkillIndex;
+            final s = chips[index];
+            final isSelected = index == selected;
             final isHovered = index == _hoveredSkillIndex;
             final isActive = isSelected || isHovered;
-            final count = skillCoursePool
-                .where((c) => c.category == s.$2)
-                .length;
+            final count = _countFor(s.$2);
 
             return Padding(
               padding: EdgeInsets.zero,
@@ -235,7 +370,7 @@ class _SkillCoursesPageState extends State<SkillCoursesPage> {
                 onEnter: (_) => setState(() => _hoveredSkillIndex = index),
                 onExit: (_) => setState(() => _hoveredSkillIndex = -1),
                 child: GestureDetector(
-                  onTap: () => setState(() => _selectedSkillIndex = index),
+                  onTap: () => setState(() => _selectedSkill = s.$2),
                   child: AnimatedScale(
                     scale: isHovered ? 1.05 : 1.0,
                     duration: const Duration(milliseconds: 180),
@@ -388,10 +523,9 @@ class _SkillCoursesPageState extends State<SkillCoursesPage> {
                 child: Stack(
                   fit: StackFit.expand,
                   children: [
-                    Image.asset(
+                    CourseImage(
                       course.image,
-                      fit: BoxFit.cover,
-                      errorBuilder: (_, _, _) => Container(
+                      fallback: Container(
                         color: Colors.grey.shade300,
                         child: const Icon(
                           Icons.image,
@@ -497,7 +631,50 @@ class _SkillCoursesPageState extends State<SkillCoursesPage> {
   /// The whole filtered pool, so the list and the carousel above it can never
   /// disagree about which courses a skill contains.
   Widget _buildTopRatedList() {
+    if (_loading) {
+      return const Padding(
+        padding: EdgeInsets.symmetric(vertical: 48),
+        child: Center(
+          child: SizedBox(
+            width: 22,
+            height: 22,
+            child: CircularProgressIndicator(strokeWidth: 2),
+          ),
+        ),
+      );
+    }
+
+    final error = _error;
+    if (error != null) {
+      return Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 40),
+        child: Column(
+          children: [
+            const Icon(Icons.cloud_off_outlined, size: 32, color: _gray),
+            const SizedBox(height: 12),
+            Text(
+              error,
+              textAlign: TextAlign.center,
+              style: GoogleFonts.figtree(fontSize: 13, color: _gray),
+            ),
+            TextButton(onPressed: _load, child: const Text('Try again')),
+          ],
+        ),
+      );
+    }
+
     final courses = _visibleSkillCourses;
+    if (courses.isEmpty) {
+      return Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 40),
+        child: Center(
+          child: Text(
+            'No $_selectedLabel courses yet.',
+            style: GoogleFonts.figtree(fontSize: 13, color: _gray),
+          ),
+        ),
+      );
+    }
 
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16),
@@ -526,12 +703,11 @@ class _SkillCoursesPageState extends State<SkillCoursesPage> {
           children: [
             ClipRRect(
               borderRadius: BorderRadius.circular(12),
-              child: Image.asset(
+              child: CourseImage(
                 course.image,
                 width: 80,
                 height: 80,
-                fit: BoxFit.cover,
-                errorBuilder: (_, _, _) => Container(
+                fallback: Container(
                   width: 80,
                   height: 80,
                   color: Colors.grey.shade300,

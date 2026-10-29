@@ -6,8 +6,10 @@ import 'package:skillsikka/features/courses/presentation/course_details_page.dar
 import 'package:skillsikka/features/home/presentation/home_page.dart';
 import 'package:skillsikka/features/skill_courses/data/skill_course.dart';
 import 'package:skillsikka/features/skill_courses/presentation/skill_course_detail_page.dart';
+import 'package:skillsikka/features/courses/data/course_api.dart';
 import 'package:skillsikka/features/skill_courses/presentation/skill_courses.dart';
 
+import 'support/courses_test_scope.dart';
 import 'support/events_test_scope.dart';
 import 'support/home_page_font_harness.dart';
 
@@ -24,6 +26,23 @@ const _guitarTitle = 'Guitar for Absolute Beginners';
 
 CourseDetailData _course(String title) =>
     skillCoursePool.firstWhere((c) => c.title == title);
+
+/// The Skill tab, served from a fake API.
+///
+/// **The pool is the fixture, not the source.** The tab now reads
+/// `GET /courses/?course_type=skill`; handing the same pool to `FakeCourseApi`
+/// keeps every title and category this suite asserts on, while the screen itself
+/// exercises its real fetch-and-filter path. `id` is null on these entries, so
+/// the detail page does not try to re-fetch them.
+Widget _tab({String? initialSkill}) => coursesTestScope(
+  api: FakeCourseApi(
+    catalogue: CoursePage(
+      count: skillCoursePool.length,
+      courses: skillCoursePool,
+    ),
+  ),
+  child: MaterialApp(home: SkillCoursesPage(initialSkill: initialSkill)),
+);
 
 /// Covers the Skill Courses tab's detail page and the shared `CourseDetailView`
 /// it renders.
@@ -48,7 +67,7 @@ void main() {
   testWidgets('tapping a carousel card opens the detail page for it', (
     tester,
   ) async {
-    await pumpAtPhoneSize(tester, const MaterialApp(home: SkillCoursesPage()));
+    await pumpAtPhoneSize(tester, _tab());
     drainUnrelatedOverflows(tester);
 
     // `Coding` is selected by default and its first three lead the carousel, so
@@ -71,7 +90,7 @@ void main() {
   testWidgets('tapping a list card opens the detail page for it', (
     tester,
   ) async {
-    await pumpAtPhoneSize(tester, const MaterialApp(home: SkillCoursesPage()));
+    await pumpAtPhoneSize(tester, _tab());
     drainUnrelatedOverflows(tester);
 
     // TypeScript is not one of Coding's first three, so its title is unique to
@@ -130,7 +149,7 @@ void main() {
   testWidgets('a skill chip filters both the carousel and the list', (
     tester,
   ) async {
-    await pumpAtPhoneSize(tester, const MaterialApp(home: SkillCoursesPage()));
+    await pumpAtPhoneSize(tester, _tab());
     drainUnrelatedOverflows(tester);
 
     // Unfiltered (Coding), the Coding lead is on screen and the Drawing one is
@@ -156,7 +175,7 @@ void main() {
     // "Music" must land on Music rather than on the first chip.
     await pumpAtPhoneSize(
       tester,
-      const MaterialApp(home: SkillCoursesPage(initialSkill: 'Music')),
+      _tab(initialSkill: 'Music'),
     );
     await tester.pump();
     drainUnrelatedOverflows(tester);
@@ -178,9 +197,20 @@ void main() {
     // HomePage's events rail reaches for `geolocator`, which neither completes
     // nor throws under `flutter test` — unstubbed it hangs the test rather than
     // failing it. See `eventsTestScope`.
+    // Nested scopes: the inner one stubs the events rail, the outer one the
+    // course API that the tab this test opens now reads.
     await tester.pumpWidget(
-      eventsTestScope(child: const MaterialApp(home: HomePage())),
+      coursesTestScope(
+        api: FakeCourseApi(
+          catalogue: CoursePage(
+            count: skillCoursePool.length,
+            courses: skillCoursePool,
+          ),
+        ),
+        child: eventsTestScope(child: const MaterialApp(home: HomePage())),
+      ),
     );
+    await tester.pump();
     await tester.pump();
     drainUnrelatedOverflows(tester);
 

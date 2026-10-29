@@ -7,8 +7,39 @@ import 'package:google_fonts/google_fonts.dart';
 // The font package exposes its test asset manifest through this internal API.
 // ignore: implementation_imports
 import 'package:google_fonts/src/google_fonts_base.dart' as font_assets;
+import 'package:skillsikka/features/courses/data/course_adapter.dart';
+import 'package:skillsikka/features/courses/data/course_api.dart';
 import 'package:skillsikka/features/skill_courses/presentation/skill_courses.dart';
 import 'package:skillsikka/features/search/presentation/search_page.dart';
+
+import 'support/courses_test_scope.dart';
+
+/// A `GET /courses/` row for a skill course, in the server's field names.
+Map<String, dynamic> skillRow(int id, String title, String category) => {
+  'id': id,
+  'title': title,
+  'description': 'Learn by doing.',
+  'course_type': 'skill',
+  'subject': null,
+  'subject_name': null,
+  'grade': null,
+  'grade_name': null,
+  'skill_category': 1,
+  'skill_category_name': category,
+  'is_paid': false,
+  'price': null,
+  'thumbnail_url': '',
+  'is_published': true,
+  'average_rating': 4.5,
+  'review_count': 8,
+  'students_enrolled': 120,
+  'lessons_count': 9,
+  'total_duration_seconds': 3600,
+  'instructor': 4,
+  'instructor_name': 'Test Instructor',
+  'learning_outcomes': <String>[],
+  'requirements': <String>[],
+};
 
 class _FontAssets extends Fake implements AssetManifest {
   _FontAssets(this.paths);
@@ -77,12 +108,32 @@ void main() {
     GoogleFonts.config.allowRuntimeFetching = originalFetching;
   });
 
-  Widget app() => MaterialApp(
-    theme: ThemeData(
-      fontFamily: 'Roboto',
-      textTheme: ThemeData().textTheme.apply(fontFamilyFallback: ['Roboto']),
+  // Three Coding courses so the carousel has its full three cards, plus one in
+  // each other skill so every chip prints a real count.
+  Widget app() => coursesTestScope(
+    api: FakeCourseApi(
+      catalogue: CoursePage(
+        count: 6,
+        courses: [
+          for (final row in [
+            skillRow(1, 'Python Basics', 'Coding'),
+            skillRow(2, 'Coding Patterns', 'Coding'),
+            skillRow(3, 'Coding Projects', 'Coding'),
+            skillRow(4, 'Sketching', 'Drawing'),
+            skillRow(5, 'Speaking', 'Public Speaking'),
+            skillRow(6, 'Rhythm', 'Music'),
+          ])
+            CourseMapper.summary(row),
+        ],
+      ),
     ),
-    home: const SkillCoursesPage(),
+    child: MaterialApp(
+      theme: ThemeData(
+        fontFamily: 'Roboto',
+        textTheme: ThemeData().textTheme.apply(fontFamilyFallback: ['Roboto']),
+      ),
+      home: const SkillCoursesPage(),
+    ),
   );
 
   for (final width in [360.0, 400.0]) {
@@ -92,6 +143,7 @@ void main() {
       await tester.binding.setSurfaceSize(Size(width, 900));
       addTearDown(() => tester.binding.setSurfaceSize(null));
       await tester.pumpWidget(app());
+      await tester.pump();
       await tester.tap(find.byTooltip('Search courses'));
       await tester.pumpAndSettle();
       expect(find.byType(SearchPage), findsOneWidget);
@@ -111,6 +163,7 @@ void main() {
       await tester.binding.setSurfaceSize(Size(width, 900));
       addTearDown(() => tester.binding.setSurfaceSize(null));
       await tester.pumpWidget(app());
+      await tester.pump();
       final lists = find.byType(ListView);
       expect(
         tester.widget<ListView>(lists.at(0)).padding,
@@ -136,4 +189,77 @@ void main() {
       await tester.pumpAndSettle();
     });
   }
+
+  group('categories the design did not name', () {
+    /// The builder offers all fifteen `LearningInterest` rows, so a course can
+    /// be published in a category that has no chip. Before the chips were
+    /// derived, that course was fetched, filtered out of every chip, and
+    /// reachable by nobody — the "I added a course and it is not in the app"
+    /// bug.
+    Widget appWith(List<Map<String, dynamic>> rows) => coursesTestScope(
+      api: FakeCourseApi(
+        catalogue: CoursePage(
+          count: rows.length,
+          courses: [for (final row in rows) CourseMapper.summary(row)],
+        ),
+      ),
+      child: MaterialApp(
+        theme: ThemeData(fontFamily: 'Roboto'),
+        home: const SkillCoursesPage(),
+      ),
+    );
+
+    testWidgets('a new category gets its own chip and is reachable', (
+      tester,
+    ) async {
+      await tester.binding.setSurfaceSize(const Size(360, 900));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+
+      await tester.pumpWidget(
+        appWith([
+          skillRow(1, 'Python Basics', 'Coding'),
+          skillRow(2, 'Morning Flow', 'Yoga'),
+        ]),
+      );
+      await tester.pumpAndSettle();
+
+      // The four design chips are still there, and the new one follows them.
+      expect(find.text('Coding'), findsOneWidget);
+      final chips = find.byType(ListView).first;
+      await tester.drag(chips, const Offset(-400, 0));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Yoga'), findsOneWidget);
+      await tester.tap(find.text('Yoga'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Morning Flow'), findsWidgets);
+      expect(find.text('Python Basics'), findsNothing);
+    });
+
+    testWidgets('a course with no category lands in Other, not nowhere', (
+      tester,
+    ) async {
+      await tester.binding.setSurfaceSize(const Size(360, 900));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+
+      await tester.pumpWidget(
+        appWith([
+          skillRow(1, 'Python Basics', 'Coding'),
+          skillRow(2, 'Unfiled Course', ''),
+        ]),
+      );
+      await tester.pumpAndSettle();
+
+      final chips = find.byType(ListView).first;
+      await tester.drag(chips, const Offset(-400, 0));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Other'), findsOneWidget);
+      await tester.tap(find.text('Other'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Unfiled Course'), findsWidgets);
+    });
+  });
 }

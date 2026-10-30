@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:skillsikka/core/network/api_client.dart';
+import 'package:skillsikka/core/network/api_error.dart';
 import 'package:skillsikka/features/courses/data/course_summary.dart';
 import 'package:skillsikka/features/courses/data/my_courses_api.dart';
 import 'package:skillsikka/features/profile/data/profile_role.dart';
@@ -18,14 +19,38 @@ class _FakeCourses implements MyCoursesApi {
   final List<CourseSummary> courses;
   int calls = 0;
 
+  /// Every course the grid asked to take down, in order.
+  final List<int> unpublished = [];
+  final List<int> deleted = [];
+
+  /// Set to make the next mutation throw, the way a 403 from the server would.
+  bool failMutation = false;
+
   @override
   Future<List<CourseSummary>> list(String instructorId) async {
     calls += 1;
     return courses;
   }
+
+  @override
+  Future<void> unpublish(int courseId) async {
+    if (failMutation) {
+      throw const ApiException(kind: ApiErrorKind.unknown, statusCode: 403);
+    }
+    unpublished.add(courseId);
+  }
+
+  @override
+  Future<void> delete(int courseId) async {
+    if (failMutation) {
+      throw const ApiException(kind: ApiErrorKind.unknown, statusCode: 403);
+    }
+    deleted.add(courseId);
+  }
 }
 
-const _draft = CourseSummary(  id: 1,
+const _draft = CourseSummary(
+  id: 1,
   title: 'Digital Illustration',
   isPublished: false,
   isPaid: false,
@@ -39,7 +64,8 @@ const _live = CourseSummary(
   price: '1299.00',
 );
 
-Widget _app(_FakeCourses api) => ProviderScope(  overrides: [
+Widget _app(_FakeCourses api) => ProviderScope(
+  overrides: [
     myCoursesApiProvider.overrideWithValue(api),
     userProfileProvider.overrideWith(
       (ref) => UserProfileNotifier()
@@ -101,6 +127,36 @@ void main() {
     });
   });
 
+  group('MyCoursesApi writes', () {
+    /// The body matters as much as the verb: `{"is_published": false}` is the
+    /// only thing the server reads, and a misspelt key would answer 200 while
+    /// changing nothing.
+    test('unpublish PATCHes is_published false on that course', () async {
+      final adapter = _StubAdapter([
+        jsonEncode({'id': 2, 'is_published': false}),
+      ]);
+      final dio = Dio(BaseOptions(baseUrl: 'http://test/api/v1/'))
+        ..httpClientAdapter = adapter;
+
+      await MyCoursesApi(ApiClient(dio)).unpublish(2);
+
+      expect(adapter.methods, ['PATCH']);
+      expect(adapter.urls.single.path, '/api/v1/courses/2/');
+      expect(adapter.payloads.single, {'is_published': false});
+    });
+
+    test('delete DELETEs the course', () async {
+      final adapter = _StubAdapter(['']);
+      final dio = Dio(BaseOptions(baseUrl: 'http://test/api/v1/'))
+        ..httpClientAdapter = adapter;
+
+      await MyCoursesApi(ApiClient(dio)).delete(2);
+
+      expect(adapter.methods, ['DELETE']);
+      expect(adapter.urls.single.path, '/api/v1/courses/2/');
+    });
+  });
+
   testWidgets('the grid shows the instructor\'s real courses', (tester) async {
     await tester.binding.setSurfaceSize(const Size(360, 900));
     addTearDown(() => tester.binding.setSurfaceSize(null));
@@ -140,6 +196,102 @@ void main() {
     expect(find.text('Free'), findsOneWidget);
     expect(find.text('Rs 1,299'), findsOneWidget);
   });
+
+  group('the ⋯ on a course card', () {
+    /// Two cards, so the menu is opened by position: `_courseTiles` keeps the
+    /// server's order, which is `[_draft, _live]`.
+    Future<void> openMenu(WidgetTester tester, int index) async {
+      await tester.tap(find.byIcon(Icons.more_horiz).at(index));
+      await tester.pumpAndSettle();
+    }
+
+    Future<_FakeCourses> pump(WidgetTester tester) async {
+      await tester.binding.setSurfaceSize(const Size(360, 900));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+      final api = _FakeCourses(const [_draft, _live]);
+      await tester.pumpWidget(_app(api));
+      await tester.pumpAndSettle();
+      return api;
+    }
+
+    testWidgets('offers Unpublish only where there is something to take down', (
+      tester,
+    ) async {
+      await pump(tester);
+
+      await openMenu(tester, 0); // the draft
+      expect(find.text('Delete course'), findsOneWidget);
+      // Publishing from the grid would bypass the builder's readiness gate.
+      expect(find.text('Unpublish'), findsNothing);
+      expect(find.text('Publish'), findsNothing);
+      await tester.tapAt(const Offset(10, 10));
+      await tester.pumpAndSettle();
+
+      await openMenu(tester, 1); // the live course
+      expect(find.text('Unpublish'), findsOneWidget);
+      expect(find.text('Delete course'), findsOneWidget);
+    });
+
+    testWidgets('Unpublish takes the course down and reloads the shelf', (
+      tester,
+    ) async {
+      final api = await pump(tester);
+      final before = api.calls;
+
+      await openMenu(tester, 1);
+      await tester.tap(find.text('Unpublish'));
+      await tester.pumpAndSettle();
+
+      expect(api.unpublished, [2]);
+      expect(api.deleted, isEmpty);
+      // The grid is the only place a course's state is visible, so a stale
+      // list would keep showing LIVE on a course that is now a draft.
+      expect(api.calls, greaterThan(before));
+      expect(find.textContaining('is now a draft'), findsOneWidget);
+    });
+
+    testWidgets('Delete names the course and does nothing until confirmed', (
+      tester,
+    ) async {
+      final api = await pump(tester);
+
+      await openMenu(tester, 1);
+      await tester.tap(find.text('Delete course'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Delete “Portrait Lighting”?'), findsOneWidget);
+
+      await tester.tap(find.text('Keep it'));
+      await tester.pumpAndSettle();
+      expect(api.deleted, isEmpty);
+
+      await openMenu(tester, 1);
+      await tester.tap(find.text('Delete course'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Delete'));
+      await tester.pumpAndSettle();
+
+      expect(api.deleted, [2]);
+      expect(api.unpublished, isEmpty);
+    });
+
+    testWidgets('a refused mutation says so and leaves the shelf alone', (
+      tester,
+    ) async {
+      final api = await pump(tester);
+      api.failMutation = true;
+      final before = api.calls;
+
+      await openMenu(tester, 1);
+      await tester.tap(find.text('Unpublish'));
+      await tester.pumpAndSettle();
+
+      expect(api.unpublished, isEmpty);
+      // No refresh: the list did not change, so re-fetching would only flicker.
+      expect(api.calls, before);
+      expect(find.byType(SnackBar), findsOneWidget);
+    });
+  });
 }
 
 /// A `GET /courses/` row, in the server's own field names.
@@ -159,6 +311,8 @@ class _StubAdapter implements HttpClientAdapter {
 
   final List<String> bodies;
   final List<Uri> urls = [];
+  final List<String> methods = [];
+  final List<Object?> payloads = [];
 
   @override
   Future<ResponseBody> fetch(
@@ -167,6 +321,8 @@ class _StubAdapter implements HttpClientAdapter {
     Future<void>? cancelFuture,
   ) async {
     urls.add(options.uri);
+    methods.add(options.method);
+    payloads.add(options.data);
     final body = bodies[(urls.length - 1).clamp(0, bodies.length - 1)];
     return ResponseBody.fromString(
       body,

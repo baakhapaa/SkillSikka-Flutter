@@ -219,6 +219,19 @@ class PickedCover {
   final String fileName;
 }
 
+/// One file in a **batch** upload — a worksheet, a template, a starter pack.
+///
+/// Same reasoning as [PickedCover]: the bytes travel with the name, because the
+/// server infers the content type from the extension. Separate type because a
+/// batch is what `POST /courses/{id}/assets/` takes under `files`, and reusing
+/// the cover type would suggest a course may have several covers.
+class PickedFile {
+  const PickedFile({required this.bytes, required this.fileName});
+
+  final Uint8List bytes;
+  final String fileName;
+}
+
 /// The whole editable course.
 class CourseDraft {
   const CourseDraft({
@@ -317,6 +330,28 @@ class CourseDraft {
   bool get hasEveryDuration => modules.every(
     (module) => module.lessons.every((l) => l.duration != null),
   );
+
+  /// Whether another module already carries [title].
+  ///
+  /// **This is a real constraint, not a style rule.** The server has no module
+  /// table — a module survives only as the `section` string every one of its
+  /// lessons carries. Two modules named the same therefore reload as one, and
+  /// the instructor's curriculum silently loses a divider. Keeping names unique
+  /// on this side is what makes the storage shape safe; nothing server-side can
+  /// enforce it.
+  ///
+  /// Case- and whitespace-insensitive, because "Foundations" and "foundations "
+  /// are the same section once the server trims and stores them. [exceptKey]
+  /// lets a rename keep its own name.
+  bool hasModuleTitle(String title, {String? exceptKey}) {
+    final wanted = title.trim().toLowerCase();
+    if (wanted.isEmpty) return false;
+    for (final module in modules) {
+      if (module.key == exceptKey) continue;
+      if (module.title.trim().toLowerCase() == wanted) return true;
+    }
+    return false;
+  }
 
   double? get parsedPrice {
     final cleaned = price.replaceAll(',', '').trim();

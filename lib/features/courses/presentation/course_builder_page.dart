@@ -1,8 +1,12 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 import '../../../core/network/api_error.dart';
 import '../../../core/widgets/api_error_snack.dart';
+import '../../../core/widgets/course_detail_view.dart'
+    show CourseResource, CourseResourceType;
 import '../data/course_builder_api.dart';
 import '../data/course_draft.dart';
 import 'widgets/course_basics_step.dart';
@@ -38,6 +42,7 @@ class CourseBuilderPage extends StatefulWidget {
     this.courseId,
     this.categoryOptions = const <(int, String)>[],
     this.pickCover,
+    this.pickResources,
   });
 
   final CourseBuilderApi api;
@@ -60,6 +65,13 @@ class CourseBuilderPage extends StatefulWidget {
   /// an injection point the whole cover path — pick, preview, upload, patch —
   /// would be unreachable by a test. Null means the real picker.
   final Future<PickedCover?> Function()? pickCover;
+
+  /// Overrides the OS file picker for **course-wide** resources.
+  ///
+  /// A separate seam from [pickCover] because it answers several files, and a
+  /// single `PickedCover` cannot express a pick of five worksheets. Null means
+  /// the real picker.
+  final Future<List<PickedFile>?> Function()? pickResources;
 
   @override
   State<CourseBuilderPage> createState() => _CourseBuilderPageState();
@@ -103,6 +115,16 @@ class _CourseBuilderPageState extends State<CourseBuilderPage> {
   /// reference check it replaces. The draft's `copyWith` carries the same
   /// instance through, so the reference survives edits to other fields.
   PickedCover? _uploadedCover;
+
+  /// The course's **own** files — the ones that belong to no lesson.
+  ///
+  /// The player's Resources tab shows a file on every lesson when its `lesson`
+  /// is null, so this is the course-wide pack: a syllabus, a reading list, a
+  /// starter repository. Per-lesson files are attached in the lesson sheet and
+  /// are deliberately not listed here — one row would then appear twice.
+  List<CourseResource> _courseResources = const [];
+  bool _resourcesLoading = false;
+  bool _resourcesUploading = false;
 
   /// Reference lists for an academic course, fetched the first time the user
   /// switches the type. Loading them at open would cost two requests for a path
@@ -197,12 +219,135 @@ class _CourseBuilderPageState extends State<CourseBuilderPage> {
       }
       _adopt(loaded);
       setState(() => _loading = false);
+      // After the draft, not before: the resources request is the one that can
+      // fail without the course being unusable, and a slow one must not hold up
+      // the form the instructor came here to edit.
+      unawaited(_loadResources(courseId));
     } on ApiException catch (error) {
       if (!mounted) return;
       setState(() {
         _loading = false;
         _loadError = error.displayMessage;
       });
+    }
+  }
+
+  /// `GET /courses/{id}/resources/`, narrowed to the course-wide rows.
+  ///
+  /// Silent on failure, like the profile grid's course fetch: the builder is
+  /// perfectly usable without this list, and a course with no files is the
+  /// normal case. A second visit retries.
+  ///
+  /// **Only `lesson == null` rows.** Per-lesson files belong to the lesson
+  /// sheet; listing them here would show one file in two places and let the
+  /// instructor delete a lesson's worksheet from a screen that never mentions
+  /// the lesson.
+  Future<void> _loadResources(int courseId) async {
+    if (_resourcesLoading) return;
+    setState(() => _resourcesLoading = true);
+    try {
+      final resources = await widget.api.listResources(courseId);
+      if (!mounted) return;
+      setState(() {
+        _courseResources = [
+          for (final resource in resources)
+            if (resource.lessonId == null) resource,
+        ];
+        _resourcesLoading = false;
+      });
+    } on ApiException {
+      if (mounted) setState(() => _resourcesLoading = false);
+    }
+  }
+
+  /// Picks files, uploads them **in one request**, then writes one row each.
+  ///
+  /// Upload first, row second — the same order the lesson sheet uses, and for
+  /// the same reason: a row needs a URL, and a URL only exists once the bytes
+  /// have landed. A file the server refused gets no row, and the message counts
+  /// the refusals rather than pretending the whole pick failed.
+  Future<void> _addCourseResources() async {
+    final courseId = _draft.value.id;
+    if (courseId == null) {
+      _snack('Save the course details first.');
+      return;
+    }
+    final pick = widget.pickResources ?? pickResourceFiles;
+    final picked = await pick();
+    if (picked == null || picked.isEmpty || !mounted) return;
+
+    setState(() => _resourcesUploading = true);
+    try {
+      final urls = await widget.api.uploadCourseAssets(
+        courseId: courseId,
+        kind: 'resource',
+        files: picked,
+      );
+      final added = <CourseResource>[];
+      for (var index = 0; index < picked.length; index++) {
+        final url = index < urls.length ? urls[index] : null;
+        if (url == null) continue;
+        final file = picked[index];
+        final id = await widget.api.createResource(
+          courseId: courseId,
+          title: file.fileName,
+          fileUrl: url,
+          fileFormat: resourceFormatOf(file.fileName),
+          order: _courseResources.length + added.length,
+        );
+        added.add(
+          CourseResource(
+            file.fileName,
+            CourseResourceType.fromFormat(resourceFormatOf(file.fileName)),
+            id: id,
+            url: url,
+          ),
+        );
+      }
+      if (!mounted) return;
+      setState(() => _courseResources = [..._courseResources, ...added]);
+      if (added.length < picked.length) {
+        _snack(
+          added.isEmpty
+              ? 'Those files were not accepted.'
+              : '${picked.length - added.length} of ${picked.length} files '
+                    'were not accepted.',
+        );
+      }
+    } on ApiException catch (error) {
+      if (mounted) showApiErrorSnack(context, error);
+    } finally {
+      if (mounted) setState(() => _resourcesUploading = false);
+    }
+  }
+
+  /// Deletes one course-wide file, row and all.
+  ///
+  /// The row goes first in the UI only after the server agrees: removing it
+  /// locally on a failed DELETE would leave a file the instructor believes they
+  /// deleted still showing to every student.
+  Future<void> _removeCourseResource(CourseResource resource) async {
+    final courseId = _draft.value.id;
+    final resourceId = resource.id;
+    if (courseId == null || resourceId == null) return;
+
+    setState(() => _resourcesUploading = true);
+    try {
+      await widget.api.deleteResource(
+        courseId: courseId,
+        resourceId: resourceId,
+      );
+      if (!mounted) return;
+      setState(() {
+        _courseResources = [
+          for (final row in _courseResources)
+            if (row.id != resourceId) row,
+        ];
+      });
+    } on ApiException catch (error) {
+      if (mounted) showApiErrorSnack(context, error);
+    } finally {
+      if (mounted) setState(() => _resourcesUploading = false);
     }
   }
 
@@ -518,6 +663,11 @@ class _CourseBuilderPageState extends State<CourseBuilderPage> {
   /// It used to create "New module" and leave renaming to the ⋯ menu, which
   /// meant every course started with a placeholder nobody had chosen — and the
   /// first thing an instructor did was rename it anyway.
+  ///
+  /// **The name must be unique**, and that is not cosmetic: a module exists on
+  /// the server only as the `section` string its lessons carry, so two modules
+  /// called "Foundations" reload as one. The instructor would then lose a
+  /// divider they had drawn, with nothing on screen explaining it.
   Future<void> _addModule() async {
     final title = await PromptDialog.show(
       context,
@@ -527,6 +677,11 @@ class _CourseBuilderPageState extends State<CourseBuilderPage> {
       confirmLabel: 'Add',
     );
     if (title == null || !mounted) return;
+
+    if (_draft.value.hasModuleTitle(title)) {
+      _snack('There is already a module called “$title”. Pick another name.');
+      return;
+    }
 
     final modules = [..._draft.value.modules];
     modules.add(
@@ -538,7 +693,16 @@ class _CourseBuilderPageState extends State<CourseBuilderPage> {
     _write(_draft.value.copyWith(modules: modules));
   }
 
+  /// Renames a module, refusing a name another module already has.
+  ///
+  /// Silently allowing the duplicate is what makes a curriculum quietly lose a
+  /// divider on the next load — see [_addModule]. Renaming a module to its own
+  /// current name stays allowed, which is what [exceptKey] is for.
   void _renameModule(String moduleKey, String title) {
+    if (_draft.value.hasModuleTitle(title, exceptKey: moduleKey)) {
+      _snack('There is already a module called “$title”. Pick another name.');
+      return;
+    }
     final modules = [
       for (final module in _draft.value.modules)
         module.key == moduleKey ? module.copyWith(title: title) : module,
@@ -592,10 +756,10 @@ class _CourseBuilderPageState extends State<CourseBuilderPage> {
         bytes: bytes,
         fileName: fileName,
       ),
-      onUploadResource: (bytes, fileName) => widget.api.uploadResourceAsset(
+      onUploadResources: (files) => widget.api.uploadCourseAssets(
         courseId: id,
-        bytes: bytes,
-        fileName: fileName,
+        kind: 'resource',
+        files: files,
       ),
     );
     if (result is! LessonSaved || !mounted) return;
@@ -681,10 +845,10 @@ class _CourseBuilderPageState extends State<CourseBuilderPage> {
         bytes: bytes,
         fileName: fileName,
       ),
-      onUploadResource: (bytes, fileName) => widget.api.uploadResourceAsset(
+      onUploadResources: (files) => widget.api.uploadCourseAssets(
         courseId: courseId,
-        bytes: bytes,
-        fileName: fileName,
+        kind: 'resource',
+        files: files,
       ),
     );
     if (result == null || !mounted) return;
@@ -876,6 +1040,11 @@ class _CourseBuilderPageState extends State<CourseBuilderPage> {
           priceController: _price,
           onEditStep: (step) => setState(() => _step = step),
           onEdited: () => _dirty = true,
+          resources: _courseResources,
+          resourcesLoading: _resourcesLoading,
+          resourcesUploading: _resourcesUploading,
+          onAddResources: _addCourseResources,
+          onRemoveResource: _removeCourseResource,
         );
       default:
         return CourseBasicsStep(

@@ -1,9 +1,11 @@
 import 'dart:convert';
 import 'dart:typed_data';
 
+import 'package:dio/dio.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:skillsikka/core/network/api_client.dart';
 import 'package:skillsikka/core/network/api_error.dart';
 import 'package:skillsikka/features/courses/data/course_builder_api.dart';
 import 'package:skillsikka/features/courses/data/course_draft.dart';
@@ -11,6 +13,8 @@ import 'package:skillsikka/features/courses/presentation/course_builder_page.dar
 import 'package:skillsikka/features/courses/presentation/widgets/course_basics_step.dart';
 import 'package:skillsikka/features/courses/presentation/widgets/lesson_editor_sheet.dart';
 import 'package:skillsikka/features/courses/presentation/widgets/prompt_dialog.dart';
+import 'package:skillsikka/core/widgets/course_detail_view.dart'
+    show CourseResource, CourseResourceType;
 import 'package:skillsikka/core/widgets/upload_card.dart';
 
 /// Returns whatever files a test hands it, so the sheet's **Attach resources**
@@ -116,7 +120,12 @@ class _FakeCourseApi implements CourseBuilderApi {
   Future<void> deleteLesson(int lessonId) async => deletedLessons.add(lessonId);
 
   @override
-  Future<CourseDraft?> loadCourse(int courseId) async => null;
+  Future<CourseDraft?> loadCourse(int courseId) async => loaded;
+
+  /// What `loadCourse` answers. Null (the default) is "not available", which is
+  /// what a fresh builder never hits; the resources tests open an existing
+  /// course and need a real draft.
+  CourseDraft? loaded;
 
   int uploads = 0;
   bool failUpload = false;
@@ -186,6 +195,57 @@ class _FakeCourseApi implements CourseBuilderApi {
     return 'https://example.com/resources/$fileName';
   }
 
+  /// Every batch that went up — one entry per **request**, not per file, which
+  /// is the property that made this a batch in the first place.
+  final List<({int courseId, String kind, List<String> fileNames})> batches =
+      [];
+
+  /// Filenames the fake server refuses, per batch.
+  final Set<String> refuse = {};
+
+  @override
+  Future<List<String?>> uploadCourseAssets({
+    required int courseId,
+    required String kind,
+    required List<PickedFile> files,
+    void Function(int sent, int total)? onProgress,
+  }) async {
+    batches.add((
+      courseId: courseId,
+      kind: kind,
+      fileNames: [for (final file in files) file.fileName],
+    ));
+    if (failResource) {
+      throw const ApiException(kind: ApiErrorKind.unknown, statusCode: 400);
+    }
+    return [
+      for (final file in files)
+        refuse.contains(file.fileName)
+            ? null
+            : 'https://example.com/resources/${file.fileName}',
+    ];
+  }
+
+  /// Course-wide rows the page will read back on open.
+  List<CourseResource> resources = const [];
+  int resourceLoads = 0;
+
+  @override
+  Future<List<CourseResource>> listResources(int courseId) async {
+    resourceLoads += 1;
+    return resources;
+  }
+
+  final List<int> deletedResources = [];
+
+  @override
+  Future<void> deleteResource({
+    required int courseId,
+    required int resourceId,
+  }) async {
+    deletedResources.add(resourceId);
+  }
+
   @override
   Future<int> createResource({
     required int courseId,
@@ -205,12 +265,6 @@ class _FakeCourseApi implements CourseBuilderApi {
     ));
     return _nextId++;
   }
-
-  @override
-  Future<void> deleteResource({
-    required int courseId,
-    required int resourceId,
-  }) async {}
 
   @override
   Future<String> uploadCourseAsset({
@@ -252,8 +306,49 @@ class _FakeCourseApi implements CourseBuilderApi {
   ];
 }
 
-Widget _app(_FakeCourseApi api, {bool verified = true}) => MaterialApp(
-  home: CourseBuilderPage(api: api, instructorVerified: verified),
+/// Answers each request with the next canned JSON body.
+///
+/// Used only by the batch-upload group: every other test drives the page
+/// through `_FakeCourseApi`, which is about call order, not about parsing.
+class _StubAdapter implements HttpClientAdapter {
+  _StubAdapter(this.bodies);
+
+  final List<String> bodies;
+  final List<Uri> urls = [];
+
+  @override
+  Future<ResponseBody> fetch(
+    RequestOptions options,
+    Stream<Uint8List>? requestStream,
+    Future<void>? cancelFuture,
+  ) async {
+    urls.add(options.uri);
+    final body = bodies[(urls.length - 1).clamp(0, bodies.length - 1)];
+    return ResponseBody.fromString(
+      body,
+      201,
+      headers: {
+        Headers.contentTypeHeader: [Headers.jsonContentType],
+      },
+    );
+  }
+
+  @override
+  void close({bool force = false}) {}
+}
+
+Widget _app(
+  _FakeCourseApi api, {
+  bool verified = true,
+  int? courseId,
+  Future<List<PickedFile>?> Function()? pickResources,
+}) => MaterialApp(
+  home: CourseBuilderPage(
+    api: api,
+    instructorVerified: verified,
+    courseId: courseId,
+    pickResources: pickResources,
+  ),
 );
 
 /// Types into the title field, which is the only required field on step 1.
@@ -459,7 +554,12 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(picker.lastAllowMultiple, isTrue);
-    expect(api.resourceUploads, hasLength(2));
+    // **One request for the pick**, not one per file — the whole point of the
+    // batch endpoint. `resourceUploads` (the single-file path) must stay empty.
+    expect(api.batches, hasLength(1));
+    expect(api.batches.single.kind, 'resource');
+    expect(api.batches.single.fileNames, ['worksheet.pdf', 'template.xlsx']);
+    expect(api.resourceUploads, isEmpty);
     expect(
       api.createdResources,
       isEmpty,
@@ -485,12 +585,14 @@ void main() {
     );
   });
 
-  testWidgets('a failed resource upload keeps the lesson saveable', (
-    tester,
-  ) async {
+  testWidgets('a refused resource keeps the lesson saveable', (tester) async {
     // Losing a lesson because a spreadsheet was too big would be the worse
-    // outcome; the sheet reports the file and lets the save through.
-    final api = _FakeCourseApi()..failResource = true;
+    // outcome; the sheet names the file and lets the save through.
+    //
+    // Refused, not failed: the server answers one null per file it would not
+    // take, so the rest of the batch still attaches. A whole-batch failure is
+    // the other test below.
+    final api = _FakeCourseApi()..refuse.add('huge.zip');
     FilePicker.platform = _FakeFilePicker(
       FilePickerResult([
         PlatformFile(
@@ -1131,5 +1233,307 @@ void main() {
         expect(draft.modules[0].lessons, hasLength(2));
       },
     );
+  });
+
+  group('module names must be unique', () {
+    test('hasModuleTitle ignores case and surrounding space', () {
+      final draft = const CourseDraft().copyWith(
+        modules: const [
+          CourseModule(key: 'a', title: 'Foundations'),
+          CourseModule(key: 'b', title: 'Practice'),
+        ],
+      );
+
+      expect(draft.hasModuleTitle('Foundations'), isTrue);
+      expect(draft.hasModuleTitle('  foundations '), isTrue);
+      expect(draft.hasModuleTitle('PRACTICE'), isTrue);
+      expect(draft.hasModuleTitle('Wrap up'), isFalse);
+      // A blank name is not a name, so it never collides.
+      expect(draft.hasModuleTitle('   '), isFalse);
+    });
+
+    test('hasModuleTitle can skip the module being renamed', () {
+      final draft = const CourseDraft().copyWith(
+        modules: const [CourseModule(key: 'a', title: 'Foundations')],
+      );
+
+      expect(draft.hasModuleTitle('Foundations', exceptKey: 'a'), isFalse);
+      expect(draft.hasModuleTitle('Foundations', exceptKey: 'b'), isTrue);
+    });
+
+    testWidgets('a second module cannot take a name already in use', (
+      tester,
+    ) async {
+      await tester.pumpWidget(_app(_FakeCourseApi()));
+      await _title(tester, 'Illustration');
+      await tester.tap(find.text('Continue'));
+      await tester.pumpAndSettle();
+      await _addModule(tester, 'Foundations');
+
+      // The second one asks for a name and is refused, with the reason.
+      await tester.tap(find.text('Add module'));
+      await tester.pumpAndSettle();
+      await tester.enterText(
+        find.descendant(
+          of: find.byType(PromptDialog),
+          matching: find.byType(TextField),
+        ),
+        'foundations',
+      );
+      await tester.tap(find.text('Add'));
+      await tester.pumpAndSettle();
+
+      expect(find.textContaining('already a module called'), findsOneWidget);
+      // Still one module, not two that would reload as one.
+      expect(find.text('Foundations'), findsOneWidget);
+    });
+
+    testWidgets('renaming onto an existing name is refused', (tester) async {
+      await tester.pumpWidget(_app(_FakeCourseApi()));
+      await _title(tester, 'Illustration');
+      await tester.tap(find.text('Continue'));
+      await tester.pumpAndSettle();
+      await _addModule(tester, 'Foundations');
+      await tester.tap(find.text('Add module'));
+      await tester.pumpAndSettle();
+      await tester.enterText(
+        find.descendant(
+          of: find.byType(PromptDialog),
+          matching: find.byType(TextField),
+        ),
+        'Practice',
+      );
+      await tester.tap(find.text('Add'));
+      await tester.pumpAndSettle();
+
+      // Rename the first module onto the second one's name.
+      await tester.tap(find.byIcon(Icons.more_horiz).first);
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Rename module'));
+      await tester.pumpAndSettle();
+      await tester.enterText(
+        find.descendant(
+          of: find.byType(PromptDialog),
+          matching: find.byType(TextField),
+        ),
+        'Practice',
+      );
+      await tester.tap(find.text('Save'));
+      await tester.pumpAndSettle();
+
+      expect(find.textContaining('already a module called'), findsOneWidget);
+      // The old name survives, and `Practice` still names exactly one module.
+      expect(find.text('Foundations'), findsOneWidget);
+      expect(find.text('Practice'), findsOneWidget);
+    });
+  });
+
+  group('course resources', () {
+    /// Opens the builder on an existing course and walks to step 3.
+    ///
+    /// Step 3 is where a course-wide file is attached: it is not part of the
+    /// lesson order, so it has no place in the curriculum.
+    Future<void> openPublish(
+      WidgetTester tester,
+      _FakeCourseApi api, {
+      Future<List<PickedFile>?> Function()? pick,
+    }) async {
+      await tester.pumpWidget(_app(api, courseId: 5, pickResources: pick));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Continue'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Continue'));
+      await tester.pumpAndSettle();
+    }
+
+    Future<void> revealAttach(WidgetTester tester, String label) async {
+      await tester.scrollUntilVisible(
+        find.text(label),
+        200,
+        scrollable: find.byType(Scrollable).first,
+      );
+      await tester.pumpAndSettle();
+    }
+
+    _FakeCourseApi loadedCourse() => _FakeCourseApi()
+      ..loaded = const CourseDraft(
+        id: 5,
+        title: 'Illustration',
+        description: 'Draw things.',
+      );
+
+    testWidgets('lists the course-wide files, never a lesson\'s', (
+      tester,
+    ) async {
+      final api = loadedCourse()
+        ..resources = [
+          const CourseResource(
+            'Syllabus',
+            CourseResourceType.pdf,
+            id: 1,
+            url: 'https://example.com/syllabus.pdf',
+          ),
+          // A lesson's file. Listing it here would show one row in two places
+          // and let it be deleted from a screen that never names the lesson.
+          const CourseResource(
+            'Worksheet',
+            CourseResourceType.pdf,
+            id: 2,
+            url: 'https://example.com/worksheet.pdf',
+            lessonId: 7,
+          ),
+        ];
+
+      await openPublish(tester, api);
+      await revealAttach(tester, 'Syllabus');
+
+      expect(api.resourceLoads, 1);
+      expect(find.text('Syllabus'), findsOneWidget);
+      expect(find.text('Worksheet'), findsNothing);
+    });
+
+    testWidgets('attaching files is one request and one row per file', (
+      tester,
+    ) async {
+      final api = loadedCourse();
+      final picked = [
+        PickedFile(bytes: Uint8List.fromList([1]), fileName: 'syllabus.pdf'),
+        PickedFile(bytes: Uint8List.fromList([2]), fileName: 'starter.zip'),
+      ];
+
+      await openPublish(tester, api, pick: () async => picked);
+      await revealAttach(tester, 'Attach files');
+      await tester.tap(find.text('Attach files'));
+      await tester.pumpAndSettle();
+
+      expect(api.batches, hasLength(1));
+      expect(api.batches.single.kind, 'resource');
+      expect(api.batches.single.fileNames, ['syllabus.pdf', 'starter.zip']);
+      expect(api.createdResources, hasLength(2));
+      // Course-wide, so the player shows them under every lesson.
+      expect(api.createdResources.every((r) => r.lessonId == null), isTrue);
+      expect(api.createdResources.map((r) => r.fileFormat), ['pdf', 'zip']);
+      expect(find.text('syllabus.pdf'), findsOneWidget);
+    });
+
+    testWidgets('a refused file gets no row, and the rest still attach', (
+      tester,
+    ) async {
+      final api = loadedCourse()..refuse.add('huge.zip');
+      final picked = [
+        PickedFile(bytes: Uint8List.fromList([1]), fileName: 'syllabus.pdf'),
+        PickedFile(bytes: Uint8List.fromList([2]), fileName: 'huge.zip'),
+      ];
+
+      await openPublish(tester, api, pick: () async => picked);
+      await revealAttach(tester, 'Attach files');
+      await tester.tap(find.text('Attach files'));
+      await tester.pumpAndSettle();
+
+      expect(api.createdResources, hasLength(1));
+      expect(api.createdResources.single.title, 'syllabus.pdf');
+      expect(find.textContaining('not accepted'), findsOneWidget);
+    });
+
+    testWidgets('removing a course file deletes its row', (tester) async {
+      final api = loadedCourse()
+        ..resources = [
+          const CourseResource(
+            'Syllabus',
+            CourseResourceType.pdf,
+            id: 11,
+            url: 'https://example.com/syllabus.pdf',
+          ),
+        ];
+
+      await openPublish(tester, api);
+      await revealAttach(tester, 'Syllabus');
+      await tester.tap(find.byIcon(Icons.close));
+      await tester.pumpAndSettle();
+
+      expect(api.deletedResources, [11]);
+      expect(find.text('Syllabus'), findsNothing);
+    });
+  });
+
+  group('CourseBuilderApi.uploadCourseAssets', () {
+    /// One request, one JSON answer — the wire shape the server documents:
+    /// `{"assets": [{url, path, kind, name, index}], "rejected": [...], "kind"}`.
+    Future<List<String?>> upload(List<String> bodies) async {
+      final adapter = _StubAdapter(bodies);
+      final dio = Dio(BaseOptions(baseUrl: 'http://test/api/v1/'))
+        ..httpClientAdapter = adapter;
+      return CourseBuilderApi(ApiClient(dio)).uploadCourseAssets(
+        courseId: 5,
+        kind: 'resource',
+        files: [
+          PickedFile(bytes: Uint8List.fromList([1]), fileName: 'a.pdf'),
+          PickedFile(bytes: Uint8List.fromList([2]), fileName: 'b.pdf'),
+          PickedFile(bytes: Uint8List.fromList([3]), fileName: 'big.zip'),
+        ],
+      );
+    }
+
+    test('maps by the index the server echoes, not by answer order', () async {
+      final urls = await upload([
+        jsonEncode({
+          'kind': 'resource',
+          // Deliberately out of order: a client that trusted the list order
+          // would hand `b.pdf`'s URL to `a.pdf`.
+          'assets': [
+            {
+              'url': 'https://x/b.pdf',
+              'path': 'p',
+              'kind': 'resource',
+              'index': 1,
+            },
+            {
+              'url': 'https://x/a.pdf',
+              'path': 'p',
+              'kind': 'resource',
+              'index': 0,
+            },
+          ],
+          'rejected': [
+            {'index': 2, 'name': 'big.zip', 'error': 'too big'},
+          ],
+        }),
+      ]);
+
+      expect(urls, ['https://x/a.pdf', 'https://x/b.pdf', null]);
+    });
+
+    test('the whole pick travels in one request', () async {
+      final adapter = _StubAdapter([
+        jsonEncode({'assets': [], 'rejected': [], 'kind': 'resource'}),
+      ]);
+      final dio = Dio(BaseOptions(baseUrl: 'http://test/api/v1/'))
+        ..httpClientAdapter = adapter;
+
+      await CourseBuilderApi(ApiClient(dio)).uploadCourseAssets(
+        courseId: 5,
+        kind: 'resource',
+        files: [
+          PickedFile(bytes: Uint8List.fromList([1]), fileName: 'a.pdf'),
+          PickedFile(bytes: Uint8List.fromList([2]), fileName: 'b.pdf'),
+        ],
+      );
+
+      expect(adapter.urls, hasLength(1));
+      expect(adapter.urls.single.path, '/api/v1/courses/5/assets/');
+    });
+
+    test('an empty pick makes no request at all', () async {
+      final adapter = _StubAdapter([jsonEncode({})]);
+      final dio = Dio(BaseOptions(baseUrl: 'http://test/api/v1/'))
+        ..httpClientAdapter = adapter;
+
+      final urls = await CourseBuilderApi(
+        ApiClient(dio),
+      ).uploadCourseAssets(courseId: 5, kind: 'resource', files: const []);
+
+      expect(urls, isEmpty);
+      expect(adapter.urls, isEmpty);
+    });
   });
 }

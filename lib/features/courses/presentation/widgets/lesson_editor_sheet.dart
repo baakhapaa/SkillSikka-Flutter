@@ -15,6 +15,63 @@ import '../../../../core/widgets/pressable_chip.dart';
 import '../../data/course_draft.dart';
 import 'builder_tokens.dart';
 
+/// What `kind=resource` accepts on the server
+/// (`CourseAssetUploadAPIView.RESOURCE_TYPES`). Kept in step with it rather
+/// than wider: a file the picker offers and the server refuses is a worse
+/// error than one the picker never showed.
+///
+/// Top-level rather than private to the sheet because the builder's
+/// course-wide attach block offers the same types — two lists would drift, and
+/// the second one to be forgotten is the one the server refuses.
+const kResourceExtensions = <String>[
+  'pdf',
+  'doc',
+  'docx',
+  'xls',
+  'xlsx',
+  'ppt',
+  'pptx',
+  'zip',
+  'csv',
+  'png',
+  'jpg',
+  'jpeg',
+  'svg',
+];
+
+/// The server's `file_format` vocabulary, from a file name.
+///
+/// Shared with the builder's course-wide attach block so both write the same
+/// string into `CourseResource.file_format` — the player groups by it, and a
+/// `jpeg` here against a `jpg` there would show two icons for one format.
+String resourceFormatOf(String fileName) {
+  final dot = fileName.lastIndexOf('.');
+  if (dot < 0 || dot == fileName.length - 1) return 'other';
+  final extension = fileName.substring(dot + 1).toLowerCase();
+  return extension == 'jpeg' ? 'jpg' : extension;
+}
+
+/// Opens the OS picker for resource files and answers their bytes.
+///
+/// The builder's course-wide section picks files without a lesson sheet around
+/// it, so the pick cannot live inside the sheet's state. Sizes are dropped
+/// here — that section does not record them — while the sheet keeps its own
+/// pick because a lesson's attachments do.
+Future<List<PickedFile>?> pickResourceFiles() async {
+  final result = await FilePicker.platform.pickFiles(
+    type: FileType.custom,
+    allowedExtensions: kResourceExtensions,
+    withData: true,
+    allowMultiple: true,
+  );
+  if (result == null || result.files.isEmpty) return null;
+  return [
+    for (final file in result.files)
+      if (file.bytes != null)
+        PickedFile(bytes: file.bytes!, fileName: file.name),
+  ];
+}
+
 /// What the sheet hands back.
 ///
 /// Delete is a result rather than a callback because the sheet is dismissed
@@ -67,7 +124,7 @@ class LessonEditorSheet extends StatefulWidget {
     super.key,
     this.initial,
     required this.onUpload,
-    this.onUploadResource,
+    this.onUploadResources,
   });
 
   final CourseLesson? initial;
@@ -80,18 +137,23 @@ class LessonEditorSheet extends StatefulWidget {
   /// inline message instead of closing over a lost lesson.
   final Future<String> Function(Uint8List bytes, String fileName) onUpload;
 
-  /// Uploads one **resource** file — the same route with `kind=resource`, which
-  /// is why it is a second callback rather than a second API client. Null hides
-  /// the attach block, which is what a caller with no course id gets.
-  final Future<String> Function(Uint8List bytes, String fileName)?
-  onUploadResource;
+  /// Uploads one **batch** of resource files — the same route with
+  /// `kind=resource`, which is why it is a second callback rather than a second
+  /// API client. Null hides the attach block, which is what a caller with no
+  /// course id gets.
+  ///
+  /// Takes the whole pick and answers one URL per file, null where the server
+  /// refused that file — a single request for a pick of five, which is what
+  /// stopped a resource-heavy course costing one round-trip per worksheet.
+  final Future<List<String?>> Function(List<PickedFile> files)?
+  onUploadResources;
 
   /// Opens the sheet and returns what the user did, or null for a dismissal.
   static Future<LessonSheetResult?> show(
     BuildContext context, {
     CourseLesson? initial,
     required Future<String> Function(Uint8List bytes, String fileName) onUpload,
-    Future<String> Function(Uint8List bytes, String fileName)? onUploadResource,
+    Future<List<String?>> Function(List<PickedFile> files)? onUploadResources,
   }) {
     return showModalBottomSheet<LessonSheetResult>(
       context: context,
@@ -103,7 +165,7 @@ class LessonEditorSheet extends StatefulWidget {
       builder: (context) => LessonEditorSheet(
         initial: initial,
         onUpload: onUpload,
-        onUploadResource: onUploadResource,
+        onUploadResources: onUploadResources,
       ),
     );
   }
@@ -411,75 +473,100 @@ class _LessonEditorSheetState extends State<LessonEditorSheet> {
     LessonKind.text => const [],
   };
 
-  /// What `kind=resource` accepts on the server
-  /// (`CourseAssetUploadAPIView.RESOURCE_TYPES`). Kept in step with it rather
-  /// than wider: a file the picker offers and the server refuses is a worse
-  /// error than one the picker never showed.
-  static const _resourceExtensions = [
-    'pdf',
-    'doc',
-    'docx',
-    'xls',
-    'xlsx',
-    'ppt',
-    'pptx',
-    'zip',
-    'csv',
-    'png',
-    'jpg',
-    'jpeg',
-    'svg',
-  ];
-
-  /// Uploads every picked resource, keeping the ones that succeeded.
+  /// Uploads every picked resource **in one request**, keeping the ones that
+  /// succeeded.
   ///
-  /// **One failure does not discard the rest.** A batch of five files where the
+  /// **One refusal does not discard the rest.** A batch of five files where the
   /// fourth is over the cap should leave four attached and say so, not make the
-  /// instructor pick all five again.
+  /// instructor pick all five again — which is why the callback answers one
+  /// entry per file rather than throwing for the whole pick.
   Future<void> _pickResources() async {
-    final upload = widget.onUploadResource;
+    final upload = widget.onUploadResources;
     if (upload == null || _uploadingResource) return;
     final result = await FilePicker.platform.pickFiles(
       type: FileType.custom,
-      allowedExtensions: _resourceExtensions,
+      allowedExtensions: kResourceExtensions,
       withData: true,
       allowMultiple: true,
     );
     if (result == null || result.files.isEmpty) return;
 
+    // A picked file whose bytes did not arrive is dropped before the upload, so
+    // the positions the server answers line up with this list rather than with
+    // the picker's. Sizes travel alongside for the same reason.
+    final picked = <PickedFile>[];
+    final sizes = <int?>[];
+    String? unreadable;
+    for (final file in result.files) {
+      final bytes = file.bytes;
+      if (bytes == null) {
+        unreadable = '${file.name} could not be read.';
+        continue;
+      }
+      picked.add(PickedFile(bytes: bytes, fileName: file.name));
+      sizes.add(file.size);
+    }
+    if (picked.isEmpty) {
+      setState(() => _error = unreadable);
+      return;
+    }
+
     setState(() {
       _uploadingResource = true;
       _error = null;
     });
+
+    List<String?> urls;
+    try {
+      urls = await upload(picked);
+    } on ApiException catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _uploadingResource = false;
+        _error = _uploadMessage(error);
+      });
+      return;
+    } on Object {
+      if (!mounted) return;
+      setState(() {
+        _uploadingResource = false;
+        _error = 'Those files did not upload.';
+      });
+      return;
+    }
+
+    if (!mounted) return;
     final added = <PendingResource>[];
-    String? failure;
-    for (final file in result.files) {
-      final bytes = file.bytes;
-      if (bytes == null) {
-        failure = '${file.name} could not be read.';
+    final refused = <String>[];
+    for (var index = 0; index < picked.length; index++) {
+      final url = index < urls.length ? urls[index] : null;
+      if (url == null) {
+        refused.add(picked[index].fileName);
         continue;
       }
-      try {
-        final url = await upload(bytes, file.name);
-        added.add(
-          PendingResource(
-            title: file.name,
-            url: url,
-            format: _formatOf(file.name),
-            sizeBytes: file.size,
-          ),
-        );
-      } on ApiException catch (error) {
-        failure = '${file.name}: ${_uploadMessage(error)}';
-      } on Object {
-        failure = '${file.name} did not upload.';
-      }
+      final file = picked[index];
+      added.add(
+        PendingResource(
+          title: file.fileName,
+          url: url,
+          format: _formatOf(file.fileName),
+          sizeBytes: sizes[index],
+        ),
+      );
     }
-    if (!mounted) return;
+
     setState(() {
       _uploadingResource = false;
       _attachments.addAll(added);
-      if (failure != null) _error = failure;
+      // Named, not counted: "one file was not accepted" makes the instructor
+      // re-check all five. The batch answers a null per position, so the sheet
+      // knows exactly which ones to blame.
+      if (refused.isNotEmpty) {
+        final verb = refused.length == 1 ? 'was' : 'were';
+        _error = '${refused.join(', ')} $verb not accepted.';
+      } else {
+        _error = unreadable;
+      }
     });
   }
 
@@ -487,12 +574,7 @@ class _LessonEditorSheetState extends State<LessonEditorSheet> {
   ///
   /// The picker filters to the same list, so this only ever sees known
   /// extensions; `other` is the honest fallback rather than a crash.
-  String _formatOf(String fileName) {
-    final dot = fileName.lastIndexOf('.');
-    if (dot < 0 || dot == fileName.length - 1) return 'other';
-    final extension = fileName.substring(dot + 1).toLowerCase();
-    return extension == 'jpeg' ? 'jpg' : extension;
-  }
+  String _formatOf(String fileName) => resourceFormatOf(fileName);
 
   String get _uploadTitle => switch (_kind) {
     LessonKind.video => 'Lesson video',
@@ -688,7 +770,7 @@ class _LessonEditorSheetState extends State<LessonEditorSheet> {
                         ),
                       ],
                     ),
-                    if (widget.onUploadResource != null) ...[
+                    if (widget.onUploadResources != null) ...[
                       const SizedBox(height: 16),
                       _buildAttachments(),
                     ],

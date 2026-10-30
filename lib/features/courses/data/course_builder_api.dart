@@ -3,7 +3,9 @@ import 'dart:typed_data';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/network/api_client.dart';
+import '../../../core/widgets/course_detail_view.dart' show CourseResource;
 import 'course_draft.dart';
+import 'course_resources_api.dart' show tryParseCourseResource;
 
 /// Writes for the course builder.
 ///
@@ -184,6 +186,64 @@ class CourseBuilderApi {
     fileName: fileName,
     onProgress: onProgress,
   );
+
+  /// `POST /courses/{id}/assets/` with `files` repeated — **one request for a
+  /// whole pick**, not one per file.
+  ///
+  /// Answers a list the same length as [files], position for position: the URL
+  /// the server stored, or null when that particular file was refused. The
+  /// server echoes an `index` with each asset precisely so this mapping needs no
+  /// guesswork about duplicate filenames.
+  ///
+  /// **A refusal is per file, not per batch.** Five worksheets where the fourth
+  /// is over the 25 MB cap come back as four URLs and one null, which is what
+  /// lets the sheet keep what worked and name what did not.
+  Future<List<String?>> uploadCourseAssets({
+    required int courseId,
+    required String kind,
+    required List<PickedFile> files,
+    void Function(int sent, int total)? onProgress,
+  }) async {
+    if (files.isEmpty) return const <String?>[];
+    final body = await _client.postMultipart<Map<String, dynamic>>(
+      '/courses/$courseId/assets/',
+      fields: {'kind': kind},
+      fileLists: {
+        'files': [
+          for (final file in files)
+            filePart(bytes: file.bytes, fileName: file.fileName),
+        ],
+      },
+      onSendProgress: onProgress,
+    );
+
+    final urls = List<String?>.filled(files.length, null);
+    final assets = body['assets'];
+    if (assets is List) {
+      for (final asset in assets) {
+        if (asset is! Map) continue;
+        final index = asset['index'];
+        final url = asset['url'];
+        if (index is! int || index < 0 || index >= urls.length) continue;
+        if (url is! String || url.trim().isEmpty) continue;
+        urls[index] = url.trim();
+      }
+    }
+    return urls;
+  }
+
+  /// `GET /courses/{id}/resources/` — the course-wide and per-lesson files.
+  ///
+  /// A **bare array**, unlike `/courses/` and `/discussions/`, because the view
+  /// sets `pagination_class = None`. Reading requires access, but a course's own
+  /// manager is exempt: that is what makes this usable on a draft, which is the
+  /// whole point of listing resources in the builder.
+  Future<List<CourseResource>> listResources(int courseId) async {
+    final rows = await _client.get<List<dynamic>>(
+      '/courses/$courseId/resources/',
+    );
+    return [for (final row in rows) ?tryParseCourseResource(row)];
+  }
 
   /// `POST /courses/{id}/resources/` — attaches an uploaded file to a lesson.
   ///

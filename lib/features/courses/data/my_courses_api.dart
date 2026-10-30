@@ -33,18 +33,12 @@ class MyCoursesApi {
   Future<List<CourseSummary>> list(String instructorId) async {
     final summaries = <CourseSummary>[];
     var path = '/courses/';
-    Map<String, dynamic>? query = {
-      'instructor': instructorId,
-      'page_size': 50,
-    };
+    Map<String, dynamic>? query = {'instructor': instructorId, 'page_size': 50};
 
     // A hard page cap: `next` is server-provided, and a bug that returns the
     // same URL forever would otherwise hang the profile tab.
     for (var page = 0; page < 20; page++) {
-      final body = await _client.get<Map<String, dynamic>>(
-        path,
-        query: query,
-      );
+      final body = await _client.get<Map<String, dynamic>>(path, query: query);
       final rows = body['results'];
       if (rows is! List) {
         throw ApiException(
@@ -66,6 +60,28 @@ class MyCoursesApi {
 
     return summaries;
   }
+
+  /// `PATCH /courses/{id}/ {"is_published": false}` — take a live course down.
+  ///
+  /// **Only ever unpublishes.** The grid deliberately offers no "publish" from a
+  /// card: publishing is gated on six readiness checks that only the builder
+  /// holds, and a one-tap publish here would let an instructor ship a course
+  /// with no lessons straight from their profile. Re-publishing goes through the
+  /// builder, which re-runs the checklist.
+  ///
+  /// The server only gates the `false → true` transition, so the owner may flip
+  /// a course back to draft without any extra permission.
+  Future<void> unpublish(int courseId) => _client.patch<Map<String, dynamic>>(
+    '/courses/$courseId/',
+    data: {'is_published': false},
+  );
+
+  /// `DELETE /courses/{id}/` — 204. Owner or administrator.
+  ///
+  /// **This is not the same as unpublishing.** The row, its lessons and its
+  /// resources are gone, and so is every student's enrolment in it. The grid
+  /// asks for confirmation naming the course before calling this.
+  Future<void> delete(int courseId) => _client.delete('/courses/$courseId/');
 }
 
 final myCoursesApiProvider = Provider<MyCoursesApi>(

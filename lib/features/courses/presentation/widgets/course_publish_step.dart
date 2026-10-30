@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 
+import '../../../../core/widgets/course_detail_view.dart' show CourseResource;
 import '../../../../core/widgets/course_image.dart';
 import '../../../../core/widgets/labeled_text_field.dart';
 import '../../../../core/widgets/pressable_chip.dart';
@@ -21,6 +22,11 @@ class CoursePublishStep extends StatelessWidget {
     required this.priceController,
     required this.onEditStep,
     required this.onEdited,
+    this.resources = const <CourseResource>[],
+    this.resourcesLoading = false,
+    this.resourcesUploading = false,
+    this.onAddResources,
+    this.onRemoveResource,
   });
 
   final ValueNotifier<CourseDraft> draft;
@@ -28,6 +34,14 @@ class CoursePublishStep extends StatelessWidget {
   final TextEditingController priceController;
   final void Function(int step) onEditStep;
   final VoidCallback onEdited;
+
+  /// The course-wide files — the ones that belong to no lesson, so the player
+  /// shows them under every lesson's Resources tab.
+  final List<CourseResource> resources;
+  final bool resourcesLoading;
+  final bool resourcesUploading;
+  final Future<void> Function()? onAddResources;
+  final Future<void> Function(CourseResource resource)? onRemoveResource;
 
   @override
   Widget build(BuildContext context) {
@@ -183,6 +197,19 @@ class CoursePublishStep extends StatelessWidget {
                 ),
               ],
             ),
+          ),
+
+          // Optional, so it sits below the gate: nothing here blocks Publish.
+          // A course-wide file is the syllabus or starter pack that belongs to
+          // no single lesson, which is why it cannot live in the curriculum.
+          const SizedBox(height: 18),
+          _sectionHead('Course resources', trailing: 'optional'),
+          _ResourceSection(
+            resources: resources,
+            loading: resourcesLoading,
+            uploading: resourcesUploading,
+            onAdd: onAddResources,
+            onRemove: onRemoveResource,
           ),
         ],
       ),
@@ -407,6 +434,170 @@ class _SummaryCard extends StatelessWidget {
       buffer.write(text[i]);
     }
     return buffer.toString();
+  }
+}
+
+/// The course-wide file list, plus the button that adds to it.
+///
+/// **Why this is not in the curriculum step.** A file here belongs to no
+/// lesson, so it has no position in the lesson order and nothing to reorder.
+/// The player shows it under every lesson, which is what makes a syllabus or a
+/// starter repository reachable from wherever the student happens to be.
+class _ResourceSection extends StatelessWidget {
+  const _ResourceSection({
+    required this.resources,
+    required this.loading,
+    required this.uploading,
+    required this.onAdd,
+    required this.onRemove,
+  });
+
+  final List<CourseResource> resources;
+  final bool loading;
+  final bool uploading;
+  final Future<void> Function()? onAdd;
+  final Future<void> Function(CourseResource resource)? onRemove;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: builderBorder),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: Column(
+        children: [
+          if (loading && resources.isEmpty)
+            const Padding(
+              padding: EdgeInsets.symmetric(vertical: 18),
+              child: SizedBox(
+                width: 16,
+                height: 16,
+                child: CircularProgressIndicator(
+                  strokeWidth: 2,
+                  color: builderYellow,
+                ),
+              ),
+            )
+          else if (resources.isEmpty)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(14, 12, 14, 4),
+              child: Text(
+                'Optional. A syllabus, reading list or starter pack shown on '
+                'every lesson’s Resources tab. Per-lesson files are attached '
+                'while editing the lesson.',
+                style: GoogleFonts.figtree(
+                  fontSize: 11,
+                  height: 1.5,
+                  color: builderMuted,
+                ),
+              ),
+            )
+          else
+            for (final resource in resources)
+              _ResourceRow(
+                resource: resource,
+                onRemove: uploading ? null : onRemove,
+              ),
+          Container(
+            decoration: const BoxDecoration(
+              border: Border(top: BorderSide(color: builderCardBorder)),
+            ),
+            alignment: Alignment.centerLeft,
+            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+            child: TextButton(
+              onPressed: uploading ? null : onAdd,
+              child: uploading
+                  ? const SizedBox(
+                      width: 14,
+                      height: 14,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: builderInk,
+                      ),
+                    )
+                  : Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Icon(
+                          Icons.attach_file,
+                          size: 15,
+                          color: builderInk,
+                        ),
+                        const SizedBox(width: 6),
+                        Text(
+                          resources.isEmpty ? 'Attach files' : 'Add more',
+                          style: GoogleFonts.manrope(
+                            fontSize: 12.5,
+                            fontWeight: FontWeight.w700,
+                            color: builderInk,
+                          ),
+                        ),
+                      ],
+                    ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ResourceRow extends StatelessWidget {
+  const _ResourceRow({required this.resource, required this.onRemove});
+
+  final CourseResource resource;
+  final Future<void> Function(CourseResource resource)? onRemove;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      height: 42,
+      padding: const EdgeInsets.only(left: 14, right: 4),
+      decoration: const BoxDecoration(
+        border: Border(bottom: BorderSide(color: builderCardBorder)),
+      ),
+      child: Row(
+        children: [
+          Icon(resource.type.icon, size: 16, color: resource.type.color),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Text(
+                  resource.title,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: GoogleFonts.figtree(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                    color: builderInk,
+                  ),
+                ),
+                // `PDF · 2.4 MB` — the same second line the player prints.
+                Text(
+                  resource.subtitle,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: GoogleFonts.figtree(fontSize: 10, color: builderMuted),
+                ),
+              ],
+            ),
+          ),
+          IconButton(
+            onPressed: onRemove == null ? null : () => onRemove!(resource),
+            icon: const Icon(Icons.close, size: 16),
+            color: builderMuted,
+            visualDensity: VisualDensity.compact,
+            tooltip: 'Remove',
+          ),
+        ],
+      ),
+    );
   }
 }
 

@@ -410,9 +410,9 @@ class _InstructorProfilePageState extends State<InstructorProfilePage> {
                 behavior: HitTestBehavior.opaque,
                 onTap: _openAllCourses,
                 child: Text(
-                  // The count is the grid's own count. It was hardcoded to 40,
-                  // which read as a real figure beside four real courses.
-                  'See All (${_visibleCourseCount()})',
+                  // The total, not the six on the shelf — this label opens the
+                  // list that holds all of them.
+                  'See All (${_courseCount()})',
                   style: GoogleFonts.figtree(
                     fontSize: 13,
                     fontWeight: FontWeight.w600,
@@ -430,6 +430,13 @@ class _InstructorProfilePageState extends State<InstructorProfilePage> {
   }
 
   /// Lays the tiles out two per row.
+  ///
+  /// **Three rows, then `See All`.** The shelf is a shelf, not the archive: past
+  /// the third row the grid pushed the rest of the profile (badges, stats,
+  /// settings) off the screen, and an instructor with twenty courses scrolled
+  /// past their own profile to reach anything else. The first slot is the role
+  /// tile — the dashed "Add New Course" for an instructor, a course card for a
+  /// student — so it counts against the six.
   ///
   /// Not a `GridView`: a fixed `childAspectRatio` would pin the card to the
   /// reference's 163×144 and then clip the title/price block on any narrower
@@ -469,9 +476,16 @@ class _InstructorProfilePageState extends State<InstructorProfilePage> {
         _buildAddCourseTile()
       else
         _buildMyCourseCard(_studentCourseSlot),
-      ..._courseTiles(),
+      // One slot is already spent on the tile above.
+      ..._courseTiles(limit: _gridTiles - 1),
     ]);
   }
+
+  /// Three rows of two. The cap is on **tiles**, not on courses, so the grid is
+  /// always exactly three rows full rather than three rows and an orphan.
+  static const _gridRows = 3;
+  static const _gridColumns = 2;
+  static const _gridTiles = _gridRows * _gridColumns;
 
   /// The instructor's real courses when they are known, the reference fixtures
   /// otherwise.  ///
@@ -479,19 +493,27 @@ class _InstructorProfilePageState extends State<InstructorProfilePage> {
   /// `ProviderScope` at all, and a grid with nothing in it would not exercise the
   /// two-column layout those tests are actually about. A student keeps them too:
   /// this list is the instructor's authored courses, and a student authors none.
-  List<Widget> _courseTiles() {
+  ///
+  /// [limit] is the grid's cap. It is applied to the data, not to the built
+  /// widgets, so a shelf of fifty courses does not build fifty cards to throw
+  /// forty-four away.
+  List<Widget> _courseTiles({int? limit}) {
     final live = _liveCourses;
     if (_isInstructor && live != null) {
-      return [for (final course in live) _buildLiveCourseCard(course)];
+      final shown = limit == null ? live : live.take(limit);
+      return [for (final course in shown) _buildLiveCourseCard(course)];
     }
-    return [for (final course in _myCourses) _buildMyCourseCard(course)];
+    final shown = limit == null ? _myCourses : _myCourses.take(limit);
+    return [for (final course in shown) _buildMyCourseCard(course)];
   }
 
-  /// How many courses the grid is actually showing.
+  /// How many courses the instructor has — **all of them**, not the six the
+  /// shelf draws.
   ///
-  /// Mirrors [_courseTiles] rather than counting `_liveCourses` directly, so the
-  /// heading can never disagree with the tiles beneath it.
-  int _visibleCourseCount() {
+  /// This is the number beside `See All`, so it has to count what that opens.
+  /// It was hardcoded to 40 once, which read as a real figure next to four real
+  /// courses.
+  int _courseCount() {
     final live = _liveCourses;
     if (_isInstructor && live != null) return live.length;
     return _myCourses.length;

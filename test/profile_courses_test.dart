@@ -244,6 +244,44 @@ void main() {
       expect(find.text('Digital Illustration'), findsWidgets);
     });
   });
+
+  group('the shelf is three rows', () {
+    testWidgets('six tiles, and See All opens the rest', (tester) async {
+      await tester.binding.setSurfaceSize(const Size(360, 900));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+
+      final courses = [
+        for (var id = 1; id <= 9; id++)
+          CourseSummary(
+            id: id,
+            title: 'Course $id',
+            isPublished: true,
+            isPaid: false,
+          ),
+      ];
+      await tester.pumpWidget(_app(_FakeCourses(courses)));
+      await tester.pumpAndSettle();
+
+      // Three rows of two. The dashed tile takes one of the six slots, so five
+      // courses fit — an instructor with nine sees five and the rest behind
+      // See All, instead of scrolling past their own profile.
+      expect(find.text('Add New Course'), findsOneWidget);
+      for (var id = 1; id <= 5; id++) {
+        expect(find.text('Course $id'), findsOneWidget, reason: 'shelf $id');
+      }
+      for (var id = 6; id <= 9; id++) {
+        expect(find.text('Course $id'), findsNothing, reason: 'past the shelf');
+      }
+      // The label counts what See All opens, not what the shelf draws.
+      expect(find.text('See All (9)'), findsOneWidget);
+
+      await tester.tap(find.textContaining('See All'));
+      await tester.pumpAndSettle();
+
+      expect(find.byType(MyCoursesPage), findsOneWidget);
+      expect(find.text('Course 9'), findsWidgets);
+    });
+  });
 }
 
 /// A `GET /courses/` row, in the server's own field names.

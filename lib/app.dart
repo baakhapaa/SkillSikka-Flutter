@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
 
+import 'core/payment_return_bootstrap.dart';
 import 'core/routing/app_router.dart';
 import 'core/session_bootstrap.dart';
 import 'core/session_persistence.dart';
@@ -31,6 +32,13 @@ class SkillSikkaApp extends ConsumerWidget {
     // from three places (sign-in, registration, token refresh) and only one of
     // them is a screen that could call it.
     ref.watch(sessionProfileLoaderProvider);
+
+    // Settles a payment the gateway sent the browser back for, including the
+    // link that launched the app. Watched here for the same reason as the two
+    // above — it does nothing until something watches it, and the app is the
+    // only thing alive for the whole lifetime. The checkout sheet has its own
+    // listener; this one covers the case where there is no sheet to listen.
+    ref.watch(paymentReturnListenerProvider);
 
     // A session that ends *without the user asking* — the server rejected the
     // refresh token — used to be handled here, by listening for the transition

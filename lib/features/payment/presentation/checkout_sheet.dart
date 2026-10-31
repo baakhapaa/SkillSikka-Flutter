@@ -11,6 +11,7 @@ import '../../../core/widgets/course_detail_view.dart';
 import '../../../core/widgets/course_image.dart';
 import '../../courses/presentation/widgets/builder_tokens.dart';
 import '../data/payment_api.dart';
+import '../data/payment_return.dart';
 
 /// Opens [url] outside the app.
 ///
@@ -140,8 +141,9 @@ class _CheckoutSheetState extends State<CheckoutSheet>
 
   void _onLink(Uri uri) {
     // Host and scheme only — the query is a hint, and a malformed one must not
-    // stop the check from running.
-    if (uri.scheme != 'skillsikka' || uri.host != 'payment') return;
+    // stop the check from running. Parsed by the shared [PaymentReturn] so this
+    // and the app-level handler agree on what counts as one of our links.
+    if (PaymentReturn.tryParse(uri) == null) return;
     if (_phase == _Phase.waiting || _phase == _Phase.ready) _check();
   }
 

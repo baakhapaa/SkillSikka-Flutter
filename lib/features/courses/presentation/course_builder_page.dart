@@ -132,8 +132,12 @@ class _CourseBuilderPageState extends State<CourseBuilderPage> {
   List<(int, String)> _subjects = const [];
   List<(int, String)> _grades = const [];
   List<(int, String)> _categories = const [];
+
+  /// The **premium** categories — a different table from [_categories].
+  List<(int, String)> _premiumCategories = const [];
   bool _referenceLoaded = false;
   bool _categoriesLoaded = false;
+  bool _premiumCategoriesLoaded = false;
 
   @override
   void initState() {
@@ -156,10 +160,12 @@ class _CourseBuilderPageState extends State<CourseBuilderPage> {
 
   /// Loads whichever reference list the selected course type needs.
   ///
-  /// The two are mutually exclusive: an academic course needs subject + grade and
-  /// never a skill category, a skill course needs a category and neither of the
-  /// other two. Loading both would cost a request for a list the picker is not
-  /// showing.
+  /// The three are mutually exclusive: an academic course needs subject + grade,
+  /// a skill course the skill categories, a premium course **its own**
+  /// categories. Loading more than one would cost a request for a list the
+  /// picker is not showing — and premium's list is a different table, not a
+  /// subset, so the wrong one is not merely wasteful: it files the course in a
+  /// taxonomy its catalogue does not read.
   void _onDraftChanged() {
     final kind = _draft.value.kind;
     if (kind == CourseKind.academic && !_referenceLoaded) {
@@ -167,7 +173,14 @@ class _CourseBuilderPageState extends State<CourseBuilderPage> {
       _loadReference();
       return;
     }
-    if (kind == CourseKind.skill && !_categoriesLoaded) {
+    if (kind.isAlwaysPaid) {
+      if (!_premiumCategoriesLoaded) {
+        _premiumCategoriesLoaded = true;
+        _loadPremiumCategories();
+      }
+      return;
+    }
+    if (kind.isSkillLike && !_categoriesLoaded) {
       _categoriesLoaded = true;
       _loadCategories();
     }
@@ -199,6 +212,20 @@ class _CourseBuilderPageState extends State<CourseBuilderPage> {
       // Same reasoning as above: the picker shows "No categories available" and
       // the course still saves, just without one.
       _categoriesLoaded = false;
+    }
+  }
+
+  /// The premium list. A separate request because it is a separate table — see
+  /// `CourseBuilderApi.loadPremiumCategories`.
+  Future<void> _loadPremiumCategories() async {
+    try {
+      final categories = await widget.api.loadPremiumCategories();
+      if (!mounted) return;
+      setState(() => _premiumCategories = categories);
+    } on ApiException {
+      // Same as the skill list: an empty picker beats a blocked step, and the
+      // publish gate still refuses to publish without a category.
+      _premiumCategoriesLoaded = false;
     }
   }
 
@@ -403,6 +430,153 @@ class _CourseBuilderPageState extends State<CourseBuilderPage> {
     if (discard == true && mounted) {
       await _discardDraft();
       if (mounted) Navigator.of(context).pop();
+    }
+  }
+
+  /// The header's ⋯ — the two things an instructor can do to the course they
+  /// are editing without leaving it.
+  ///
+  /// **No "Publish" here**, for the reason the grid's menu has none: publishing
+  /// is gated on the six readiness checks, and this menu cannot evaluate them.
+  /// Taking a course *down* needs no gate, which is why that direction is here.
+  Widget _courseMenu() {
+    return PopupMenuButton<_CourseAction>(
+      tooltip: 'Course actions',
+      iconSize: 18,
+      padding: EdgeInsets.zero,
+      icon: const Icon(Icons.more_horiz, color: _ink),
+      onSelected: (action) {
+        switch (action) {
+          case _CourseAction.unpublish:
+            _unpublishCourse();
+          case _CourseAction.delete:
+            _deleteCourse();
+        }
+      },
+      itemBuilder: (_) => [
+        if (_draft.value.isPublished)
+          PopupMenuItem(
+            value: _CourseAction.unpublish,
+            child: Text(
+              'Unpublish',
+              style: GoogleFonts.manrope(
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+                color: _ink,
+              ),
+            ),
+          ),
+        PopupMenuItem(
+          value: _CourseAction.delete,
+          child: Text(
+            'Delete course',
+            style: GoogleFonts.manrope(
+              fontSize: 13,
+              fontWeight: FontWeight.w600,
+              color: const Color(0xFFEF4444),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  /// `PATCH /courses/{id}/ {"is_published": false}` — back to a draft.
+  ///
+  /// Reversible, so it asks nothing: the course keeps its lessons, its files and
+  /// its enrolments, and students simply stop seeing it. Re-publishing goes
+  /// through the checklist at step 3 again.
+  Future<void> _unpublishCourse() async {
+    final id = _draft.value.id;
+    if (id == null) return;
+    setState(() => _busy = true);
+    try {
+      await widget.api.unpublishCourse(id);
+      if (!mounted) return;
+      _draft.value = _draft.value.copyWith(isPublished: false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Unpublished. Students can no longer see this course.'),
+        ),
+      );
+    } on ApiException catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(error.displayMessage)));
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  /// `DELETE /courses/{id}/` — irreversible, so it names the course and says
+  /// what goes with it. A generic "Delete this course?" is what makes people
+  /// delete the wrong one.
+  Future<void> _deleteCourse() async {
+    final id = _draft.value.id;
+    if (id == null) return;
+    final title = _draft.value.title.trim();
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: Colors.white,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+        title: Text(
+          'Delete “${title.isEmpty ? 'this course' : title}”?',
+          style: GoogleFonts.manrope(fontSize: 18, fontWeight: FontWeight.w800),
+        ),
+        content: Text(
+          'The course, its lessons and its files are removed, and every '
+          'enrolled student loses access. This cannot be undone.',
+          style: GoogleFonts.manrope(
+            fontSize: 13,
+            fontWeight: FontWeight.w500,
+            color: _gray,
+            height: 1.5,
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: Text(
+              'Keep it',
+              style: GoogleFonts.manrope(
+                fontSize: 14,
+                fontWeight: FontWeight.w700,
+                color: _gray,
+              ),
+            ),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: Text(
+              'Delete',
+              style: GoogleFonts.manrope(
+                fontSize: 14,
+                fontWeight: FontWeight.w700,
+                color: const Color(0xFFEF4444),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+
+    setState(() => _busy = true);
+    try {
+      await widget.api.deleteCourse(id);
+      if (!mounted) return;
+      // The course is gone, so this screen has nothing left to edit. `true` is
+      // what the profile grid's push already expects back.
+      Navigator.of(context).pop(true);
+    } on ApiException catch (error) {
+      if (!mounted) return;
+      setState(() => _busy = false);
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(error.displayMessage)));
     }
   }
 
@@ -972,6 +1146,9 @@ class _CourseBuilderPageState extends State<CourseBuilderPage> {
                 step: _step,
                 title: _headerTitle(_draft.value),
                 onBack: _busy ? null : _handleBack,
+                // Only once the course exists: a brand-new draft has nothing to
+                // take down or delete until step 1 has saved it.
+                trailing: _draft.value.id == null ? null : _courseMenu(),
               ),
               Expanded(
                 child: _loading
@@ -1053,7 +1230,9 @@ class _CourseBuilderPageState extends State<CourseBuilderPage> {
           descriptionController: _description,
           categoryOptions: widget.categoryOptions.isNotEmpty
               ? widget.categoryOptions
-              : _categories,
+              : (_draft.value.kind.isAlwaysPaid
+                    ? _premiumCategories
+                    : _categories),
           subjectOptions: _subjects,
           gradeOptions: _grades,
           pickCover: widget.pickCover,
@@ -1110,11 +1289,15 @@ class _Header extends StatelessWidget {
     required this.step,
     required this.title,
     required this.onBack,
+    this.trailing,
   });
 
   final int step;
   final String title;
   final VoidCallback? onBack;
+
+  /// The course-actions menu, when the course exists. Null on a first draft.
+  final Widget? trailing;
 
   @override
   Widget build(BuildContext context) {
@@ -1164,6 +1347,7 @@ class _Header extends StatelessWidget {
                 ),
               ),
             ),
+            if (trailing != null) ...[const SizedBox(width: 4), trailing!],
           ],
         ),
       ),
@@ -1257,3 +1441,9 @@ class _LoadFailure extends StatelessWidget {
     ),
   );
 }
+
+/// The two course-level actions in the header's ⋯.
+///
+/// A closed set on purpose: publishing is not one of them — it is gated on the
+/// six readiness checks and belongs to step 3's button.
+enum _CourseAction { unpublish, delete }

@@ -1,7 +1,12 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:skillsikka/core/network/api_error.dart';
+import 'package:skillsikka/core/widgets/course_detail_view.dart';
+import 'package:skillsikka/core/widgets/course_image.dart';
 import 'package:skillsikka/core/widgets/pressable_chip.dart';
 import 'package:skillsikka/core/widgets/section_bar.dart';
+import 'package:skillsikka/features/courses/data/course_api.dart';
 import 'package:skillsikka/features/premium_courses/presentation/premium_course_details_page.dart';
 import 'package:skillsikka/features/search/presentation/search_page.dart';
 
@@ -10,14 +15,20 @@ const _ink = Color(0xFF201C15);
 const _muted = Color(0xFF8D887F);
 const _yellow = Color(0xFFFFD233);
 
-class PremiumCoursesPage extends StatefulWidget {
+class PremiumCoursesPage extends ConsumerStatefulWidget {
   const PremiumCoursesPage({super.key});
 
   @override
-  State<PremiumCoursesPage> createState() => _PremiumCoursesPageState();
+  ConsumerState<PremiumCoursesPage> createState() => _PremiumCoursesPageState();
 }
 
-class _PremiumCoursesPageState extends State<PremiumCoursesPage> {
+/// The premium catalogue, read from `GET /courses/?course_type=premium`.
+///
+/// **It used to be twelve hardcoded cards.** A premium course created in the
+/// builder existed on the server and appeared nowhere here, because this page
+/// never asked for it. The cards are unchanged — same layout, same slots — only
+/// where their contents come from.
+class _PremiumCoursesPageState extends ConsumerState<PremiumCoursesPage> {
   static const categories = [
     'All',
     'Art & Craft',
@@ -29,104 +40,53 @@ class _PremiumCoursesPageState extends State<PremiumCoursesPage> {
   ];
   int selectedCategory = 0;
 
-  static const courses = <_PremiumCourse>[
-    _PremiumCourse(
-      'premcourse.png',
-      'Adobe Illustrator',
-      'Illustrator CC: The Complete Problem Solving Guide',
-      '4.9',
-      '14,230 students',
-      'Rs. 1,500',
-    ),
-    _PremiumCourse(
-      'premcourse1.png',
-      'Figma UI/UX',
-      'UI/UX Pro: Design System Masterclass',
-      '4.8',
-      '8,912 students',
-      'Rs. 2,200',
-    ),
-    _PremiumCourse(
-      'premcourse2.png',
-      'Design Theory',
-      'Visual Storytelling & Brand Art',
-      '4.9',
-      '11,400 students',
-      'Rs. 1,800',
-    ),
-    _PremiumCourse(
-      'premcourse3.png',
-      'Creative Geometry for Architects',
-      'Creative Geometry for Architects',
-      '4.9',
-      '(98)',
-      'Rs.19.99',
-    ),
-    _PremiumCourse(
-      'premcourse4.png',
-      'Watercolor Painting Essentials',
-      'Watercolor Painting Essentials',
-      '4.6',
-      '(187)',
-      'Rs.17.99',
-    ),
-    _PremiumCourse(
-      'premcourse5.png',
-      'Introduction to Astrophysics',
-      'Introduction to Astrophysics',
-      '4.8',
-      '(126)',
-      'Rs.21.99',
-    ),
-    _PremiumCourse(
-      'premcourse6.png',
-      'Modern Business Strategy',
-      'Modern Business Strategy',
-      '4.7',
-      '(84)',
-      'Rs.18.99',
-    ),
-    _PremiumCourse(
-      'premcourse7.png',
-      'Learn Python Through Projects',
-      'Learn Python Through Projects',
-      '4.9',
-      '(214)',
-      'Rs.24.99',
-    ),
-    _PremiumCourse(
-      'premcourse8.png',
-      'Music Production Essentials',
-      'Music Production Essentials',
-      '4.8',
-      '(102)',
-      'Rs.16.99',
-    ),
-    _PremiumCourse(
-      'premcourse9.png',
-      'Creative Writing Masterclass',
-      'Creative Writing Masterclass',
-      '4.7',
-      '(76)',
-      'Rs.14.99',
-    ),
-    _PremiumCourse(
-      'premcourse10.png',
-      'Digital Marketing Basics',
-      'Digital Marketing Basics',
-      '4.9',
-      '(165)',
-      'Rs.19.99',
-    ),
-    _PremiumCourse(
-      'premcourse11.png',
-      'Build Your Creative Portfolio',
-      'Build Your Creative Portfolio',
-      '4.8',
-      '(91)',
-      'Rs.17.99',
-    ),
-  ];
+  List<CourseDetailData> _courses = const [];
+  bool _loading = true;
+  String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
+    try {
+      final page = await ref
+          .read(courseApiProvider)
+          .list(courseType: 'premium', pageSize: 50);
+      if (!mounted) return;
+      setState(() {
+        _courses = page.courses;
+        _loading = false;
+      });
+    } on ApiException catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _loading = false;
+        _error = error.displayMessage;
+      });
+    }
+  }
+
+  /// What the selected chip shows. `All` is the absence of a filter, which is
+  /// why it is index 0 rather than a category called "All" — the chips did
+  /// nothing at all before this page had real data.
+  List<CourseDetailData> get _visible => selectedCategory == 0
+      ? _courses
+      : [
+          for (final course in _courses)
+            if (course.category == categories[selectedCategory]) course,
+        ];
+
+  /// The carousel takes the first three and the list takes the rest, which is
+  /// how the design splits one shelf into two.
+  List<CourseDetailData> get _carousel => _visible.take(3).toList();
+  List<CourseDetailData> get _rest => _visible.skip(3).toList();
 
   @override
   Widget build(BuildContext context) {
@@ -137,19 +97,70 @@ class _PremiumCoursesPageState extends State<PremiumCoursesPage> {
           slivers: [
             SliverToBoxAdapter(child: _topBar()),
             SliverToBoxAdapter(child: _categoryBar()),
-            SliverToBoxAdapter(child: _sectionTitle('Top Courses')),
-            SliverToBoxAdapter(child: _topCourses()),
-            SliverToBoxAdapter(child: _sectionTitle('Course', top: 24)),
-            SliverPadding(
-              padding: const EdgeInsets.fromLTRB(16, 0, 16, 32),
-              sliver: SliverList.builder(
-                itemCount: courses.length - 3,
-                itemBuilder: (context, index) => Padding(
-                  padding: const EdgeInsets.only(bottom: 14),
-                  child: _ListCourseCard(course: courses[index + 3]),
+            if (_loading)
+              const SliverToBoxAdapter(
+                child: Padding(
+                  padding: EdgeInsets.symmetric(vertical: 48),
+                  child: Center(
+                    child: SizedBox(
+                      width: 22,
+                      height: 22,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    ),
+                  ),
                 ),
-              ),
-            ),
+              )
+            else if (_error != null)
+              SliverToBoxAdapter(
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 8, 16, 32),
+                  child: Column(
+                    children: [
+                      Text(
+                        _error!,
+                        textAlign: TextAlign.center,
+                        style: GoogleFonts.figtree(fontSize: 13, color: _muted),
+                      ),
+                      const SizedBox(height: 8),
+                      TextButton(
+                        onPressed: _load,
+                        child: const Text('Try again'),
+                      ),
+                    ],
+                  ),
+                ),
+              )
+            else if (_visible.isEmpty)
+              SliverToBoxAdapter(
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 8, 16, 32),
+                  child: Text(
+                    selectedCategory == 0
+                        ? 'No premium courses yet.'
+                        : 'No courses in this category yet.',
+                    textAlign: TextAlign.center,
+                    style: GoogleFonts.figtree(fontSize: 13, color: _muted),
+                  ),
+                ),
+              )
+            else ...[
+              SliverToBoxAdapter(child: _sectionTitle('Top Courses')),
+              SliverToBoxAdapter(child: _topCourses(_carousel)),
+              if (_rest.isNotEmpty) ...[
+                SliverToBoxAdapter(child: _sectionTitle('Course', top: 24)),
+                SliverPadding(
+                  padding: const EdgeInsets.fromLTRB(16, 0, 16, 32),
+                  sliver: SliverList.builder(
+                    itemCount: _rest.length,
+                    itemBuilder: (context, index) => Padding(
+                      padding: const EdgeInsets.only(bottom: 14),
+                      child: _ListCourseCard(course: _rest[index]),
+                    ),
+                  ),
+                ),
+              ] else
+                const SliverToBoxAdapter(child: SizedBox(height: 32)),
+            ],
           ],
         ),
       ),
@@ -234,13 +245,13 @@ class _PremiumCoursesPageState extends State<PremiumCoursesPage> {
     );
   }
 
-  Widget _topCourses() {
+  Widget _topCourses(List<CourseDetailData> courses) {
     return SizedBox(
       height: 286,
       child: ListView.separated(
         padding: const EdgeInsets.symmetric(horizontal: 16),
         scrollDirection: Axis.horizontal,
-        itemCount: 3,
+        itemCount: courses.length,
         separatorBuilder: (_, _) => const SizedBox(width: 12),
         itemBuilder: (context, index) =>
             _CarouselCourseCard(course: courses[index]),
@@ -272,14 +283,12 @@ class _CircleButton extends StatelessWidget {
 
 class _CarouselCourseCard extends StatelessWidget {
   const _CarouselCourseCard({required this.course});
-  final _PremiumCourse course;
+  final CourseDetailData course;
 
   @override
   Widget build(BuildContext context) => GestureDetector(
     behavior: HitTestBehavior.opaque,
-    onTap: () => Navigator.of(
-      context,
-    ).push(MaterialPageRoute(builder: (_) => const PremiumCourseDetailsPage())),
+    onTap: () => _open(context, course),
     child: Container(
       width: 220,
       padding: const EdgeInsets.all(12),
@@ -320,7 +329,7 @@ class _CarouselCourseCard extends StatelessWidget {
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               Text(
-                course.price,
+                course.priceLabel,
                 style: GoogleFonts.manrope(
                   fontSize: 14,
                   fontWeight: FontWeight.w800,
@@ -329,11 +338,7 @@ class _CarouselCourseCard extends StatelessWidget {
               ),
               PressableChip(
                 label: 'View',
-                onTap: () => Navigator.of(context).push(
-                  MaterialPageRoute(
-                    builder: (_) => const PremiumCourseDetailsPage(),
-                  ),
-                ),
+                onTap: () => _open(context, course),
                 fontSize: 10,
                 fontWeight: FontWeight.w700,
                 horizontalPadding: 12,
@@ -350,14 +355,12 @@ class _CarouselCourseCard extends StatelessWidget {
 
 class _ListCourseCard extends StatelessWidget {
   const _ListCourseCard({required this.course});
-  final _PremiumCourse course;
+  final CourseDetailData course;
 
   @override
   Widget build(BuildContext context) => GestureDetector(
     behavior: HitTestBehavior.opaque,
-    onTap: () => Navigator.of(
-      context,
-    ).push(MaterialPageRoute(builder: (_) => const PremiumCourseDetailsPage())),
+    onTap: () => _open(context, course),
     child: Container(
       height: 106,
       padding: const EdgeInsets.all(12),
@@ -395,7 +398,7 @@ class _ListCourseCard extends StatelessWidget {
                     const Icon(Icons.star, size: 12, color: _yellow),
                     const SizedBox(width: 4),
                     Text(
-                      course.rating,
+                      _ratingLabel(course),
                       style: GoogleFonts.figtree(
                         fontSize: 11,
                         fontWeight: FontWeight.w700,
@@ -404,7 +407,7 @@ class _ListCourseCard extends StatelessWidget {
                     ),
                     const SizedBox(width: 4),
                     Text(
-                      course.students,
+                      _countLabel(course),
                       style: GoogleFonts.figtree(
                         fontSize: 11,
                         color: const Color(0xFF9CA3AF),
@@ -412,7 +415,7 @@ class _ListCourseCard extends StatelessWidget {
                     ),
                     const Spacer(),
                     Text(
-                      course.price,
+                      course.priceLabel,
                       style: GoogleFonts.manrope(
                         fontSize: 14,
                         fontWeight: FontWeight.w700,
@@ -432,7 +435,7 @@ class _ListCourseCard extends StatelessWidget {
 
 class _MetaRow extends StatelessWidget {
   const _MetaRow({required this.course});
-  final _PremiumCourse course;
+  final CourseDetailData course;
 
   @override
   Widget build(BuildContext context) => Row(
@@ -440,15 +443,42 @@ class _MetaRow extends StatelessWidget {
       const Icon(Icons.star, size: 12, color: _yellow),
       const SizedBox(width: 4),
       Text(
-        course.rating,
+        _ratingLabel(course),
         style: GoogleFonts.figtree(fontSize: 11, color: _ink),
       ),
       const Spacer(),
       Text(
-        course.students,
+        _studentsLabel(course),
         style: GoogleFonts.figtree(fontSize: 10, color: _muted),
       ),
     ],
+  );
+}
+
+/// `4.9`, or `New` for a course nobody has rated yet — the slot is a number and
+/// printing nothing beside a star reads as a rendering bug.
+String _ratingLabel(CourseDetailData course) =>
+    course.rating.isEmpty ? 'New' : course.rating;
+
+/// `(214)` — the design's shape. `ratingsCount` is `(214 ratings)`, which is a
+/// sentence in a slot built for a token.
+String _countLabel(CourseDetailData course) =>
+    course.ratingsCount.replaceAll(' ratings', '').replaceAll(' rating', '');
+
+/// `4,195 students` — `studentsEnrolled` is `4,195 students enrolled`, and the
+/// card's line already says what the number is.
+String _studentsLabel(CourseDetailData course) =>
+    course.studentsEnrolled.replaceAll(' enrolled', '');
+
+/// Opens the tapped course, not the demo screen.
+///
+/// The id is what the detail page fetches; a card without one (there are none
+/// from the API) falls back to the bundled demo.
+void _open(BuildContext context, CourseDetailData course) {
+  Navigator.of(context).push(
+    MaterialPageRoute(
+      builder: (_) => PremiumCourseDetailsPage(courseId: course.id),
+    ),
   );
 }
 
@@ -458,39 +488,25 @@ class _CourseImage extends StatelessWidget {
     required this.height,
     this.width = double.infinity,
   });
-  final _PremiumCourse course;
+  final CourseDetailData course;
   final double width;
   final double height;
 
   @override
   Widget build(BuildContext context) => ClipRRect(
     borderRadius: BorderRadius.circular(10),
-    child: Image.asset(
-      'assets/figma/premiumcourse/${course.asset}',
+    // **`CourseImage`, not `Image.asset`.** A premium course's cover is an http
+    // URL once it comes from the API, and a bundled demo course's is an asset
+    // path; `CourseImage` handles both, which is what every other card in the
+    // app already uses.
+    child: CourseImage(
+      course.image,
       width: width,
       height: height,
-      fit: BoxFit.cover,
-      errorBuilder: (_, _, _) => const ColoredBox(
+      fallback: const ColoredBox(
         color: Color(0xFFF3F4F6),
         child: Icon(Icons.image_outlined, color: _muted),
       ),
     ),
   );
-}
-
-class _PremiumCourse {
-  const _PremiumCourse(
-    this.asset,
-    this.category,
-    this.title,
-    this.rating,
-    this.students,
-    this.price,
-  );
-  final String asset;
-  final String category;
-  final String title;
-  final String rating;
-  final String students;
-  final String price;
 }

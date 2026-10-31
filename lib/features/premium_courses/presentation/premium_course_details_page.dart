@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../core/network/api_error.dart';
 import '../../../core/widgets/course_detail_view.dart';
+import '../../courses/data/course_api.dart';
 import '../../learning/presentation/start_course.dart';
 
 /// The premium course-detail screen.
@@ -14,7 +16,15 @@ import '../../learning/presentation/start_course.dart';
 /// `CourseDetailPage` in the courses feature, which is a trap rather than a
 /// distinction.
 class PremiumCourseDetailsPage extends ConsumerStatefulWidget {
-  const PremiumCourseDetailsPage({super.key});
+  const PremiumCourseDetailsPage({super.key, this.courseId});
+
+  /// The premium course to open, or **null for the bundled demo screen**.
+  ///
+  /// A card in the premium listing has a real `Course.id` from
+  /// `GET /courses/?course_type=premium`, and opening it must show *that*
+  /// course — the demo const is one fixed DevOps course and was, until
+  /// 2026-10-30, what every card opened regardless of which one was tapped.
+  final int? courseId;
 
   @override
   ConsumerState<PremiumCourseDetailsPage> createState() =>
@@ -23,6 +33,41 @@ class PremiumCourseDetailsPage extends ConsumerStatefulWidget {
 
 class _PremiumCourseDetailsPageState
     extends ConsumerState<PremiumCourseDetailsPage> {
+  /// The fetched course, when [PremiumCourseDetailsPage.courseId] is set.
+  CourseDetailData? _course;
+  bool _loading = false;
+  String? _error;
+
+  /// Whichever course this screen is showing: the fetched one, or the demo.
+  CourseDetailData get _showing => _course ?? _premiumCourseDetail;
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.courseId != null) _load(widget.courseId!);
+  }
+
+  Future<void> _load(int id) async {
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
+    try {
+      final course = await ref.read(courseApiProvider).detail(id);
+      if (!mounted) return;
+      setState(() {
+        _course = course;
+        _loading = false;
+      });
+    } on ApiException catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _loading = false;
+        _error = error.displayMessage;
+      });
+    }
+  }
+
   /// Enrolment needs a complete profile. The fields signup stopped asking for
   /// are collected here, on the way in, rather than being demanded up front from
   /// everyone who ever taps Sign Up.
@@ -34,28 +79,67 @@ class _PremiumCourseDetailsPageState
   /// and its other call site is a plain `StatefulWidget` that has no ref to give.
   /// `startCourse` owns that, so all three detail pages share one flow.
   Future<void> _enrol() async {
-    await startCourse(context, _premiumCourseDetail);
+    await startCourse(context, _showing);
     // The bar reads the enrolment store in `build`, and the answer changed while
     // the player was open.
     if (mounted) setState(() {});
   }
 
   @override
-  Widget build(BuildContext context) => CourseDetailView(
-    data: _premiumCourseDetail,
-    isEnrolled: isCourseEnrolled(context, _premiumCourseDetail),
-    onEnrol: _enrol,
-    onContinue: () => continueCourse(context, _premiumCourseDetail),
-  );
+  Widget build(BuildContext context) {
+    if (_loading) {
+      return const Scaffold(
+        backgroundColor: Color(0xFFFAF9F6),
+        body: Center(
+          child: SizedBox(
+            width: 22,
+            height: 22,
+            child: CircularProgressIndicator(strokeWidth: 2),
+          ),
+        ),
+      );
+    }
+    if (_error != null) {
+      return Scaffold(
+        backgroundColor: const Color(0xFFFAF9F6),
+        body: Center(
+          child: Padding(
+            padding: const EdgeInsets.all(32),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(_error!, textAlign: TextAlign.center),
+                const SizedBox(height: 12),
+                TextButton(
+                  onPressed: () => _load(widget.courseId!),
+                  child: const Text('Try again'),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+    }
+    return CourseDetailView(
+      data: _showing,
+      isEnrolled: isCourseEnrolled(context, _showing),
+      onEnrol: _enrol,
+      onContinue: () => continueCourse(context, _showing),
+    );
+  }
 }
 
 /// The premium screen's content, moved here verbatim when the layout was
-/// extracted. `image` is the premium listing's own artwork and is never painted
-/// — the banner plays [CourseDetailData.bannerVideoAsset] instead — but the
-/// field is required, so it carries the honest value.
+/// extracted.
+///
+/// **No `bannerVideoAsset` since 2026-10-30.** The banner used to play a bundled
+/// trailer, which made this screen the one course detail in the app with a video
+/// at the top — a skill course shows its cover image. Removing it makes premium
+/// match skill, and it takes `VideoPlayerController` out of this screen
+/// entirely, which is why the page could never be pumped in a test (see
+/// `course_detail_page_test.dart`). `image` is now what the banner paints.
 const _premiumCourseDetail = CourseDetailData(
   image: 'assets/figma/premiumcourse/premcourse.png',
-  bannerVideoAsset: 'assets/figma/stlearning/video.mp4',
   title: 'DevSecOps & DevOps with Jenkins, Kubernetes, Terraform & AWS',
   subtitle:
       'Implement DAST, SCA & DAST in Jenkins DevSecOps Pipelines from scratch '
@@ -70,7 +154,6 @@ const _premiumCourseDetail = CourseDetailData(
   instructorAvatar: 'assets/figma/stlearning/avatar.png',
   lastUpdated: 'Last updated 10/2026',
   languages: 'English, Nepali, Hindi',
-  subtitleTracks: 'CC English [Auto]',
   learningOutcomes: [
     'Learn to create AWS Infrastructure to be used by Jenkins',
     'Learn to perform Continuous Integration and Continuous Deployment using Jenkins',
@@ -118,7 +201,6 @@ const _premiumCourseDetail = CourseDetailData(
     CourseInclude(Icons.description_outlined, '3 Support files'),
     CourseInclude(Icons.article_outlined, '5 Articles'),
     CourseInclude(Icons.all_inclusive, 'Full lifetime access'),
-    CourseInclude(Icons.devices, 'Access on mobile, desktop and TV'),
     CourseInclude(Icons.verified_outlined, 'Certificate of completion'),
   ],
   requirements: ['Basic computer knowledge', 'Good to have some AWS Knowledge'],
@@ -187,11 +269,17 @@ const _premiumCourseDetail = CourseDetailData(
     CourseReview(name: 'Flintin VF', when: '23 days ago', body: 'good'),
   ],
   totalTime: '10hrs',
-  // Premium courses are the paid ones, so the bottom bar leads with a price.
+  // **Premium courses are paid, always** (product rule, 2026-10-30). There is no
+  // free premium course, so this is not a per-course flag here: the price is part
+  // of what makes the course premium. `isPaid` therefore has to be true as well —
+  // it is a different question from `price.isNotEmpty` (see `CourseDetailData`),
+  // and leaving it at the default `false` said "this is a free course with a
+  // price on it", which is the one state the product does not have.
   //
-  // **This is the design's value, not the listing's.** The premium screen is
-  // hardcoded to this one course and the premium listing's twelve cards are not
+  // **The amount is the design's value, not the listing's.** The premium screen
+  // is hardcoded to this one course and the premium listing's twelve cards are not
   // linked to it, so there is no card price to inherit. If that link is ever
   // built, this becomes the tapped card's price instead.
   price: 'Rs.24.99',
+  isPaid: true,
 );

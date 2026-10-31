@@ -1,7 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:skillsikka/features/courses/data/course_api.dart';
 import 'package:skillsikka/features/premium_courses/presentation/premium_courses_page.dart';
 import 'package:skillsikka/features/search/presentation/search_page.dart';
+
+import 'support/courses_test_scope.dart';
+import 'support/premium_course_rows.dart';
 
 void main() {
   /// Drains layout exceptions raised by parts of these pages this test does not
@@ -33,7 +37,14 @@ void main() {
     await tester.binding.setSurfaceSize(const Size(360, 800));
     addTearDown(() => tester.binding.setSurfaceSize(null));
 
-    await tester.pumpWidget(const MaterialApp(home: PremiumCoursesPage()));
+    await tester.pumpWidget(
+      coursesTestScope(
+        api: FakeCourseApi(
+          catalogue: CoursePage(count: 1, courses: [premiumCourse()]),
+        ),
+        child: const MaterialApp(home: PremiumCoursesPage()),
+      ),
+    );
     await tester.pump();
     drainUnrelatedOverflows(tester);
 

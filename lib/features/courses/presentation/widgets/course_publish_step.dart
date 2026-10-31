@@ -64,15 +64,22 @@ class CoursePublishStep extends StatelessWidget {
           _label('Pricing'),
           Row(
             children: [
-              PressableChip(
-                label: 'Free',
-                selected: !value.isPaid,
-                onTap: () {
-                  draft.value = value.copyWith(isPaid: false);
-                  onEdited();
-                },
-              ),
-              const SizedBox(width: 8),
+              // **A premium course has no Free option.** There is no free
+              // premium course, so offering the chip would be offering a state
+              // the product cannot publish — the draft forces `isPaid` true for
+              // this kind (see `CourseDraft.copyWith`), so a Free chip here
+              // would look tappable and do nothing.
+              if (!value.kind.isAlwaysPaid) ...[
+                PressableChip(
+                  label: 'Free',
+                  selected: !value.isPaid,
+                  onTap: () {
+                    draft.value = value.copyWith(isPaid: false);
+                    onEdited();
+                  },
+                ),
+                const SizedBox(width: 8),
+              ],
               PressableChip(
                 label: 'Paid',
                 selected: value.isPaid,
@@ -328,7 +335,7 @@ class _SummaryCard extends StatelessWidget {
               : 'Rs ${_money(draft.parsedPrice!)}')
         : 'Free';
     final meta =
-        '${draft.kind == CourseKind.skill ? 'Skill' : 'Academic'} · '
+        '${draft.kind.shortLabel} · '
         '$modules ${modules == 1 ? 'module' : 'modules'}, '
         '$lessons ${lessons == 1 ? 'lesson' : 'lessons'} · $price';
 

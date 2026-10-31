@@ -12,20 +12,47 @@ library;
 
 import 'dart:typed_data';
 
-/// Academic vs skill. The wire values are the model's own choice names.
+/// Academic vs skill vs premium. The wire values are the model's own choice
+/// names.
+///
+/// **Premium is a paid skill course, not a third curriculum.** It is authored
+/// exactly like a skill course — a category, no subject/grade, no placement
+/// test — and the one thing that separates it is the price: there is no free
+/// premium course. The chip row in step 1 builds itself from [values], so the
+/// type is offered wherever the builder is.
 enum CourseKind {
   skill,
-  academic;
+  academic,
+  premium;
 
   String get wire => name;
 
   String get label => switch (this) {
     CourseKind.skill => 'Skill course',
     CourseKind.academic => 'Academic',
+    CourseKind.premium => 'Premium',
   };
 
-  static CourseKind fromWire(Object? value) =>
-      value == 'academic' ? CourseKind.academic : CourseKind.skill;
+  /// The one-word form, for summary lines that already say "course".
+  String get shortLabel => switch (this) {
+    CourseKind.skill => 'Skill',
+    CourseKind.academic => 'Academic',
+    CourseKind.premium => 'Premium',
+  };
+
+  /// True for every kind authored like a skill course: category, no subject or
+  /// grade. Premium is one of those.
+  bool get isSkillLike => this != CourseKind.academic;
+
+  /// A premium course is paid by definition. There is no such thing as a free
+  /// one, so the builder cannot offer the choice.
+  bool get isAlwaysPaid => this == CourseKind.premium;
+
+  static CourseKind fromWire(Object? value) => switch (value) {
+    'academic' => CourseKind.academic,
+    'premium' => CourseKind.premium,
+    _ => CourseKind.skill,
+  };
 }
 
 /// The four content types the server accepts. Deliberately closed: `quiz` is
@@ -253,6 +280,7 @@ class CourseDraft {
     this.subjectId,
     this.gradeId,
     this.skillCategoryId,
+    this.premiumCategoryId,
   });
 
   /// The languages the builder offers. Deliberately a closed list for now: the
@@ -286,6 +314,18 @@ class CourseDraft {
   /// ignored by the server, and the course then appears under no Skill chip at
   /// all. This is the field that makes the chips work.
   final int? skillCategoryId;
+
+  /// The id a **premium** course is filed under, sent as `premium_category`.
+  ///
+  /// **A different list, not the same one.** Premium courses use
+  /// `PremiumCategory` (`/premium-categories/` — Art & Craft, Design, Physics,
+  /// Business, Technology, Music), because `LearningInterest` is the student's
+  /// own skill taxonomy: the signup interests step reads it, so filing premium
+  /// courses there would put "Business" in front of a student picking what they
+  /// want to learn. Exactly one of the two ids is ever set; the server nulls the
+  /// other one.
+  final int? premiumCategoryId;
+
   final bool isPaid;
 
   /// Kept as the user's text rather than a double: the field is mid-edit most of
@@ -391,21 +431,29 @@ class CourseDraft {
     int? subjectId,
     int? gradeId,
     int? skillCategoryId,
+    int? premiumCategoryId,
     bool clearLevel = false,
     bool clearCategory = false,
     bool clearCover = false,
   }) {
+    final nextKind = kind ?? this.kind;
     return CourseDraft(
       id: id ?? this.id,
       title: title ?? this.title,
       description: description ?? this.description,
-      kind: kind ?? this.kind,
+      kind: nextKind,
       level: clearLevel ? null : (level ?? this.level),
       category: clearCategory ? null : (category ?? this.category),
       skillCategoryId: clearCategory
           ? null
           : (skillCategoryId ?? this.skillCategoryId),
-      isPaid: isPaid ?? this.isPaid,
+      premiumCategoryId: clearCategory
+          ? null
+          : (premiumCategoryId ?? this.premiumCategoryId),
+      // **Premium is paid, always.** Enforced on the way through `copyWith`
+      // rather than in the chip, so every path that can produce a premium draft
+      // obeys it — switching type, loading an existing course, restoring one.
+      isPaid: nextKind.isAlwaysPaid ? true : (isPaid ?? this.isPaid),
       price: price ?? this.price,
       outcomes: outcomes ?? this.outcomes,
       requirements: requirements ?? this.requirements,
@@ -461,17 +509,25 @@ class CourseDraft {
       );
     }
 
+    final kind = CourseKind.fromWire(course['course_type']);
     return CourseDraft(
       id: course['id'] is int ? course['id'] as int : null,
       title: (course['title'] as String?) ?? '',
       description: (course['description'] as String?) ?? '',
-      kind: CourseKind.fromWire(course['course_type']),
+      kind: kind,
       level: CourseLevel.fromWire(course['level']),
-      category: course['skill_category_name'] as String?,
+      // The two taxonomies have separate name fields, so a premium course must
+      // read its own or the picker shows the wrong label.
+      category: kind.isAlwaysPaid
+          ? course['premium_category_name'] as String?
+          : course['skill_category_name'] as String?,
       skillCategoryId: course['skill_category'] is int
           ? course['skill_category'] as int
           : null,
-      isPaid: course['is_paid'] == true,
+      premiumCategoryId: course['premium_category'] is int
+          ? course['premium_category'] as int
+          : null,
+      isPaid: kind.isAlwaysPaid || course['is_paid'] == true,
       price: course['price'] == null ? '' : '${course['price']}',
       outcomes: _stringList(course['learning_outcomes']),
       requirements: _stringList(course['requirements']),
@@ -549,13 +605,17 @@ class PublishReadiness {
   final bool priceSet;
 
   /// A skill course has a category; an academic one has a subject **and** a
-  /// grade.
+  /// grade; a premium one has a **premium** category.
   ///
   /// **This is what makes a published course findable.** The Skills tab filters
   /// on the category and the Courses tab on the grade, so a course missing one
   /// is published and reachable by nobody — the exact "I added a course and it
   /// is not there" complaint. The server rejects a half-placed academic course
   /// outright, but it accepts a skill course with no category.
+  ///
+  /// Premium reads its own list here, not the skill one: they are separate
+  /// tables, and a premium course filed under a skill category would sit in a
+  /// taxonomy its own catalogue does not show.
   final bool placementChosen;
 
   final bool instructorVerified;
@@ -578,9 +638,11 @@ class PublishReadiness {
       hasLesson: draft.lessonCount > 0,
       durationsComplete: draft.hasEveryDuration,
       priceSet: !draft.isPaid || (draft.parsedPrice ?? 0) > 0,
-      placementChosen: draft.kind == CourseKind.academic
-          ? draft.subjectId != null && draft.gradeId != null
-          : draft.skillCategoryId != null,
+      placementChosen: switch (draft.kind) {
+        CourseKind.academic => draft.subjectId != null && draft.gradeId != null,
+        CourseKind.premium => draft.premiumCategoryId != null,
+        CourseKind.skill => draft.skillCategoryId != null,
+      },
       instructorVerified: instructorVerified,
     );
   }

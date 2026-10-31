@@ -60,6 +60,16 @@ class CourseBasicsStep extends StatelessWidget {
     onEdited();
   }
 
+  /// The category id the draft holds for **this** course type.
+  ///
+  /// One field per taxonomy: a premium course is filed under
+  /// [CourseDraft.premiumCategoryId], a skill course under
+  /// [CourseDraft.skillCategoryId]. Reading the wrong one is always null, and
+  /// the picker would print its hint over a category the instructor already
+  /// chose.
+  static int? _categoryId(CourseDraft draft) =>
+      draft.kind.isAlwaysPaid ? draft.premiumCategoryId : draft.skillCategoryId;
+
   @override
   Widget build(BuildContext context) {
     final value = draft.value;
@@ -71,16 +81,23 @@ class CourseBasicsStep extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           _label('Course type'),
-          Row(
+          // **`Wrap`, not `Row`, since Premium made it three chips.** Two chips
+          // fit in 360pt; three overflow by ~119pt and the third lands off
+          // screen, untappable. `Wrap` keeps the same chips, the same 8pt gaps
+          // and the same appearance — it only allows the third to take a second
+          // line, which is the one thing a fixed `Row` cannot do. The row is
+          // still built from `CourseKind.values`, so a new type appears here
+          // without touching this widget.
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
             children: [
-              for (final kind in CourseKind.values) ...[
+              for (final kind in CourseKind.values)
                 PressableChip(
                   label: kind.label,
                   selected: value.kind == kind,
                   onTap: () => _write(value.copyWith(kind: kind)),
                 ),
-                if (kind != CourseKind.values.last) const SizedBox(width: 8),
-              ],
             ],
           ),
 
@@ -90,7 +107,8 @@ class CourseBasicsStep extends StatelessWidget {
             draft: value,
             onPick: () => _pickCover(context),
             onRemove: () => _write(value.copyWith(clearCover: true)),
-          ),          const SizedBox(height: 6),
+          ),
+          const SizedBox(height: 6),
           Text(
             value.cover == null && (value.coverUrl ?? '').isEmpty
                 ? 'Recommended 16:9. A generated tile is used until you add one.'
@@ -143,9 +161,13 @@ class CourseBasicsStep extends StatelessWidget {
           ] else
             BuilderPickerField(
               label: 'Category',
-              value: value.skillCategoryId == null
+              // The two course types carry **different ids from different
+              // tables**, so the field has to read and write the one that
+              // belongs to this draft. `categoryOptions` is already the premium
+              // list when the type is Premium — the page swaps it.
+              value: _categoryId(value) == null
                   ? value.category
-                  : _nameFor(categoryOptions, value.skillCategoryId),
+                  : _nameFor(categoryOptions, _categoryId(value)!),
               hint: categoryOptions.isEmpty
                   ? 'No categories available'
                   : 'Select category',
@@ -156,10 +178,15 @@ class CourseBasicsStep extends StatelessWidget {
                 title: 'category',
                 options: categoryOptions,
                 onPicked: (id) => _write(
-                  draft.value.copyWith(
-                    skillCategoryId: id,
-                    category: _nameFor(categoryOptions, id),
-                  ),
+                  value.kind.isAlwaysPaid
+                      ? value.copyWith(
+                          premiumCategoryId: id,
+                          category: _nameFor(categoryOptions, id),
+                        )
+                      : value.copyWith(
+                          skillCategoryId: id,
+                          category: _nameFor(categoryOptions, id),
+                        ),
                 ),
               ),
             ),
@@ -364,7 +391,8 @@ class _CoverPicker extends StatelessWidget {
   final VoidCallback onPick;
   final VoidCallback onRemove;
 
-  bool get _hasImage => draft.cover != null || (draft.coverUrl ?? '').isNotEmpty;
+  bool get _hasImage =>
+      draft.cover != null || (draft.coverUrl ?? '').isNotEmpty;
 
   @override
   Widget build(BuildContext context) {

@@ -63,6 +63,22 @@ class CourseBuilderApi {
     );
   }
 
+  /// `PATCH /courses/{id}/ {"is_published": false}` — back to a draft.
+  ///
+  /// The mirror of [publishCourse], and the reason it is not a second call to
+  /// it: taking a course down runs no checklist. It keeps its lessons, files and
+  /// enrolments; students simply stop seeing it, and re-publishing goes through
+  /// the builder again.
+  Future<void> unpublishCourse(int courseId) async {
+    await _client.patch<Map<String, dynamic>>(
+      '/courses/$courseId/',
+      data: {'is_published': false},
+    );
+  }
+
+  /// `DELETE /courses/{id}/` — the course, its lessons and its files.
+  ///
+  /// Irreversible, so every caller confirms first.
   Future<void> deleteCourse(int courseId) =>
       _client.delete('/courses/$courseId/');
 
@@ -332,6 +348,15 @@ class CourseBuilderApi {
   Future<List<(int, String)>> loadCategories() =>
       _reference('/learning-interests/');
 
+  /// `GET /premium-categories/` — the **premium** categories.
+  ///
+  /// A different list from [loadCategories], not a subset of it. The skill list
+  /// is the student's own interest taxonomy (the signup step reads it), so a
+  /// premium course must be filed under its own set: Art & Craft, Design,
+  /// Physics, Business, Technology, Music on a fresh database.
+  Future<List<(int, String)>> loadPremiumCategories() =>
+      _reference('/premium-categories/');
+
   Future<List<(int, String)>> _reference(String path) async {
     final rows = await _client.get<List<dynamic>>(path);
     return [
@@ -347,6 +372,11 @@ class CourseBuilderApi {
   /// is why publication is its own call — see [publishCourse].
   Map<String, Object?> _coursePayload(CourseDraft draft) {
     final isAcademic = draft.kind == CourseKind.academic;
+    // **A premium course is paid, whatever the draft says.** `copyWith` forces
+    // it, but a draft built by the raw constructor can still carry `isPaid:
+    // false` — and the server rejects premium + free outright, so sending it
+    // would be a request we know will 400.
+    final paid = draft.isPaid || draft.kind.isAlwaysPaid;
     return {
       'title': draft.title.trim(),
       'description': draft.description.trim(),
@@ -356,12 +386,23 @@ class CourseBuilderApi {
       // which course type it is creating.
       'subject': isAcademic ? draft.subjectId : null,
       'grade': isAcademic ? draft.gradeId : null,
-      'is_paid': draft.isPaid,
-      'price': draft.isPaid ? _priceWire(draft) : null,
+      'is_paid': paid,
+      // **Null until the price is typed**, and that is valid: the server now
+      // requires a price to *publish*, not to save. It used to require one
+      // here, which made every premium course impossible to create — step 1
+      // posts `is_paid: true` with no amount, because the price field is on
+      // step 3.
+      'price': paid ? _priceWire(draft) : null,
       // The id, never the name. `skill_category` is a FK to LearningInterest, so
       // a name is silently ignored — and the course then appears under no Skill
       // chip on the student side. Null for an academic course, which is valid.
       'skill_category': isAcademic ? null : draft.skillCategoryId,
+      // **A different table.** A premium course is filed under
+      // `premium_category` (`PremiumCategory`), never `skill_category` — the
+      // server nulls whichever one does not belong to the course type.
+      'premium_category': draft.kind.isAlwaysPaid
+          ? draft.premiumCategoryId
+          : null,
       // The server trims entries, rejects blanks and caps each at 500 chars, so
       // it is the authority on validity — we send what the instructor typed.
       'learning_outcomes': draft.outcomes,

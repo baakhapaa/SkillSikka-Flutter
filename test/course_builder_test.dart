@@ -11,6 +11,8 @@ import 'package:skillsikka/features/courses/data/course_builder_api.dart';
 import 'package:skillsikka/features/courses/data/course_draft.dart';
 import 'package:skillsikka/features/courses/presentation/course_builder_page.dart';
 import 'package:skillsikka/features/courses/presentation/widgets/course_basics_step.dart';
+import 'package:skillsikka/features/courses/presentation/widgets/course_curriculum_step.dart';
+import 'package:skillsikka/features/courses/presentation/widgets/course_publish_step.dart';
 import 'package:skillsikka/features/courses/presentation/widgets/lesson_editor_sheet.dart';
 import 'package:skillsikka/features/courses/presentation/widgets/prompt_dialog.dart';
 import 'package:skillsikka/core/widgets/course_detail_view.dart'
@@ -88,8 +90,25 @@ class _FakeCourseApi implements CourseBuilderApi {
   @override
   Future<void> publishCourse(int courseId) async => published.add(courseId);
 
+  /// Every course id taken back to a draft, in order.
+  final List<int> unpublished = [];
+
+  /// Set to make the next unpublish throw, the way a 403 would.
+  bool failUnpublish = false;
+
   @override
-  Future<void> deleteCourse(int courseId) async {}
+  Future<void> unpublishCourse(int courseId) async {
+    if (failUnpublish) {
+      throw const ApiException(kind: ApiErrorKind.unknown, statusCode: 403);
+    }
+    unpublished.add(courseId);
+  }
+
+  @override
+  Future<void> deleteCourse(int courseId) async => deleted.add(courseId);
+
+  /// Every course id deleted, in order.
+  final List<int> deleted = [];
 
   @override
   Future<int> createLesson({
@@ -304,6 +323,18 @@ class _FakeCourseApi implements CourseBuilderApi {
     (14, 'Public Speaking'),
     (15, 'Music'),
   ];
+
+  /// The **premium** list — a different table from [loadCategories], with ids
+  /// that would collide with the skill ones if the two were ever mixed up.
+  @override
+  Future<List<(int, String)>> loadPremiumCategories() async {
+    premiumCategoryLoads += 1;
+    return const [(101, 'Design'), (102, 'Business'), (103, 'Technology')];
+  }
+
+  /// How many times the premium list was asked for, so a test can prove a skill
+  /// course never fetches it.
+  int premiumCategoryLoads = 0;
 }
 
 /// Answers each request with the next canned JSON body.
@@ -316,6 +347,13 @@ class _StubAdapter implements HttpClientAdapter {
   final List<String> bodies;
   final List<Uri> urls = [];
 
+  /// The HTTP verb of each request, in order.
+  final List<String> methods = [];
+
+  /// The payload of each request, in order. `data` is already transformed by
+  /// dio, so a JSON body arrives as a `String` and is decoded by the test.
+  final List<Object?> sent = [];
+
   @override
   Future<ResponseBody> fetch(
     RequestOptions options,
@@ -323,6 +361,8 @@ class _StubAdapter implements HttpClientAdapter {
     Future<void>? cancelFuture,
   ) async {
     urls.add(options.uri);
+    methods.add(options.method);
+    sent.add(options.data);
     final body = bodies[(urls.length - 1).clamp(0, bodies.length - 1)];
     return ResponseBody.fromString(
       body,
@@ -1119,6 +1159,394 @@ void main() {
     });
   });
 
+  group('premium course type', () {
+    // A premium course is a paid skill course: same authoring, one difference —
+    // it cannot be free. There is no free premium course in the product.
+
+    test('selecting Premium forces the course to be paid', () {
+      // The rule lives in `copyWith`, not in the chip, so every path that can
+      // produce a premium draft obeys it — switching type, loading an existing
+      // course, restoring one.
+      final free = CourseDraft(title: 'T', description: 'D');
+      final premium = free.copyWith(kind: CourseKind.premium);
+
+      expect(premium.kind, CourseKind.premium);
+      expect(premium.isPaid, isTrue);
+      expect(premium.copyWith(isPaid: false).isPaid, isTrue);
+    });
+
+    test('leaving Premium does not silently revert the instructor to free', () {
+      // The other half of the rule: a forced value must not act like a sticky
+      // one. Back on a skill course, Free is the instructor's choice again.
+      final premium = CourseDraft(
+        title: 'T',
+        description: 'D',
+      ).copyWith(kind: CourseKind.premium).copyWith(kind: CourseKind.skill);
+
+      expect(premium.isPaid, isTrue, reason: 'the forced value is kept');
+      expect(premium.copyWith(isPaid: false).isPaid, isFalse);
+    });
+
+    test('the wire name and the parser round-trip', () {
+      expect(CourseKind.premium.wire, 'premium');
+      expect(CourseKind.fromWire('premium'), CourseKind.premium);
+      // An unknown type still lands on skill — the builder must not invent a
+      // type it cannot author.
+      expect(CourseKind.fromWire('bootcamp'), CourseKind.skill);
+    });
+
+    test('a premium course needs a price to publish', () {
+      const one = CourseLesson(
+        key: 'l',
+        title: 'One',
+        kind: LessonKind.video,
+        duration: Duration(minutes: 5),
+        contentUrl: 'https://example.com/a.mp4',
+      );
+      final draft = CourseDraft(
+        title: 'T',
+        description: 'D',
+        kind: CourseKind.premium,
+        isPaid: true,
+        premiumCategoryId: 101,
+        modules: [
+          const CourseModule(key: 'm', title: 'M', lessons: [one]),
+        ],
+      );
+
+      // Premium is placed by its own category list…
+      expect(
+        PublishReadiness.of(draft, instructorVerified: true).placementChosen,
+        isTrue,
+      );
+      // …and paid, so the price is part of publishing.
+      expect(
+        PublishReadiness.of(draft, instructorVerified: true).priceSet,
+        isFalse,
+      );
+      expect(
+        PublishReadiness.of(
+          draft.copyWith(price: '1,999'),
+          instructorVerified: true,
+        ).canPublish,
+        isTrue,
+      );
+    });
+
+    testWidgets('the type row offers Premium, and it creates a paid course', (
+      tester,
+    ) async {
+      // At the real 360pt width: three chips is the first time this row has had
+      // to fit more than two.
+      await tester.binding.setSurfaceSize(const Size(360, 800));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+
+      final api = _FakeCourseApi();
+      await tester.pumpWidget(_app(api));
+      await tester.pumpAndSettle();
+
+      // The row is built from `CourseKind.values`, so the new type appears
+      // without any layout change.
+      expect(find.text('Skill course'), findsOneWidget);
+      expect(find.text('Academic'), findsOneWidget);
+      expect(find.text('Premium'), findsOneWidget);
+
+      await tester.tap(find.text('Premium'));
+      await tester.pumpAndSettle();
+      await _title(tester, 'Premium DevOps');
+      await tester.tap(find.text('Continue'));
+      await tester.pumpAndSettle();
+
+      final created = api.createdCourses.single;
+      expect(created.kind, CourseKind.premium);
+      expect(created.isPaid, isTrue, reason: 'premium is paid only');
+    });
+
+    test(
+      'a premium course is placed by its own category, not the skill one',
+      () {
+        const one = CourseLesson(
+          key: 'l',
+          title: 'One',
+          kind: LessonKind.video,
+          duration: Duration(minutes: 5),
+          contentUrl: 'https://example.com/a.mp4',
+        );
+        final base = CourseDraft(
+          title: 'T',
+          description: 'D',
+          kind: CourseKind.premium,
+          isPaid: true,
+          price: '999',
+          modules: [
+            const CourseModule(key: 'm', title: 'M', lessons: [one]),
+          ],
+        );
+
+        // A skill category does not place a premium course — the two lists are
+        // separate tables, so the id means nothing in the premium catalogue.
+        expect(
+          PublishReadiness.of(
+            base.copyWith(skillCategoryId: 13),
+            instructorVerified: true,
+          ).placementChosen,
+          isFalse,
+        );
+        expect(
+          PublishReadiness.of(
+            base.copyWith(premiumCategoryId: 101),
+            instructorVerified: true,
+          ).placementChosen,
+          isTrue,
+        );
+      },
+    );
+
+    test('the create request files it under premium_category', () async {
+      final adapter = _StubAdapter([
+        jsonEncode({'id': 77}),
+      ]);
+      final dio = Dio(BaseOptions(baseUrl: 'http://test/api/v1/'))
+        ..httpClientAdapter = adapter;
+
+      await CourseBuilderApi(ApiClient(dio)).createCourse(
+        const CourseDraft(
+          title: 'Premium DevOps',
+          description: 'D',
+          kind: CourseKind.premium,
+          isPaid: true,
+          price: '1,999',
+          premiumCategoryId: 101,
+        ),
+      );
+
+      final raw = adapter.sent.single;
+      final body =
+          (raw is String ? jsonDecode(raw) : raw) as Map<String, dynamic>;
+      expect(body['course_type'], 'premium');
+      expect(body['is_paid'], isTrue);
+      expect(body['premium_category'], 101);
+      expect(
+        body['skill_category'],
+        isNull,
+        reason: 'a premium course must not be filed in the skill taxonomy',
+      );
+    });
+
+    test('step 1 creates it paid with no price yet', () async {
+      // **The payload that used to fail.** Premium forces `isPaid` from the
+      // first save, and the amount is only asked for at step 3, so step 1 posts
+      // `is_paid: true, price: null`. The server used to reject that with
+      // "A paid course must have a price greater than 0" — every premium course
+      // was impossible to create.
+      //
+      // The rule is now "a price is required to *publish*", so this shape is
+      // correct and must stay: inventing a price here to satisfy a validator
+      // would put a made-up amount on a real course.
+      final adapter = _StubAdapter([
+        jsonEncode({'id': 77}),
+      ]);
+      final dio = Dio(BaseOptions(baseUrl: 'http://test/api/v1/'))
+        ..httpClientAdapter = adapter;
+
+      await CourseBuilderApi(ApiClient(dio)).createCourse(
+        const CourseDraft(
+          title: 'new premium',
+          description: 'demo',
+          kind: CourseKind.premium,
+        ),
+      );
+
+      final raw = adapter.sent.single;
+      final body =
+          (raw is String ? jsonDecode(raw) : raw) as Map<String, dynamic>;
+      expect(body['is_paid'], isTrue);
+      expect(body['price'], isNull);
+      expect(body['premium_category'], isNull);
+    });
+
+    testWidgets(
+      'the Category picker offers the premium list, not the skill one',
+      (tester) async {
+        // The two lists are different tables with colliding id spaces, so the
+        // wrong one is not merely cosmetic: a premium course filed under a skill
+        // category sits in a taxonomy its own catalogue never reads.
+        final api = _FakeCourseApi();
+        await tester.pumpWidget(_app(api));
+
+        await tester.tap(find.text('Premium'));
+        await tester.pumpAndSettle();
+        await _title(tester, 'Premium DevOps');
+        await tester.pumpAndSettle();
+
+        await tester.ensureVisible(find.text('Select category'));
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('Select category'));
+        await tester.pumpAndSettle();
+
+        // The premium rows, and none of the skill ones.
+        expect(find.text('Design'), findsOneWidget);
+        expect(find.text('Coding'), findsNothing);
+        expect(find.text('Drawing'), findsNothing);
+
+        await tester.tap(find.text('Design'));
+        await tester.pumpAndSettle();
+
+        await tester.tap(find.text('Continue'));
+        await tester.pumpAndSettle();
+
+        final created = api.createdCourses.single;
+        expect(created.premiumCategoryId, 101);
+        expect(created.skillCategoryId, isNull);
+        expect(created.category, 'Design');
+        expect(api.premiumCategoryLoads, 1);
+      },
+    );
+
+    testWidgets('a premium draft has no Free option in the pricing step', (
+      tester,
+    ) async {
+      // The chip would look tappable and do nothing: the draft forces `isPaid`
+      // true for this kind, so the state it offers cannot exist.
+      final draft = ValueNotifier(
+        CourseDraft(
+          title: 'Premium',
+          description: 'D',
+          kind: CourseKind.premium,
+          isPaid: true,
+          price: '999',
+        ),
+      );
+      addTearDown(draft.dispose);
+      final price = TextEditingController();
+      addTearDown(price.dispose);
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: CoursePublishStep(
+              draft: draft,
+              instructorVerified: true,
+              priceController: price,
+              onEditStep: (_) {},
+              onEdited: () {},
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('Free'), findsNothing);
+      expect(find.text('Paid'), findsOneWidget);
+      // The summary line names the type. It used to be a binary
+      // `skill ? 'Skill' : 'Academic'`, which called a premium course academic.
+      expect(find.textContaining('Premium ·'), findsOneWidget);
+    });
+  });
+
+  group('the header ⋯', () {
+    _FakeCourseApi loaded({bool published = true}) =>
+        _FakeCourseApi()
+          ..loaded = CourseDraft(
+            id: 5,
+            title: 'Illustration',
+            description: 'Draw things.',
+            isPublished: published,
+          );
+
+    Future<void> openMenu(WidgetTester tester, _FakeCourseApi api) async {
+      await tester.binding.setSurfaceSize(const Size(360, 800));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+      await tester.pumpWidget(_app(api, courseId: 5));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byIcon(Icons.more_horiz));
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets('offers Unpublish only while the course is published', (
+      tester,
+    ) async {
+      // A draft has nothing to take down; Delete is always there.
+      await openMenu(tester, loaded(published: true));
+      expect(find.text('Unpublish'), findsOneWidget);
+      expect(find.text('Delete course'), findsOneWidget);
+
+      await tester.tap(find.text('Unpublish'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byIcon(Icons.more_horiz));
+      await tester.pumpAndSettle();
+      expect(find.text('Unpublish'), findsNothing);
+      expect(find.text('Delete course'), findsOneWidget);
+    });
+
+    testWidgets('Unpublish takes the course down without asking', (
+      tester,
+    ) async {
+      final api = loaded(published: true);
+      await openMenu(tester, api);
+
+      await tester.tap(find.text('Unpublish'));
+      await tester.pumpAndSettle();
+
+      // Reversible, so no dialog — unlike Delete below.
+      expect(api.unpublished, [5]);
+      expect(find.textContaining('Students can no longer see'), findsOneWidget);
+    });
+
+    testWidgets('Delete names the course and does nothing until confirmed', (
+      tester,
+    ) async {
+      final api = loaded(published: true);
+      await openMenu(tester, api);
+
+      await tester.tap(find.text('Delete course'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Delete “Illustration”?'), findsOneWidget);
+      expect(
+        api.deleted,
+        isEmpty,
+        reason: 'nothing until the dialog is answered',
+      );
+
+      await tester.tap(find.text('Keep it'));
+      await tester.pumpAndSettle();
+      expect(api.deleted, isEmpty);
+
+      await tester.tap(find.byIcon(Icons.more_horiz));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Delete course'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Delete'));
+      await tester.pumpAndSettle();
+
+      expect(api.deleted, [5]);
+    });
+    test('unpublish PATCHes is_published false, delete DELETEs', () async {
+      // The body matters as much as the verb: `{"is_published": false}` is the
+      // only thing the server reads, and a misspelt key would answer 200 while
+      // changing nothing. These moved here from `MyCoursesApi` when the card's
+      // ⋯ went away — the builder header is now the only caller.
+      final adapter = _StubAdapter([
+        jsonEncode({'id': 5, 'is_published': false}),
+        '',
+      ]);
+      final dio = Dio(BaseOptions(baseUrl: 'http://test/api/v1/'))
+        ..httpClientAdapter = adapter;
+      final api = CourseBuilderApi(ApiClient(dio));
+
+      await api.unpublishCourse(5);
+      await api.deleteCourse(5);
+
+      expect(adapter.methods, ['PATCH', 'DELETE']);
+      expect(adapter.urls.map((uri) => uri.path), [
+        '/api/v1/courses/5/',
+        '/api/v1/courses/5/',
+      ]);
+      expect(adapter.sent.first, {'is_published': false});
+    });
+  });
+
   group('parseDuration', () {
     test('reads mm:ss', () {
       expect(
@@ -1307,7 +1735,18 @@ void main() {
       await tester.pumpAndSettle();
 
       // Rename the first module onto the second one's name.
-      await tester.tap(find.byIcon(Icons.more_horiz).first);
+      //
+      // Scoped to the curriculum step: the header has its own ⋯ since
+      // 2026-10-30 (Unpublish / Delete), and an unscoped `.first` now finds that
+      // one instead of a module's.
+      await tester.tap(
+        find
+            .descendant(
+              of: find.byType(CourseCurriculumStep),
+              matching: find.byIcon(Icons.more_horiz),
+            )
+            .first,
+      );
       await tester.pumpAndSettle();
       await tester.tap(find.text('Rename module'));
       await tester.pumpAndSettle();

@@ -6,11 +6,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:skillsikka/core/network/api_client.dart';
-import 'package:skillsikka/core/network/api_error.dart';
 import 'package:skillsikka/features/courses/data/course_summary.dart';
 import 'package:skillsikka/features/courses/data/my_courses_api.dart';
 import 'package:skillsikka/features/profile/data/profile_role.dart';
 import 'package:skillsikka/features/profile/data/user_profile.dart';
+import 'package:skillsikka/features/profile/presentation/my_courses_page.dart';
 import 'package:skillsikka/features/profile/presentation/profile_page.dart';
 
 class _FakeCourses implements MyCoursesApi {
@@ -19,33 +19,10 @@ class _FakeCourses implements MyCoursesApi {
   final List<CourseSummary> courses;
   int calls = 0;
 
-  /// Every course the grid asked to take down, in order.
-  final List<int> unpublished = [];
-  final List<int> deleted = [];
-
-  /// Set to make the next mutation throw, the way a 403 from the server would.
-  bool failMutation = false;
-
   @override
   Future<List<CourseSummary>> list(String instructorId) async {
     calls += 1;
     return courses;
-  }
-
-  @override
-  Future<void> unpublish(int courseId) async {
-    if (failMutation) {
-      throw const ApiException(kind: ApiErrorKind.unknown, statusCode: 403);
-    }
-    unpublished.add(courseId);
-  }
-
-  @override
-  Future<void> delete(int courseId) async {
-    if (failMutation) {
-      throw const ApiException(kind: ApiErrorKind.unknown, statusCode: 403);
-    }
-    deleted.add(courseId);
   }
 }
 
@@ -127,36 +104,6 @@ void main() {
     });
   });
 
-  group('MyCoursesApi writes', () {
-    /// The body matters as much as the verb: `{"is_published": false}` is the
-    /// only thing the server reads, and a misspelt key would answer 200 while
-    /// changing nothing.
-    test('unpublish PATCHes is_published false on that course', () async {
-      final adapter = _StubAdapter([
-        jsonEncode({'id': 2, 'is_published': false}),
-      ]);
-      final dio = Dio(BaseOptions(baseUrl: 'http://test/api/v1/'))
-        ..httpClientAdapter = adapter;
-
-      await MyCoursesApi(ApiClient(dio)).unpublish(2);
-
-      expect(adapter.methods, ['PATCH']);
-      expect(adapter.urls.single.path, '/api/v1/courses/2/');
-      expect(adapter.payloads.single, {'is_published': false});
-    });
-
-    test('delete DELETEs the course', () async {
-      final adapter = _StubAdapter(['']);
-      final dio = Dio(BaseOptions(baseUrl: 'http://test/api/v1/'))
-        ..httpClientAdapter = adapter;
-
-      await MyCoursesApi(ApiClient(dio)).delete(2);
-
-      expect(adapter.methods, ['DELETE']);
-      expect(adapter.urls.single.path, '/api/v1/courses/2/');
-    });
-  });
-
   testWidgets('the grid shows the instructor\'s real courses', (tester) async {
     await tester.binding.setSurfaceSize(const Size(360, 900));
     addTearDown(() => tester.binding.setSurfaceSize(null));
@@ -186,7 +133,12 @@ void main() {
     expect(find.text('LIVE'), findsOneWidget);
   });
 
-  testWidgets('the price reads the way the card prints it', (tester) async {
+  testWidgets('a free course says Free where a paid one states its price', (
+    tester,
+  ) async {
+    // Product decision, 2026-10-31: a free course's price slot reads `Free`.
+    // The 2026-10-30 rule was the opposite — a blank slot — which read as a
+    // card whose price had failed to load.
     await tester.binding.setSurfaceSize(const Size(360, 900));
     addTearDown(() => tester.binding.setSurfaceSize(null));
 
@@ -194,102 +146,102 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Free'), findsOneWidget);
+    // `Paid` is still never printed — it is a status, not a price.
+    expect(find.text('Paid'), findsNothing);
+    // The paid course still states its amount.
     expect(find.text('Rs 1,299'), findsOneWidget);
+    // Both cards are still there.
+    expect(find.text('Digital Illustration'), findsOneWidget);
+    expect(find.text('Portrait Lighting'), findsOneWidget);
   });
 
-  group('the ⋯ on a course card', () {
-    /// Two cards, so the menu is opened by position: `_courseTiles` keeps the
-    /// server's order, which is `[_draft, _live]`.
-    Future<void> openMenu(WidgetTester tester, int index) async {
-      await tester.tap(find.byIcon(Icons.more_horiz).at(index));
-      await tester.pumpAndSettle();
-    }
+  group('CourseSummary.priceLabel', () {
+    test('a free course says Free', () {
+      expect(_draft.priceLabel, 'Free');
+      // Even if the wire sent a price for a course marked free, `is_paid` wins:
+      // the client does not infer paid-ness from the amount.
+      expect(
+        const CourseSummary(
+          id: 3,
+          title: 'Free but priced',
+          isPublished: true,
+          isPaid: false,
+          price: '1299.00',
+        ).priceLabel,
+        'Free',
+      );
+    });
 
-    Future<_FakeCourses> pump(WidgetTester tester) async {
+    test('a paid course formats the amount and nothing else', () {
+      expect(_live.priceLabel, 'Rs 1,299');
+      expect(
+        const CourseSummary(
+          id: 4,
+          title: 'Cheap',
+          isPublished: true,
+          isPaid: true,
+          price: '999',
+        ).priceLabel,
+        'Rs 999',
+      );
+    });
+
+    test('a paid course with no readable price says nothing', () {
+      // Not "Paid", not "Free" — both were words where a price belongs.
+      expect(
+        const CourseSummary(
+          id: 5,
+          title: 'No price',
+          isPublished: true,
+          isPaid: true,
+        ).priceLabel,
+        '',
+      );
+      expect(
+        const CourseSummary(
+          id: 6,
+          title: 'Garbled price',
+          isPublished: true,
+          isPaid: true,
+          price: 'n/a',
+        ).priceLabel,
+        '',
+      );
+    });
+  });
+
+  group('the course card', () {
+    testWidgets('offers no ⋯ — the builder header owns those actions', (
+      tester,
+    ) async {
       await tester.binding.setSurfaceSize(const Size(360, 900));
       addTearDown(() => tester.binding.setSurfaceSize(null));
-      final api = _FakeCourses(const [_draft, _live]);
-      await tester.pumpWidget(_app(api));
-      await tester.pumpAndSettle();
-      return api;
-    }
 
-    testWidgets('offers Unpublish only where there is something to take down', (
-      tester,
-    ) async {
-      await pump(tester);
-
-      await openMenu(tester, 0); // the draft
-      expect(find.text('Delete course'), findsOneWidget);
-      // Publishing from the grid would bypass the builder's readiness gate.
-      expect(find.text('Unpublish'), findsNothing);
-      expect(find.text('Publish'), findsNothing);
-      await tester.tapAt(const Offset(10, 10));
+      await tester.pumpWidget(_app(_FakeCourses(const [_draft, _live])));
       await tester.pumpAndSettle();
 
-      await openMenu(tester, 1); // the live course
-      expect(find.text('Unpublish'), findsOneWidget);
-      expect(find.text('Delete course'), findsOneWidget);
+      // Removed 2026-10-30. Two affordances in a 90pt cover competed with the
+      // cover art and with each other, and the card already has Edit; Unpublish
+      // and Delete Course live in the builder's header now, covered by
+      // `course_builder_test.dart`.
+      expect(find.byIcon(Icons.more_horiz), findsNothing);
+      expect(find.text('Edit'), findsWidgets);
     });
 
-    testWidgets('Unpublish takes the course down and reloads the shelf', (
-      tester,
-    ) async {
-      final api = await pump(tester);
-      final before = api.calls;
+    testWidgets('See All opens the full list', (tester) async {
+      // It was `onTap: () {}` — a tappable label with a real count beside it.
+      await tester.binding.setSurfaceSize(const Size(360, 900));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
 
-      await openMenu(tester, 1);
-      await tester.tap(find.text('Unpublish'));
+      await tester.pumpWidget(_app(_FakeCourses(const [_draft, _live])));
       await tester.pumpAndSettle();
 
-      expect(api.unpublished, [2]);
-      expect(api.deleted, isEmpty);
-      // The grid is the only place a course's state is visible, so a stale
-      // list would keep showing LIVE on a course that is now a draft.
-      expect(api.calls, greaterThan(before));
-      expect(find.textContaining('is now a draft'), findsOneWidget);
-    });
-
-    testWidgets('Delete names the course and does nothing until confirmed', (
-      tester,
-    ) async {
-      final api = await pump(tester);
-
-      await openMenu(tester, 1);
-      await tester.tap(find.text('Delete course'));
+      await tester.tap(find.textContaining('See All'));
       await tester.pumpAndSettle();
 
-      expect(find.text('Delete “Portrait Lighting”?'), findsOneWidget);
-
-      await tester.tap(find.text('Keep it'));
-      await tester.pumpAndSettle();
-      expect(api.deleted, isEmpty);
-
-      await openMenu(tester, 1);
-      await tester.tap(find.text('Delete course'));
-      await tester.pumpAndSettle();
-      await tester.tap(find.text('Delete'));
-      await tester.pumpAndSettle();
-
-      expect(api.deleted, [2]);
-      expect(api.unpublished, isEmpty);
-    });
-
-    testWidgets('a refused mutation says so and leaves the shelf alone', (
-      tester,
-    ) async {
-      final api = await pump(tester);
-      api.failMutation = true;
-      final before = api.calls;
-
-      await openMenu(tester, 1);
-      await tester.tap(find.text('Unpublish'));
-      await tester.pumpAndSettle();
-
-      expect(api.unpublished, isEmpty);
-      // No refresh: the list did not change, so re-fetching would only flicker.
-      expect(api.calls, before);
-      expect(find.byType(SnackBar), findsOneWidget);
+      expect(find.byType(MyCoursesPage), findsOneWidget);
+      // The page renders the same two courses the shelf was showing.
+      expect(find.text('Digital Illustration'), findsWidgets);
     });
   });
 }

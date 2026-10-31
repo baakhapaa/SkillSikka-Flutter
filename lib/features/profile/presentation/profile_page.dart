@@ -13,6 +13,7 @@ import '../data/profile_role.dart';
 import '../data/user_profile.dart';
 import 'complete_profile_gate.dart';
 import 'edit_profile_page.dart';
+import 'my_courses_page.dart';
 
 const _bg = Color(0xFFFAF9F6);
 const _ink = Color(0xFF111827);
@@ -407,7 +408,7 @@ class _InstructorProfilePageState extends State<InstructorProfilePage> {
               ),
               GestureDetector(
                 behavior: HitTestBehavior.opaque,
-                onTap: () {},
+                onTap: _openAllCourses,
                 child: Text(
                   // The count is the grid's own count. It was hardcoded to 40,
                   // which read as a real figure beside four real courses.
@@ -741,11 +742,11 @@ class _InstructorProfilePageState extends State<InstructorProfilePage> {
                     left: 8,
                     child: _statusChip(course.isPublished),
                   ),
-                  // Top-right, opposite the state chip. Inside the fixed 90pt
-                  // cover so the card's geometry is untouched; a `PopupMenuButton`
-                  // hit-tests before the card's own `onTap`, so the menu opens
-                  // instead of the builder.
-                  Positioned(top: 4, right: 4, child: _courseMenu(course)),
+                  // **No ⋯ on the card** (removed 2026-10-30). Taking a course
+                  // down or deleting it lives in the builder's header, one tap
+                  // away through the card's own Edit, and the card already
+                  // carries a button for that — two affordances in a 90pt cover
+                  // competed with the cover art and with each other.
                 ],
               ),
             ),
@@ -767,18 +768,23 @@ class _InstructorProfilePageState extends State<InstructorProfilePage> {
                   const SizedBox(height: 3),
                   Row(
                     children: [
-                      Flexible(
-                        child: Text(
-                          course.priceLabel,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: GoogleFonts.figtree(
-                            fontSize: 11,
-                            fontWeight: FontWeight.w700,
-                            color: _yellow,
+                      // A free course now reads `Free` (product decision,
+                      // 2026-10-31); only a paid course whose price is missing
+                      // leaves this label empty, and an empty `Text` would leave
+                      // a gap the same height, so the line is dropped entirely.
+                      if (course.priceLabel.isNotEmpty)
+                        Flexible(
+                          child: Text(
+                            course.priceLabel,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: GoogleFonts.figtree(
+                              fontSize: 11,
+                              fontWeight: FontWeight.w700,
+                              color: _yellow,
+                            ),
                           ),
                         ),
-                      ),
                       const Spacer(),
                       Container(
                         padding: const EdgeInsets.symmetric(
@@ -874,6 +880,20 @@ class _InstructorProfilePageState extends State<InstructorProfilePage> {
     ),
   );
 
+  /// "See All (N)" — the full list, and a refresh on the way back.
+  ///
+  /// The shelf already renders every course, so this is not "the rest": it is
+  /// the same set in a form that survives being 25 items long. Editing from
+  /// there can publish, unpublish or delete, so the grid reloads after it
+  /// closes.
+  Future<void> _openAllCourses() async {
+    await Navigator.of(
+      context,
+    ).push<void>(MaterialPageRoute(builder: (_) => const MyCoursesPage()));
+    if (!mounted) return;
+    await _refreshCourses();
+  }
+
   /// Reopens the builder on this course.
   ///
   /// Drafts and published courses both land here: the builder is the instructor's
@@ -894,155 +914,6 @@ class _InstructorProfilePageState extends State<InstructorProfilePage> {
     );
     if (!mounted) return;
     await _refreshCourses();
-  }
-
-  /// The two things an instructor can do to a course without opening it.
-  ///
-  /// **No "Publish" here on purpose.** Publishing is gated on the builder's six
-  /// readiness checks — a lesson, a duration on every lesson, a placement, a
-  /// price, a verified account — and none of them can be evaluated from a card.
-  /// A one-tap publish on the grid would ship a course with no lessons. Taking a
-  /// course *down* needs no such gate, which is why that direction is offered.
-  Widget _courseMenu(CourseSummary course) {
-    return Container(
-      decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: 0.95),
-        shape: BoxShape.circle,
-      ),
-      child: PopupMenuButton<_CourseAction>(
-        tooltip: 'Course actions',
-        padding: EdgeInsets.zero,
-        iconSize: 16,
-        icon: const Icon(Icons.more_horiz, color: _ink),
-        onSelected: (action) {
-          switch (action) {
-            case _CourseAction.unpublish:
-              _unpublishCourse(course);
-            case _CourseAction.delete:
-              _deleteCourse(course);
-          }
-        },
-        itemBuilder: (_) => [
-          if (course.isPublished)
-            PopupMenuItem(
-              value: _CourseAction.unpublish,
-              child: Text(
-                'Unpublish',
-                style: GoogleFonts.manrope(
-                  fontSize: 13,
-                  fontWeight: FontWeight.w600,
-                  color: _ink,
-                ),
-              ),
-            ),
-          PopupMenuItem(
-            value: _CourseAction.delete,
-            child: Text(
-              'Delete course',
-              style: GoogleFonts.manrope(
-                fontSize: 13,
-                fontWeight: FontWeight.w600,
-                color: const Color(0xFFEF4444),
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  /// `PATCH /courses/{id}/ {"is_published": false}` — back to a draft.
-  ///
-  /// Reversible, so it asks nothing: the course keeps its lessons, its files and
-  /// its enrolments, and students simply stop seeing it. Re-publishing goes
-  /// through the builder, which re-runs the checklist.
-  Future<void> _unpublishCourse(CourseSummary course) async {
-    final container = _profileContainer;
-    if (container == null) return;
-    try {
-      await container.read(myCoursesApiProvider).unpublish(course.id);
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('“${course.title}” is now a draft.')),
-      );
-      await _refreshCourses();
-    } on ApiException catch (error) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text(error.displayMessage)));
-    }
-  }
-
-  /// `DELETE /courses/{id}/` — irreversible, so it asks first.
-  ///
-  /// The confirmation names the course and says what goes with it. A generic
-  /// "Delete this course?" is what makes people delete the wrong row: the grid
-  /// is two cards wide and the tap target sits in the cover.
-  Future<void> _deleteCourse(CourseSummary course) async {
-    final container = _profileContainer;
-    if (container == null) return;
-
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        backgroundColor: Colors.white,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
-        title: Text(
-          'Delete “${course.title}”?',
-          style: GoogleFonts.manrope(fontSize: 18, fontWeight: FontWeight.w800),
-        ),
-        content: Text(
-          'The course, its lessons and its files are removed, and every '
-          'enrolled student loses access. This cannot be undone.',
-          style: GoogleFonts.manrope(
-            fontSize: 13,
-            fontWeight: FontWeight.w500,
-            color: _gray,
-            height: 1.5,
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(false),
-            child: Text(
-              'Keep it',
-              style: GoogleFonts.manrope(
-                fontSize: 14,
-                fontWeight: FontWeight.w700,
-                color: _gray,
-              ),
-            ),
-          ),
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(true),
-            child: Text(
-              'Delete',
-              style: GoogleFonts.manrope(
-                fontSize: 14,
-                fontWeight: FontWeight.w700,
-                color: const Color(0xFFEF4444),
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-    if (confirmed != true || !mounted) return;
-
-    try {
-      await container.read(myCoursesApiProvider).delete(course.id);
-      if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('“${course.title}” was deleted.')));
-      await _refreshCourses();
-    } on ApiException catch (error) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text(error.displayMessage)));
-    }
   }
 
   // ─────────────────────────────────────────────────────────────
@@ -2029,8 +1900,6 @@ class _InstructorProfilePageState extends State<InstructorProfilePage> {
 // ─────────────────────────────────────────────────────────────
 // MODELS
 // ─────────────────────────────────────────────────────────────
-/// What the ⋯ on a course card offers. No `publish` — see [_courseMenu].
-enum _CourseAction { unpublish, delete }
 
 class _SavedShort {
   const _SavedShort({

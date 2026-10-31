@@ -47,6 +47,13 @@ class MyCoursesApi {
         );
       }
       for (final row in rows) {
+        // **Bootcamps are not the instructor's to edit.** An administrator
+        // creates them in the dashboard and may name this instructor as the
+        // lead, which puts the camp in `/courses/?instructor=<id>`. The builder
+        // cannot author one (`CourseKind` has no bootcamp) and the API refuses
+        // the write with `403 ADMIN_ONLY`, so listing it here would offer an
+        // Edit that can only fail.
+        if (row is Map && row['course_type'] == 'bootcamp') continue;
         final summary = CourseSummary.tryParse(row);
         if (summary != null) summaries.add(summary);
       }
@@ -60,28 +67,6 @@ class MyCoursesApi {
 
     return summaries;
   }
-
-  /// `PATCH /courses/{id}/ {"is_published": false}` — take a live course down.
-  ///
-  /// **Only ever unpublishes.** The grid deliberately offers no "publish" from a
-  /// card: publishing is gated on six readiness checks that only the builder
-  /// holds, and a one-tap publish here would let an instructor ship a course
-  /// with no lessons straight from their profile. Re-publishing goes through the
-  /// builder, which re-runs the checklist.
-  ///
-  /// The server only gates the `false → true` transition, so the owner may flip
-  /// a course back to draft without any extra permission.
-  Future<void> unpublish(int courseId) => _client.patch<Map<String, dynamic>>(
-    '/courses/$courseId/',
-    data: {'is_published': false},
-  );
-
-  /// `DELETE /courses/{id}/` — 204. Owner or administrator.
-  ///
-  /// **This is not the same as unpublishing.** The row, its lessons and its
-  /// resources are gone, and so is every student's enrolment in it. The grid
-  /// asks for confirmation naming the course before calling this.
-  Future<void> delete(int courseId) => _client.delete('/courses/$courseId/');
 }
 
 final myCoursesApiProvider = Provider<MyCoursesApi>(

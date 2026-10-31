@@ -114,6 +114,7 @@ class _IctBootcampPageState extends ConsumerState<IctBootcampPage> {
       });
       // Deliberately no `_syncVideo()` here: the camp opens on its poster and
       // waits for a tap. The hero builds the controller on demand.
+      _resumeFrom();
     } on ApiException catch (error) {
       if (!mounted) return;
       setState(() {
@@ -146,6 +147,35 @@ class _IctBootcampPageState extends ConsumerState<IctBootcampPage> {
       debugPrint(
         'bootcamp: enrolment skipped — ${error.code} ${error.message}',
       );
+    }
+  }
+
+  /// Points the player at the lesson the student stopped on — selected, not
+  /// playing.
+  ///
+  /// The course player opens on `/my-learning/`'s `next_lesson`; this is the
+  /// same idea, without starting a video nobody asked for. It is best effort: a
+  /// camp that is not enrolled yet, or a failed read, simply opens on the poster.
+  Future<void> _resumeFrom() async {
+    final lessons = _flatLessons;
+    if (lessons.isEmpty) return;
+    try {
+      final id = await ref
+          .read(courseApiProvider)
+          .nextLessonId(widget.courseId);
+      if (!mounted || id == null) return;
+      for (final lesson in lessons) {
+        if (lesson.id != id || !lesson.isPlayable) continue;
+        // The viewer may have picked something while this was in flight.
+        if (_activeLessonId != null) return;
+        setState(() {
+          _activeLessonId = lesson.id;
+          _selectedDay = lesson.dayNumber;
+        });
+        return;
+      }
+    } on ApiException {
+      // Not enrolled, or the read failed: the poster is a fine place to start.
     }
   }
 

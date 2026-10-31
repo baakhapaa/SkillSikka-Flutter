@@ -342,6 +342,23 @@ void main() {
     expect(find.text('DAY 2'), findsOneWidget);
   });
 
+  testWidgets(
+    'it opens on the lesson the student stopped on, without playing',
+    (tester) async {
+      await tester.binding.setSurfaceSize(const Size(360, 900));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+
+      final courses = FakeCourseApi()..nextLesson = 12;
+      await tester.pumpWidget(app(courses: courses));
+      await tester.pumpAndSettle();
+
+      // Selected, so the strip names it and the Day chip follows…
+      expect(find.text('DAY 2'), findsOneWidget);
+      // …but nothing was marked finished just by opening the camp.
+      expect(courses.completions, isEmpty);
+    },
+  );
+
   testWidgets('a failed load offers a retry', (tester) async {
     await tester.pumpWidget(
       app(

@@ -3,6 +3,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:skillsikka/app.dart';
 import 'package:skillsikka/features/learning/data/learning_api.dart';
+import 'package:skillsikka/features/bootcamp/data/bootcamp.dart';
+import 'package:skillsikka/features/bootcamp/data/bootcamp_api.dart';
 import 'package:skillsikka/features/learning/data/my_learning.dart';
 import 'package:skillsikka/core/network/session.dart';
 import 'package:skillsikka/core/network/session_store.dart';
@@ -48,6 +50,10 @@ void main() {
         // `/my-learning/`. dio answers 400 under `flutter test`, so without this
         // the screen logs a failed request in a test about session restore.
         myLearningProvider.overrideWith((ref) async => const MyLearning()),
+        // The home rail fetches `/courses/?course_type=bootcamp` on its first
+        // build, for the same reason — and a request left in flight is a timer
+        // that outlives the widget tree.
+        bootcampsProvider.overrideWith((ref) async => const <BootcampCard>[]),
       ],
     );
     addTearDown(container.dispose);

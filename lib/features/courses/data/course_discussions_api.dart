@@ -166,6 +166,28 @@ class CourseThread {
   bool get isStaff =>
       authorRole == 'Instructor' || authorRole == 'Administrator';
 
+  /// A thread is immutable, and a like or a reply changes exactly one of these
+  /// fields — copying beats refetching the page to re-render one row.
+  CourseThread copyWith({
+    int? likesCount,
+    bool? isLiked,
+    int? repliesCount,
+    List<CourseThread>? replies,
+  }) => CourseThread(
+    id: id,
+    parentId: parentId,
+    body: body,
+    authorName: authorName,
+    when: when,
+    authorRole: authorRole,
+    authorPhotoUrl: authorPhotoUrl,
+    likesCount: likesCount ?? this.likesCount,
+    isLiked: isLiked ?? this.isLiked,
+    isMine: isMine,
+    repliesCount: repliesCount ?? this.repliesCount,
+    replies: replies ?? this.replies,
+  );
+
   static CourseThread? tryParse(Object? value) {
     if (value is! Map) return null;
     final id = value['id'];

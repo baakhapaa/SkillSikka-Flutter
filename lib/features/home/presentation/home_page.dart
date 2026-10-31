@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:skillsikka/core/widgets/course_grid_card.dart';
+import 'package:skillsikka/core/widgets/course_image.dart';
 import 'package:skillsikka/core/widgets/section_bar.dart';
 import 'package:skillsikka/features/events/data/event.dart';
 import 'package:skillsikka/features/events/data/event_page.dart';
@@ -25,6 +26,8 @@ import 'package:skillsikka/features/skill_courses/data/skill_course.dart';
 import 'package:skillsikka/features/skill_courses/presentation/skill_courses.dart';
 import 'package:skillsikka/features/search/presentation/search_page.dart';
 import 'package:skillsikka/features/notification/presentation/notification_page.dart';
+import 'package:skillsikka/features/bootcamp/data/bootcamp.dart';
+import 'package:skillsikka/features/bootcamp/data/bootcamp_api.dart';
 import 'package:skillsikka/features/bootcamp/presentation/bootcamp_page.dart';
 
 const _cream = Color(0xFFFAF9F6);
@@ -52,7 +55,10 @@ class _HomePageState extends State<HomePage>
   double _heroSnapTarget = 0;
   bool _heroAnimating = false;
   int _selectedClassIndex = 0;
-  int _selectedBootcampDays = 4;
+
+  /// Null until the rail's data arrives: the durations come from the camps
+  /// themselves, so there is no honest default before then.
+  int? _selectedBootcampDays;
   int _hoveredClassIndex = -1;
   bool _hoveredBootcampSelector = false;
 
@@ -658,103 +664,94 @@ class _HomePageState extends State<HomePage>
     );
   }
 
-  /// Bootcamp cards, each tagged with the duration it belongs to.
-  /// ict1.png = the 4-day artwork, ict2.png = the 7-day artwork.
-  static const _bootcampCamps = <(int, String, String)>[
-    (4, 'assets/figma/homescreen/ict1.png', 'Sundarbazar'),
-    (7, 'assets/figma/homescreen/ict2.png', 'PALUNGTAR'),
-  ];
-
-  /// Fixed display order for the selector. Deliberately NOT reordered to put
-  /// the current selection first — that made the menu items jump around.
-  static const _bootcampDurations = <int>[4, 7];
-
+  /// The ICT & AI Bootcamp rail, loaded from `GET /courses/?course_type=bootcamp`.
+  ///
+  /// **It used to be two hardcoded cards** (`ict1.png` / `ict2.png`) with no
+  /// course behind them, so a bootcamp an administrator created in the dashboard
+  /// existed on the server and appeared nowhere here. The cards are unchanged;
+  /// only where their contents come from is.
+  ///
+  /// The rail hides itself when there is nothing to show, and its loading state
+  /// is a static skeleton rather than a spinner — a `CircularProgressIndicator`
+  /// in this scroll view never stops, which is both the wrong thing to look at
+  /// in a rail and enough to hang `pumpAndSettle`.
   Widget _buildIctBootcamp() {
+    return Consumer(
+      builder: (context, ref, _) {
+        return ref
+            .watch(bootcampsProvider)
+            .when(
+              loading: _buildBootcampSkeleton,
+              error: (_, _) => const SizedBox.shrink(),
+              data: (camps) => camps.isEmpty
+                  ? const SizedBox.shrink()
+                  : _buildBootcampRail(camps),
+            );
+      },
+    );
+  }
+
+  Widget _buildBootcampSkeleton() {
+    return Column(
+      children: [
+        _buildBootcampHeading(selector: null),
+        SizedBox(
+          height: 223,
+          child: ListView.separated(
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            scrollDirection: Axis.horizontal,
+            itemCount: 1,
+            separatorBuilder: (_, _) => const SizedBox(width: 8),
+            itemBuilder: (_, _) => Container(
+              width: 311,
+              decoration: BoxDecoration(
+                color: const Color(0xFFEFEDE7),
+                borderRadius: BorderRadius.circular(12),
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildBootcampRail(List<BootcampCard> camps) {
+    // Distinct runs, ascending — a camp is filed under the number of days it
+    // takes, and the selector only ever offers runs that exist.
+    final durations = <int>{
+      for (final camp in camps)
+        if (camp.days > 0) camp.days,
+    }.toList()..sort();
+    final selected = _selectedBootcampDays != null &&
+            durations.contains(_selectedBootcampDays)
+        ? _selectedBootcampDays!
+        : (durations.isEmpty ? 0 : durations.first);
+
     // Only the carousel reorders: the card matching the selected duration is
     // pulled to the front, the rest keep their original relative order.
-    final camps = [
-      ..._bootcampCamps.where((c) => c.$1 == _selectedBootcampDays),
-      ..._bootcampCamps.where((c) => c.$1 != _selectedBootcampDays),
+    final ordered = [
+      ...camps.where((camp) => camp.days == selected),
+      ...camps.where((camp) => camp.days != selected),
     ];
 
     return Column(
       children: [
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-          child: Row(
-            children: [
-              const SectionBar(),
-              const SizedBox(width: 7),
-              Expanded(
-                child: Text(
-                  'ICT & AI Bootcamp',
-                  style: GoogleFonts.manrope(
-                    fontSize: 16,
-                    fontWeight: FontWeight.w300,
-                    color: _ink,
-                  ),
-                ),
-              ),
-              MouseRegion(
-                onEnter: (_) => setState(() => _hoveredBootcampSelector = true),
-                onExit: (_) => setState(() => _hoveredBootcampSelector = false),
-                child: _glossyGlassButton(
-                  pressed: false,
-                  hovered: _hoveredBootcampSelector,
-                  fill: Colors.white,
-                  radius: BorderRadius.circular(14),
-                  padding: const EdgeInsets.only(
-                    left: 10,
-                    right: 4,
-                    top: 2,
-                    bottom: 2,
-                  ),
-                  child: SizedBox(
-                    height: 22,
-                    child: DropdownButtonHideUnderline(
-                      child: DropdownButton<int>(
-                        value: _selectedBootcampDays,
-                        isDense: true,
-                        icon: const Icon(
-                          Icons.chevron_right,
-                          size: 18,
-                          color: Colors.black,
-                        ),
-                        style: GoogleFonts.figtree(
-                          fontSize: 12,
-                          fontWeight: FontWeight.w600,
-                          color: const Color(0xFF141414),
-                        ),
-                        items: _bootcampDurations
-                            .map(
-                              (days) => DropdownMenuItem<int>(
-                                value: days,
-                                child: Text('$days Days'),
-                              ),
-                            )
-                            .toList(),
-                        onChanged: (days) {
-                          if (days == null) return;
-                          setState(() => _selectedBootcampDays = days);
-                          // The matching card is now first in the list — snap
-                          // the carousel back to it so the swap is visible
-                          // even if the user had scrolled to the other card.
-                          WidgetsBinding.instance.addPostFrameCallback((_) {
-                            if (!_bootcampController.hasClients) return;
-                            _bootcampController.animateTo(
-                              0,
-                              duration: const Duration(milliseconds: 260),
-                              curve: Curves.easeOut,
-                            );
-                          });
-                        },
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-            ],
-          ),
+        _buildBootcampHeading(
+          selector: durations.length < 2
+              ? null
+              : (selected, durations, (days) {
+                  setState(() => _selectedBootcampDays = days);
+                  // The matching card is now first in the list — snap the
+                  // carousel back to it so the swap is visible.
+                  WidgetsBinding.instance.addPostFrameCallback((_) {
+                    if (!_bootcampController.hasClients) return;
+                    _bootcampController.animateTo(
+                      0,
+                      duration: const Duration(milliseconds: 260),
+                      curve: Curves.easeOut,
+                    );
+                  });
+                }),
         ),
         SizedBox(
           height: 223,
@@ -762,16 +759,18 @@ class _HomePageState extends State<HomePage>
             controller: _bootcampController,
             padding: const EdgeInsets.symmetric(horizontal: 16),
             scrollDirection: Axis.horizontal,
-            itemCount: camps.length,
+            itemCount: ordered.length,
             separatorBuilder: (c, i) => const SizedBox(width: 8),
             itemBuilder: (context, index) {
-              final camp = camps[index];
+              final camp = ordered[index];
               return GestureDetector(
-                key: ValueKey(camp.$2),
+                key: ValueKey(camp.id),
                 behavior: HitTestBehavior.opaque,
                 onTap: () {
                   Navigator.of(context).push(
-                    MaterialPageRoute(builder: (_) => const IctBootcampPage()),
+                    MaterialPageRoute(
+                      builder: (_) => IctBootcampPage(courseId: camp.id),
+                    ),
                   );
                 },
                 child: ClipRRect(
@@ -784,18 +783,21 @@ class _HomePageState extends State<HomePage>
                       fit: StackFit.expand,
                       children: [
                         Positioned.fill(
-                          child: Image.asset(
-                            camp.$2,
-                            fit: BoxFit.cover,
-                            errorBuilder: (c, e, s) => Container(
-                              decoration: const BoxDecoration(
-                                gradient: LinearGradient(
-                                  begin: Alignment.topCenter,
-                                  end: Alignment.bottomCenter,
-                                  colors: [
-                                    Color(0xFF4B5563),
-                                    Color(0xFF111827),
-                                  ],
+                          child: CourseImage(
+                            camp.image,
+                            fallback: Image.asset(
+                              _bootcampArt(camp.days),
+                              fit: BoxFit.cover,
+                              errorBuilder: (c, e, s) => Container(
+                                decoration: const BoxDecoration(
+                                  gradient: LinearGradient(
+                                    begin: Alignment.topCenter,
+                                    end: Alignment.bottomCenter,
+                                    colors: [
+                                      Color(0xFF4B5563),
+                                      Color(0xFF111827),
+                                    ],
+                                  ),
                                 ),
                               ),
                             ),
@@ -826,8 +828,9 @@ class _HomePageState extends State<HomePage>
                                 runSpacing: 4,
                                 children: [
                                   _buildPill('SKILL SIKKA'),
-                                  _buildPill(camp.$3.toUpperCase()),
-                                  _buildPill('2.5K VIEWS'),
+                                  if (camp.venueName.isNotEmpty)
+                                    _buildPill(camp.venueName.toUpperCase()),
+                                  _buildPill(camp.viewLabel),
                                 ],
                               ),
                             ],
@@ -842,6 +845,84 @@ class _HomePageState extends State<HomePage>
           ),
         ),
       ],
+    );
+  }
+
+  /// The bundled artwork the design shipped with, still used when an admin has
+  /// not uploaded a poster: `ict1.png` is the 4-day art, `ict2.png` the 7-day.
+  static String _bootcampArt(int days) => days >= 7
+      ? 'assets/figma/homescreen/ict2.png'
+      : 'assets/figma/homescreen/ict1.png';
+
+  Widget _buildBootcampHeading({
+    required (int, List<int>, ValueChanged<int>)? selector,
+  }) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      child: Row(
+        children: [
+          const SectionBar(),
+          const SizedBox(width: 7),
+          Expanded(
+            child: Text(
+              'ICT & AI Bootcamp',
+              style: GoogleFonts.manrope(
+                fontSize: 16,
+                fontWeight: FontWeight.w300,
+                color: _ink,
+              ),
+            ),
+          ),
+          if (selector != null)
+            MouseRegion(
+              onEnter: (_) => setState(() => _hoveredBootcampSelector = true),
+              onExit: (_) => setState(() => _hoveredBootcampSelector = false),
+              child: _glossyGlassButton(
+                pressed: false,
+                hovered: _hoveredBootcampSelector,
+                fill: Colors.white,
+                radius: BorderRadius.circular(14),
+                padding: const EdgeInsets.only(
+                  left: 10,
+                  right: 4,
+                  top: 2,
+                  bottom: 2,
+                ),
+                child: SizedBox(
+                  height: 22,
+                  child: DropdownButtonHideUnderline(
+                    child: DropdownButton<int>(
+                      value: selector.$1,
+                      isDense: true,
+                      icon: const Icon(
+                        Icons.chevron_right,
+                        size: 18,
+                        color: Colors.black,
+                      ),
+                      style: GoogleFonts.figtree(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                        color: const Color(0xFF141414),
+                      ),
+                      items: selector.$2
+                          .map(
+                            (days) => DropdownMenuItem<int>(
+                              value: days,
+                              child: Text('$days Days'),
+                            ),
+                          )
+                          .toList(),
+                      onChanged: (days) {
+                        if (days == null) return;
+                        selector.$3(days);
+                      },
+                    ),
+                  ),
+                ),
+              ),
+            ),
+        ],
+      ),
     );
   }
 

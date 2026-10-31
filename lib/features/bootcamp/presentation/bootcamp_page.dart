@@ -1,6 +1,16 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:url_launcher/url_launcher.dart';
 import 'package:video_player/video_player.dart';
+
+import '../../../core/network/api_error.dart';
+import '../../../core/widgets/course_detail_view.dart';
+import '../../../core/widgets/course_image.dart';
+import '../../courses/data/course_api.dart';
+import '../../courses/data/course_discussions_api.dart';
+import '../data/bootcamp.dart';
+import '../data/bootcamp_api.dart';
 
 const _bg = Color(0xFFFFFFFF);
 const _ink = Color(0xFF111827);
@@ -9,327 +19,387 @@ const _border = Color(0xFFEAEAEA);
 const _yellow = Color(0xFFE6B800);
 const _softGray = Color(0xFF737D8C);
 
-class IctBootcampPage extends StatefulWidget {
-  const IctBootcampPage({super.key});
+/// The ICT & AI Bootcamp screen — the design, fed by `GET /courses/{id}/`.
+///
+/// **A bootcamp is created by an administrator in the Django dashboard**, never
+/// in the app: the builder has no bootcamp type and the API answers
+/// `403 ADMIN_ONLY` to an instructor. This screen only reads it.
+///
+/// **It enrols the viewer before it loads.** A bootcamp is free, and the server
+/// withholds `content_url` from a student without an active enrolment — so
+/// without this the curriculum would render fully locked for someone who just
+/// tapped the card. A paid camp is left alone (`enroll` parks it in
+/// `pending_payment`) and the page degrades to a read-only curriculum.
+class IctBootcampPage extends ConsumerStatefulWidget {
+  const IctBootcampPage({super.key, required this.courseId});
+
+  /// `Course.id` — the card that opened this screen already has it.
+  final int courseId;
 
   @override
-  State<IctBootcampPage> createState() => _IctBootcampPageState();
+  ConsumerState<IctBootcampPage> createState() => _IctBootcampPageState();
 }
 
-class _IctBootcampPageState extends State<IctBootcampPage> {
-  int _selectedDay = 0;
+class _IctBootcampPageState extends ConsumerState<IctBootcampPage> {
+  int _selectedDay = 1;
   int _selectedTab = 0;
   bool _autoPlay = true;
   bool _autoNext = true;
   bool _descriptionExpanded = false;
   bool _showAllDiscussions = false;
   bool _showEmojiPicker = false;
-  late final VideoPlayerController _videoController;
+
+  bool _loading = true;
+  String? _error;
+  BootcampDetail? _detail;
+
+  List<CourseThread> _threads = const [];
+  int _threadCount = 0;
+  bool _threadsLoading = false;
+  bool _threadsLoaded = false;
+  String? _threadsError;
+
+  /// The lesson whose video is on the hero, or null for the camp's own trailer.
+  int? _activeLessonId;
+
+  VideoPlayerController? _videoController;
   bool _videoReady = false;
 
-  // Comment composer
   final TextEditingController _commentController = TextEditingController();
-
-  // Q&A reply-thread state
   final Set<int> _expandedReplies = <int>{};
   final Map<int, TextEditingController> _replyControllers = {};
-
-  TextEditingController _replyController(int index) =>
-      _replyControllers.putIfAbsent(index, () => TextEditingController());
-
-  static const _days = ['Day 1', 'Day 2', 'Day 3', 'Day 4'];
-
-  static const _sections = <_LessonSection>[
-    _LessonSection(
-      title: 'Section 1: Research & Strategy Foundations',
-      lessons: [
-        _Lesson(number: 1, title: 'Demo', duration: '22:10'),
-        _Lesson(
-            number: 2,
-            title: 'Defining the Product Strategy Grid',
-            duration: '18:45',
-            isActive: true),
-        _Lesson(
-            number: 3,
-            title: 'Introduction to Design Thinking',
-            duration: '18:45'),
-        _Lesson(
-            number: 4,
-            title: 'Conducting Stakeholder Interviews',
-            duration: '24:30'),
-        _Lesson(
-            number: 5,
-            title: 'Competitive Analysis & Benchmarking',
-            duration: '19:15'),
-        _Lesson(
-            number: 6,
-            title: 'Creating Effective User Surveys',
-            duration: '16:50'),
-        _Lesson(
-            number: 7,
-            title: 'Journey Mapping Fundamentals',
-            duration: '27:20'),
-      ],
-    ),
-    _LessonSection(
-      title: 'Section 2: Design & Prototyping',
-      lessons: [
-        _Lesson(
-            number: 8,
-            title: 'Information Architecture Basics',
-            duration: '21:05'),
-        _Lesson(
-            number: 9,
-            title: 'Wireframing for Mobile Interfaces',
-            duration: '32:40'),
-        _Lesson(
-            number: 10,
-            title: 'Prototyping with Interactive States',
-            duration: '28:15'),
-        _Lesson(
-            number: 11,
-            title: 'Usability Testing Methods',
-            duration: '25:30'),
-        _Lesson(
-            number: 12,
-            title: 'Accessibility & Inclusive Design',
-            duration: '20:10'),
-        _Lesson(
-            number: 13,
-            title: 'Visual Hierarchy & Typography',
-            duration: '23:55'),
-        _Lesson(
-            number: 14,
-            title: 'Color Theory for Digital Products',
-            duration: '17:20'),
-      ],
-    ),
-    _LessonSection(
-      title: 'Section 3: Systems, Polish & Handoff',
-      lessons: [
-        _Lesson(
-            number: 15,
-            title: 'Design Systems & Component Libraries',
-            duration: '34:10'),
-        _Lesson(
-            number: 16,
-            title: 'Responsive Layout Patterns',
-            duration: '22:45'),
-        _Lesson(
-            number: 17,
-            title: 'Micro-interactions & Motion Design',
-            duration: '26:30'),
-        _Lesson(
-            number: 18,
-            title: 'Heuristic Evaluation Techniques',
-            duration: '19:50'),
-        _Lesson(
-            number: 19,
-            title: 'Presenting Designs to Stakeholders',
-            duration: '15:25'),
-        _Lesson(
-            number: 20,
-            title: 'Iterating Based on User Feedback',
-            duration: '21:40'),
-      ],
-    ),
-  ];
-
-  static const _resourceSections = <_ResourceSection>[
-    _ResourceSection(
-      title: 'Section 1: Course Materials',
-      resources: [
-        _Resource(
-            title: 'Product Strategy Grid Template',
-            format: 'PDF',
-            formatStyle: _ResourceFormat.pdf),
-        _Resource(
-            title: 'Design Thinking Workbook',
-            format: 'PDF',
-            formatStyle: _ResourceFormat.pdf),
-        _Resource(
-            title: 'Stakeholder Interview Guide',
-            format: 'DOC',
-            formatStyle: _ResourceFormat.doc),
-        _Resource(
-            title: 'Competitive Analysis Framework',
-            format: 'XLS',
-            formatStyle: _ResourceFormat.xls),
-        _Resource(
-            title: 'User Survey Templates',
-            format: 'PDF',
-            formatStyle: _ResourceFormat.pdf),
-      ],
-    ),
-    _ResourceSection(
-      title: 'Section 2: Design Tools & Assets',
-      resources: [
-        _Resource(
-            title: 'Wireframing Kit',
-            format: 'Figma',
-            formatStyle: _ResourceFormat.figma),
-        _Resource(
-            title: 'Component Library',
-            format: 'Figma',
-            formatStyle: _ResourceFormat.figma),
-        _Resource(
-            title: 'Icon Pack',
-            format: 'SVG',
-            formatStyle: _ResourceFormat.svg),
-        _Resource(
-            title: 'Stock Photo Collection',
-            format: 'ZIP',
-            formatStyle: _ResourceFormat.zip),
-        _Resource(
-            title: 'Color Palette Guide',
-            format: 'PDF',
-            formatStyle: _ResourceFormat.pdf),
-      ],
-    ),
-    _ResourceSection(
-      title: 'Section 3: Additional Reading',
-      resources: [
-        _Resource(
-            title: 'UX Research Best Practices',
-            format: 'PDF',
-            formatStyle: _ResourceFormat.pdf),
-        _Resource(
-            title: 'Mobile Design Guidelines',
-            format: 'PDF',
-            formatStyle: _ResourceFormat.pdf),
-        _Resource(
-            title: 'Accessibility Checklist',
-            format: 'PDF',
-            formatStyle: _ResourceFormat.pdf),
-        _Resource(
-            title: 'Design System Documentation',
-            format: 'PDF',
-            formatStyle: _ResourceFormat.pdf),
-      ],
-    ),
-  ];
-
-  final List<_Comment> _qaComments = [
-    _Comment(
-      avatarPath: 'assets/figma/instructors/instructor.png',
-      username: 'mira_sharma',
-      meta: '3h ago • Design Student',
-      message:
-          'These frameworks match precisely with the OKR models we deployed '
-          'last quarter. Highly recommend mapping Module 2 directly into your roadmap.',
-      likes: 24,
-    ),
-    _Comment(
-      avatarPath: 'assets/figma/instructors/instructor1.png',
-      username: 'sam_thapa',
-      meta: '5h ago • CS Undergrad',
-      message:
-          'Great breakdown in Section 1. The Product Strategy Grid template '
-          'saved me a full day of prep work last week.',
-      likes: 18,
-    ),
-    _Comment(
-      avatarPath: 'assets/figma/instructors/instructor2.png',
-      username: 'amy_rai',
-      meta: '8h ago • UX Student',
-      message:
-          'The stakeholder interview guide was surprisingly practical. '
-          'Would love to see a follow-up on synthesis techniques.',
-      likes: 12,
-    ),
-    _Comment(
-      avatarPath: 'assets/figma/instructors/instructor3.png',
-      username: 'raj_karki',
-      meta: '1d ago • Business Student',
-      message:
-          'Anyone else using Module 3 as a checklist for their Q1 planning? '
-          'It maps almost 1:1 to our quarterly OKRs.',
-      likes: 31,
-    ),
-    _Comment(
-      avatarPath: 'assets/figma/instructors/instructor4.png',
-      username: 'lea_gurung',
-      meta: '1d ago • Frontend Student',
-      message:
-          'The component library section paid for itself in one sprint. '
-          'Highly recommend the Figma kit if you\'re building a design system.',
-      likes: 9,
-    ),
-    _Comment(
-      avatarPath: 'assets/figma/instructors/instructor5.png',
-      username: 'nikhil_poudel',
-      meta: '2d ago • Math Student',
-      message:
-          'Nice to see actual real-world examples instead of just theory. '
-          'The visual proofs in Section 2 helped me finally get it.',
-      likes: 15,
-    ),
-    _Comment(
-      avatarPath: 'assets/figma/instructors/instructor6.png',
-      username: 'tara_maharjan',
-      meta: '2d ago • Physics Student',
-      message:
-          'Would love a deeper dive into the migration patterns discussed '
-          'in Section 3. Anyone have a link to the reference paper?',
-      likes: 7,
-    ),
-    _Comment(
-      avatarPath: 'assets/figma/instructors/instructor7.png',
-      username: 'bikash_shrestha',
-      meta: '3d ago • Engineering Student',
-      message:
-          'Just finished the whole bootcamp. Hands down the clearest '
-          'explanation of Design Thinking I\'ve seen on any platform.',
-      likes: 42,
-    ),
-    _Comment(
-      avatarPath: 'assets/figma/instructors/instructor.png',
-      username: 'priya_khadka',
-      meta: '3d ago • Design Student',
-      message:
-          'Does anyone know if the Figma kit works with the latest version? '
-          'I keep getting an asset error when I open it.',
-      likes: 5,
-    ),
-    _Comment(
-      avatarPath: 'assets/figma/instructors/instructor1.png',
-      username: 'arun_thapa',
-      meta: '4d ago • CS Student',
-      message:
-          'The Competitive Analysis Framework spreadsheet is worth the price '
-          'of admission alone. Already using it for my capstone.',
-      likes: 27,
-    ),
-  ];
-
-  static const _emojiPalette = [
-    '😀', '😂', '🥹', '😍', '🤔', '🙌',
-    '🔥', '💯', '🚀', '✨', '🎯', '👏',
-    '😅', '🙏', '💡', '📚', '⭐', '❤️',
-  ];
 
   @override
   void initState() {
     super.initState();
-    _videoController = VideoPlayerController.asset(
-      'assets/figma/bootcamp/video.mp4',
-    )..initialize().then((_) {
-        if (mounted) setState(() => _videoReady = true);
-      });
+    _load();
   }
 
   @override
   void dispose() {
     _commentController.dispose();
-    for (final c in _replyControllers.values) {
-      c.dispose();
+    for (final controller in _replyControllers.values) {
+      controller.dispose();
     }
-    _videoController.dispose();
+    _videoController?.dispose();
     super.dispose();
   }
 
+  // ── loading ───────────────────────────────────────────────────────────────
+
+  Future<void> _load() async {
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
+    try {
+      await _ensureEnrolled();
+      final detail = await ref
+          .read(bootcampApiProvider)
+          .detail(widget.courseId);
+      if (!mounted) return;
+      setState(() {
+        _detail = detail;
+        _selectedDay = detail.days.isEmpty ? 1 : detail.days.first.number;
+        _loading = false;
+      });
+      _syncVideo();
+    } on ApiException catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _loading = false;
+        _error = error.message ?? 'This bootcamp could not be loaded.';
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _loading = false;
+        _error = 'This bootcamp could not be loaded.';
+      });
+    }
+  }
+
+  /// Joins the camp so the lessons and files open.
+  ///
+  /// A failure is **not** fatal: the screen still renders the curriculum and
+  /// the Q&A thread (reading a published course's discussions needs no
+  /// enrolment), just with the lesson bodies withheld by the server.
+  Future<void> _ensureEnrolled() async {
+    final api = ref.read(courseApiProvider);
+    try {
+      final existing = await api.enrollmentFor(widget.courseId);
+      if (existing != null) return;
+      await api.enroll(widget.courseId);
+    } on ApiException catch (error) {
+      // A double tap can race the first request; that is not a failure.
+      if (error.code == 'ALREADY_ENROLLED') return;
+      debugPrint(
+        'bootcamp: enrolment skipped — ${error.code} ${error.message}',
+      );
+    }
+  }
+
+  Future<void> _loadThreads() async {
+    if (_threadsLoading) return;
+    setState(() {
+      _threadsLoading = true;
+      _threadsError = null;
+    });
+    try {
+      final page = await ref
+          .read(courseDiscussionsApiProvider)
+          .list(widget.courseId);
+      if (!mounted) return;
+      setState(() {
+        _threads = page.threads;
+        _threadCount = page.count;
+        _threadsLoading = false;
+        _threadsLoaded = true;
+      });
+    } on ApiException catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _threadsLoading = false;
+        _threadsLoaded = true;
+        _threadsError = error.message ?? 'The discussion could not be loaded.';
+      });
+    }
+  }
+
+  // ── video ─────────────────────────────────────────────────────────────────
+
+  /// The camp's trailer, or the video of the lesson the viewer tapped.
+  ///
+  /// **No controller when there is no URL** — that is what keeps `video_player`
+  /// (no platform implementation under `flutter test`) off the path of every
+  /// test that mounts this screen.
+  void _syncVideo() {
+    _videoController?.dispose();
+    _videoController = null;
+    _videoReady = false;
+
+    final detail = _detail;
+    if (detail == null) return;
+
+    final lesson = _activeLesson;
+    final lessonUrl = lesson?.kind == CourseLessonKind.video
+        ? (lesson?.contentUrl ?? '').trim()
+        : '';
+    final remote = lessonUrl.isNotEmpty
+        ? lessonUrl
+        : detail.heroVideoUrl.trim();
+    if (remote.isEmpty) return;
+
+    final controller = VideoPlayerController.networkUrl(Uri.parse(remote));
+    _videoController = controller;
+    controller
+        .initialize()
+        .then((_) {
+          if (!mounted) return;
+          setState(() => _videoReady = true);
+          if (_autoPlay) controller.play();
+        })
+        .catchError((Object error) {
+          debugPrint('bootcamp: video failed to load: $error');
+          if (!mounted) return;
+          setState(() => _videoReady = false);
+        });
+    controller.addListener(_onVideoTick);
+  }
+
+  /// `Auto Next` lives here: the lesson is finished when its video is.
+  void _onVideoTick() {
+    final controller = _videoController;
+    if (controller == null || !controller.value.isInitialized) return;
+    final value = controller.value;
+    final finished =
+        value.duration > Duration.zero &&
+        value.position >= value.duration &&
+        !value.isPlaying;
+    if (!finished || !_autoNext) return;
+    // Deferred: advancing disposes this controller from inside its own
+    // listener, and the last lesson clamps back to itself — which would restart
+    // the video and fire this again, forever.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _go(1);
+    });
+  }
+
+  // ── curriculum ────────────────────────────────────────────────────────────
+
+  List<BootcampLesson> get _flatLessons => [
+    for (final day in _detail?.days ?? const <BootcampDay>[])
+      for (final section in day.sections) ...section.lessons,
+  ];
+
+  BootcampLesson? get _activeLesson {
+    final id = _activeLessonId;
+    if (id == null) return null;
+    for (final lesson in _flatLessons) {
+      if (lesson.id == id) return lesson;
+    }
+    return null;
+  }
+
+  BootcampDay? get _selectedDayData {
+    for (final day in _detail?.days ?? const <BootcampDay>[]) {
+      if (day.number == _selectedDay) return day;
+    }
+    return null;
+  }
+
+  void _openLesson(BootcampLesson lesson) {
+    if (!lesson.isPlayable) {
+      _snack('Enrol in this bootcamp to open this lesson.');
+      return;
+    }
+    if (lesson.kind == CourseLessonKind.video) {
+      setState(() => _activeLessonId = lesson.id);
+      _syncVideo();
+      return;
+    }
+    if (lesson.kind.isInlineText) {
+      _showTextLesson(lesson);
+      return;
+    }
+    _openUrl(lesson.contentUrl!);
+  }
+
+  /// Previous / next across the whole camp, not within the selected day: the
+  /// design's `Next` sits beside `Auto Next`, which follows the course order.
+  void _go(int delta) {
+    final lessons = _flatLessons;
+    if (lessons.isEmpty) return;
+    final current = lessons.indexWhere(
+      (lesson) => lesson.id == _activeLessonId,
+    );
+    final next = current < 0
+        ? (delta > 0 ? 0 : lessons.length - 1)
+        : (current + delta).clamp(0, lessons.length - 1);
+    // A no-op at either end: `Auto Next` on the last lesson would otherwise
+    // clamp back to the lesson it just finished, restart it, and loop.
+    if (next == current) return;
+    _openLesson(lessons[next]);
+  }
+
+  void _showTextLesson(BootcampLesson lesson) {
+    showDialog<void>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(
+          lesson.title,
+          style: GoogleFonts.manrope(fontSize: 16, fontWeight: FontWeight.w700),
+        ),
+        content: SingleChildScrollView(
+          child: Text(
+            lesson.contentText ?? '',
+            style: GoogleFonts.figtree(fontSize: 13, height: 1.5, color: _ink),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('Close'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ── Q&A ───────────────────────────────────────────────────────────────────
+
+  TextEditingController _replyController(int threadId) =>
+      _replyControllers.putIfAbsent(threadId, () => TextEditingController());
+
+  void _replaceThread(CourseThread updated) {
+    _threads = [
+      for (final thread in _threads)
+        if (thread.id == updated.id) updated else thread,
+    ];
+  }
+
+  Future<void> _submitComment() async {
+    final text = _commentController.text.trim();
+    if (text.isEmpty) return;
+    try {
+      final thread = await ref
+          .read(courseDiscussionsApiProvider)
+          .post(widget.courseId, body: text);
+      if (!mounted) return;
+      setState(() {
+        _threads = [thread, ..._threads];
+        _threadCount += 1;
+        _commentController.clear();
+        _showEmojiPicker = false;
+        _showAllDiscussions = false;
+      });
+      FocusScope.of(context).unfocus();
+    } on ApiException catch (error) {
+      _snack(error.message ?? 'That comment could not be posted.');
+    }
+  }
+
+  Future<void> _submitReply(CourseThread thread) async {
+    final controller = _replyControllers[thread.id];
+    final text = controller?.text.trim() ?? '';
+    if (text.isEmpty) return;
+    try {
+      final reply = await ref
+          .read(courseDiscussionsApiProvider)
+          .post(widget.courseId, body: text, parentId: thread.id);
+      if (!mounted) return;
+      setState(() {
+        controller?.clear();
+        _replaceThread(
+          thread.copyWith(
+            replies: [...thread.replies, reply],
+            repliesCount: thread.repliesCount + 1,
+          ),
+        );
+      });
+    } on ApiException catch (error) {
+      _snack(error.message ?? 'That reply could not be posted.');
+    }
+  }
+
+  /// Optimistic, then replaced by the server's authoritative count.
+  Future<void> _toggleLike(CourseThread thread) async {
+    final liked = !thread.isLiked;
+    setState(() {
+      _replaceThread(
+        thread.copyWith(
+          isLiked: liked,
+          likesCount: (thread.likesCount + (liked ? 1 : -1)).clamp(0, 1 << 31),
+        ),
+      );
+    });
+    try {
+      final result = await ref
+          .read(courseDiscussionsApiProvider)
+          .setLiked(widget.courseId, thread.id, liked: liked);
+      if (!mounted) return;
+      setState(() {
+        _replaceThread(
+          thread.copyWith(
+            isLiked: result.isLiked,
+            likesCount: result.likesCount,
+          ),
+        );
+      });
+    } on ApiException {
+      if (!mounted) return;
+      setState(() => _replaceThread(thread));
+    }
+  }
+
+  // ── shell ─────────────────────────────────────────────────────────────────
+
   @override
   Widget build(BuildContext context) {
+    if (_loading) return _buildLoading();
+    final detail = _detail;
+    if (detail == null) return _buildError();
+
     return Scaffold(
       backgroundColor: _bg,
       body: Column(
@@ -340,10 +410,10 @@ class _IctBootcampPageState extends State<IctBootcampPage> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  _buildHero(),
+                  _buildHero(detail),
                   _buildVideoProgress(),
                   _buildPlayerControls(),
-                  _buildCourseInfoSection(),
+                  _buildCourseInfoSection(detail),
                   _buildCourseNavigationTabs(),
                   if (_selectedTab == 0) ...[
                     const SizedBox(height: 8),
@@ -351,11 +421,11 @@ class _IctBootcampPageState extends State<IctBootcampPage> {
                   ],
                   if (_selectedTab == 1) ...[
                     const SizedBox(height: 8),
-                    _buildResourcesTab(),
+                    _buildResourcesTab(detail),
                   ],
                   if (_selectedTab == 2) ...[
                     const SizedBox(height: 8),
-                    _buildQaTab(),
+                    _buildQaTab(detail),
                   ],
                   const SizedBox(height: 24),
                 ],
@@ -367,42 +437,88 @@ class _IctBootcampPageState extends State<IctBootcampPage> {
     );
   }
 
+  Widget _buildLoading() {
+    return const Scaffold(
+      backgroundColor: _bg,
+      body: Center(
+        child: SizedBox(
+          width: 24,
+          height: 24,
+          child: CircularProgressIndicator(strokeWidth: 2),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildError() {
+    return Scaffold(
+      backgroundColor: _bg,
+      body: SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              const Icon(Icons.cloud_off_outlined, size: 34, color: _gray),
+              const SizedBox(height: 12),
+              Text(
+                _error ?? 'This bootcamp could not be loaded.',
+                textAlign: TextAlign.center,
+                style: GoogleFonts.figtree(fontSize: 13, color: _gray),
+              ),
+              const SizedBox(height: 8),
+              TextButton(onPressed: _load, child: const Text('Try again')),
+              TextButton(
+                onPressed: () => Navigator.maybePop(context),
+                child: const Text('Back'),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   // ─────────────────────────────────────────────────────────────
   // HERO
   // ─────────────────────────────────────────────────────────────
-  Widget _buildHero() {
+  Widget _buildHero(BootcampDetail detail) {
+    final controller = _videoController;
+    final playing = controller?.value.isPlaying ?? false;
+    final poster = detail.heroPosterUrl.isNotEmpty
+        ? detail.heroPosterUrl
+        : detail.image;
+
     return Container(
       height: 222,
       color: const Color(0xFF1F1F1F),
       child: Stack(
         children: [
           Positioned.fill(
-            child: _videoReady
+            child: _videoReady && controller != null
                 ? FittedBox(
                     fit: BoxFit.cover,
                     child: SizedBox(
-                      width: _videoController.value.size.width,
-                      height: _videoController.value.size.height,
-                      child: VideoPlayer(_videoController),
+                      width: controller.value.size.width,
+                      height: controller.value.size.height,
+                      child: VideoPlayer(controller),
                     ),
                   )
-                : Image.asset(
-                    'assets/figma/bootcamp/course-poster.png',
-                    fit: BoxFit.contain,
+                : CourseImage(
+                    poster,
+                    fallback: Image.asset(
+                      'assets/figma/bootcamp/course-poster.png',
+                      fit: BoxFit.contain,
+                    ),
                   ),
           ),
-          if (_videoReady)
+          if (_videoReady && controller != null)
             Center(
               child: GestureDetector(
-                onTap: () {
-                  if (!_videoReady) return;
-                  setState(() {
-                    _videoController.value.isPlaying
-                        ? _videoController.pause()
-                        : _videoController.play();
-                  });
-                },
-                child: _videoController.value.isPlaying
+                onTap: () => setState(() {
+                  playing ? controller.pause() : controller.play();
+                }),
+                child: playing
                     ? const Icon(Icons.pause, size: 52, color: Colors.white)
                     : Image.asset(
                         'assets/figma/bootcamp/play.png',
@@ -440,11 +556,12 @@ class _IctBootcampPageState extends State<IctBootcampPage> {
   }
 
   Widget _buildVideoProgress() {
+    final controller = _videoController;
     return SizedBox(
       height: 6,
-      child: _videoReady
+      child: _videoReady && controller != null
           ? VideoProgressIndicator(
-              _videoController,
+              controller,
               allowScrubbing: true,
               padding: EdgeInsets.zero,
               colors: const VideoProgressColors(
@@ -466,21 +583,31 @@ class _IctBootcampPageState extends State<IctBootcampPage> {
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
       child: Row(
         children: [
-          _buildToggle(
-            label: 'Auto Play',
-            value: _autoPlay,
-            onChanged: (v) => setState(() => _autoPlay = v),
+          // `Flexible` + an ellipsised label: two toggles, two buttons and a
+          // spacer leave ~86pt per toggle at 360, which is fine at 1.0× text
+          // scale and not at 1.3×. Shrinking the label is better than painting
+          // the yellow overflow stripe across the controls.
+          Flexible(
+            flex: 2,
+            child: _buildToggle(
+              label: 'Auto Play',
+              value: _autoPlay,
+              onChanged: (v) => setState(() => _autoPlay = v),
+            ),
           ),
-          const SizedBox(width: 16),
-          _buildToggle(
-            label: 'Auto Next',
-            value: _autoNext,
-            onChanged: (v) => setState(() => _autoNext = v),
+          const SizedBox(width: 12),
+          Flexible(
+            flex: 2,
+            child: _buildToggle(
+              label: 'Auto Next',
+              value: _autoNext,
+              onChanged: (v) => setState(() => _autoNext = v),
+            ),
           ),
           const Spacer(),
-          _buildPlayerButton(label: 'Prev'),
-          const SizedBox(width: 16),
-          _buildPlayerButton(label: 'Next'),
+          _buildPlayerButton(label: 'Prev', onTap: () => _go(-1)),
+          const SizedBox(width: 12),
+          _buildPlayerButton(label: 'Next', onTap: () => _go(1)),
         ],
       ),
     );
@@ -504,12 +631,16 @@ class _IctBootcampPageState extends State<IctBootcampPage> {
             height: 13,
           ),
           const SizedBox(width: 4),
-          Text(
-            label,
-            style: GoogleFonts.figtree(
-              fontSize: 12,
-              fontWeight: FontWeight.w500,
-              color: _ink,
+          Flexible(
+            child: Text(
+              label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: GoogleFonts.figtree(
+                fontSize: 12,
+                fontWeight: FontWeight.w500,
+                color: _ink,
+              ),
             ),
           ),
         ],
@@ -517,34 +648,45 @@ class _IctBootcampPageState extends State<IctBootcampPage> {
     );
   }
 
-  Widget _buildPlayerButton({required String label}) {
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Image.asset(
-          label == 'Prev'
-              ? 'assets/figma/bootcamp/prev.png'
-              : 'assets/figma/bootcamp/next.png',
-          width: 14,
-          height: 14,
-        ),
-        const SizedBox(width: 4),
-        Text(
-          label,
-          style: GoogleFonts.figtree(
-            fontSize: 12,
-            fontWeight: FontWeight.w500,
-            color: _gray,
+  Widget _buildPlayerButton({
+    required String label,
+    required VoidCallback onTap,
+  }) {
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: onTap,
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Image.asset(
+            label == 'Prev'
+                ? 'assets/figma/bootcamp/prev.png'
+                : 'assets/figma/bootcamp/next.png',
+            width: 14,
+            height: 14,
           ),
-        ),
-      ],
+          const SizedBox(width: 4),
+          Text(
+            label,
+            style: GoogleFonts.figtree(
+              fontSize: 12,
+              fontWeight: FontWeight.w500,
+              color: _gray,
+            ),
+          ),
+        ],
+      ),
     );
   }
 
   // ─────────────────────────────────────────────────────────────
   // COURSE INFO
   // ─────────────────────────────────────────────────────────────
-  Widget _buildCourseInfoSection() {
+  Widget _buildCourseInfoSection(BootcampDetail detail) {
+    final expandedBody = detail.description.isNotEmpty
+        ? detail.description
+        : detail.lede;
+
     return Container(
       color: Colors.white,
       padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
@@ -556,16 +698,19 @@ class _IctBootcampPageState extends State<IctBootcampPage> {
             children: [
               ClipRRect(
                 borderRadius: BorderRadius.circular(8),
-                child: Image.asset(
-                  'assets/figma/bootcamp/course-poster.png',
+                child: SizedBox(
                   width: 130,
                   height: 178,
-                  fit: BoxFit.cover,
-                  errorBuilder: (_, _, _) => Container(
-                    width: 130,
-                    height: 178,
-                    color: const Color(0xFFE5E7EB),
-                    child: const Icon(Icons.image, color: Colors.white),
+                  child: CourseImage(
+                    detail.image,
+                    fallback: Image.asset(
+                      'assets/figma/bootcamp/course-poster.png',
+                      fit: BoxFit.cover,
+                      errorBuilder: (_, _, _) => Container(
+                        color: const Color(0xFFE5E7EB),
+                        child: const Icon(Icons.image, color: Colors.white),
+                      ),
+                    ),
                   ),
                 ),
               ),
@@ -582,26 +727,28 @@ class _IctBootcampPageState extends State<IctBootcampPage> {
                           color: _ink,
                           height: 1.25,
                         ),
-                        children: const [
-                          TextSpan(text: '4 days\n'),
+                        children: [
+                          TextSpan(text: '${detail.runLabel}\n'),
                           TextSpan(
-                            text: 'ICT & AI BOOTCAMP at Sundarbazar.',
-                            style: TextStyle(fontSize: 24),
+                            text: detail.title,
+                            style: const TextStyle(fontSize: 24),
                           ),
                         ],
                       ),
                     ),
                     const SizedBox(height: 6),
                     Text(
-                      '12.4k students',
+                      detail.studentsLabel,
                       style: GoogleFonts.figtree(
                         fontSize: 12,
                         fontWeight: FontWeight.w500,
                         color: _gray,
                       ),
                     ),
-                    const SizedBox(height: 6),
-                    _buildMetaTag('HD', highlighted: true),
+                    if (detail.qualityLabel.isNotEmpty) ...[
+                      const SizedBox(height: 6),
+                      _buildMetaTag(detail.qualityLabel, highlighted: true),
+                    ],
                   ],
                 ),
               ),
@@ -609,40 +756,30 @@ class _IctBootcampPageState extends State<IctBootcampPage> {
           ),
           const SizedBox(height: 14),
           Text(
-            _descriptionExpanded
-                ? 'Master the foundations of design strategy, brand framework '
-                    'design, and digital delivery systems. Learn to align '
-                    'creative output directly to tangible business indicators.'
-                : 'Master the foundations of design strategy, brand framework '
-                    'design, and digital delivery systems.',
-            style: GoogleFonts.figtree(
-              fontSize: 13,
-              height: 1.5,
-              color: _gray,
-            ),
+            _descriptionExpanded ? expandedBody : detail.lede,
+            style: GoogleFonts.figtree(fontSize: 13, height: 1.5, color: _gray),
           ),
           if (_descriptionExpanded) ...[
             const SizedBox(height: 12),
-            _buildMetaRow(
-              'Instructor:',
-              'Shuvanga Karki, Amrit Bhandari, Shahil Paudel, Sudip Gurung, '
-                  'Sushant Sapkota, Shreesum Manandhar, Nadish Manandhar, Anjesh Pathak',
-            ),
+            _buildMetaRow('Instructor:', detail.instructorLine),
             const SizedBox(height: 6),
-            _buildMetaRow('Released:', 'Oct 2026'),
+            _buildMetaRow('Runs:', detail.dateRangeLabel),
+            const SizedBox(height: 6),
+            _buildMetaRow('Released:', detail.releasedLabel),
             const SizedBox(height: 6),
             _buildMetaRow(
               'Status:',
-              'Completed',
-              valueColor: const Color(0xFF10B981),
+              detail.statusLabel,
+              valueColor: detail.isLive
+                  ? const Color(0xFF10B981)
+                  : const Color(0xFFF59E0B),
             ),
           ],
           const SizedBox(height: 12),
           GestureDetector(
             behavior: HitTestBehavior.opaque,
-            onTap: () => setState(
-              () => _descriptionExpanded = !_descriptionExpanded,
-            ),
+            onTap: () =>
+                setState(() => _descriptionExpanded = !_descriptionExpanded),
             child: Text(
               _descriptionExpanded ? '[less]' : '[more]',
               style: GoogleFonts.figtree(
@@ -726,14 +863,17 @@ class _IctBootcampPageState extends State<IctBootcampPage> {
           for (int i = 0; i < tabs.length; i++)
             Expanded(
               child: GestureDetector(
-                onTap: () => setState(() => _selectedTab = i),
+                onTap: () {
+                  setState(() => _selectedTab = i);
+                  // Lazy: a viewer who never opens the tab never pays for it.
+                  if (i == 2 && !_threadsLoaded) _loadThreads();
+                },
                 child: Container(
                   padding: const EdgeInsets.symmetric(vertical: 12),
                   decoration: BoxDecoration(
                     border: Border(
                       bottom: BorderSide(
-                        color:
-                            _selectedTab == i ? _yellow : Colors.transparent,
+                        color: _selectedTab == i ? _yellow : Colors.transparent,
                         width: 2,
                       ),
                     ),
@@ -760,6 +900,9 @@ class _IctBootcampPageState extends State<IctBootcampPage> {
   // LESSONS TAB
   // ─────────────────────────────────────────────────────────────
   Widget _buildLessonsModuleContainer() {
+    final days = _detail?.days ?? const <BootcampDay>[];
+    final day = _selectedDayData;
+
     return Container(
       margin: const EdgeInsets.symmetric(horizontal: 16),
       padding: const EdgeInsets.all(16),
@@ -771,47 +914,63 @@ class _IctBootcampPageState extends State<IctBootcampPage> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          SizedBox(
-            height: 32,
-            child: ListView.separated(
-              scrollDirection: Axis.horizontal,
-              itemCount: _days.length,
-              separatorBuilder: (_, _) => const SizedBox(width: 8),
-              itemBuilder: (context, index) {
-                final selected = index == _selectedDay;
-                return GestureDetector(
-                  onTap: () => setState(() => _selectedDay = index),
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 12,
-                      vertical: 6,
-                    ),
-                    decoration: BoxDecoration(
-                      color: selected ? _yellow : const Color(0xFFEAEAEA),
-                      borderRadius: BorderRadius.circular(16),
-                    ),
-                    child: Center(
-                      child: Text(
-                        _days[index],
-                        style: GoogleFonts.figtree(
-                          fontSize: 12,
-                          fontWeight: FontWeight.w700,
-                          color: _ink,
+          if (days.isNotEmpty)
+            SizedBox(
+              height: 32,
+              child: ListView.separated(
+                scrollDirection: Axis.horizontal,
+                itemCount: days.length,
+                separatorBuilder: (_, _) => const SizedBox(width: 8),
+                itemBuilder: (context, index) {
+                  final tab = days[index];
+                  final selected = tab.number == _selectedDay;
+                  return GestureDetector(
+                    onTap: () => setState(() => _selectedDay = tab.number),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 6,
+                      ),
+                      decoration: BoxDecoration(
+                        color: selected ? _yellow : const Color(0xFFEAEAEA),
+                        borderRadius: BorderRadius.circular(16),
+                      ),
+                      child: Center(
+                        child: Text(
+                          tab.label,
+                          style: GoogleFonts.figtree(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w700,
+                            color: _ink,
+                          ),
                         ),
                       ),
                     ),
-                  ),
-                );
-              },
+                  );
+                },
+              ),
             ),
-          ),
-          const SizedBox(height: 12),
-          for (final section in _sections) ...[
-            _buildChapterHeader(
-                section.title, section.lessons.length, 'lessons'),
-            for (final lesson in section.lessons) _buildLessonRow(lesson),
-            const SizedBox(height: 6),
-          ],
+          if (days.isNotEmpty) const SizedBox(height: 12),
+          if (day == null || day.lessonCount == 0)
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 24),
+              child: Text(
+                'The curriculum for this camp has not been published yet.',
+                textAlign: TextAlign.center,
+                style: GoogleFonts.figtree(fontSize: 12, color: _gray),
+              ),
+            ),
+          if (day != null)
+            for (final section in day.sections) ...[
+              if (section.title.isNotEmpty)
+                _buildChapterHeader(
+                  section.title,
+                  section.lessons.length,
+                  'lessons',
+                ),
+              for (final lesson in section.lessons) _buildLessonRow(lesson),
+              const SizedBox(height: 6),
+            ],
         ],
       ),
     );
@@ -848,75 +1007,78 @@ class _IctBootcampPageState extends State<IctBootcampPage> {
     );
   }
 
-  Widget _buildLessonRow(_Lesson lesson) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-      decoration: BoxDecoration(
-        color: lesson.isActive ? const Color(0xFFDBDBDB) : Colors.transparent,
-        borderRadius: BorderRadius.circular(6),
-      ),
-      child: Row(
-        children: [
-          if (lesson.number == 1)
-            Image.asset(
-              'assets/figma/bootcamp/greentick.png',
-              width: 20,
-              height: 20,
-            )
-          else if (lesson.number >= 3)
-            Image.asset(
-              'assets/figma/bootcamp/greytick.png',
-              width: 20,
-              height: 20,
-            )
-          else
-            SizedBox(
-              width: 20,
-              height: 20,
-              child: Center(
-                child: Text(
-                  '${lesson.number}',
-                  style: GoogleFonts.jetBrainsMono(
-                    fontSize: 10,
-                    fontWeight: FontWeight.w500,
-                    color: _ink,
+  Widget _buildLessonRow(BootcampLesson lesson) {
+    final active = lesson.id != null && lesson.id == _activeLessonId;
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: () => _openLesson(lesson),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        decoration: BoxDecoration(
+          color: active ? const Color(0xFFDBDBDB) : Colors.transparent,
+          borderRadius: BorderRadius.circular(6),
+        ),
+        child: Row(
+          children: [
+            if (lesson.isCompleted)
+              Image.asset(
+                'assets/figma/bootcamp/greentick.png',
+                width: 20,
+                height: 20,
+              )
+            else
+              SizedBox(
+                width: 20,
+                height: 20,
+                child: Center(
+                  child: Text(
+                    '${lesson.number}',
+                    style: GoogleFonts.jetBrainsMono(
+                      fontSize: 10,
+                      fontWeight: FontWeight.w500,
+                      color: _ink,
+                    ),
                   ),
                 ),
               ),
-            ),
-          const SizedBox(width: 8),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  lesson.title,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: GoogleFonts.figtree(
-                    fontSize: 12,
-                    fontWeight: FontWeight.w500,
-                    color: _ink,
+            const SizedBox(width: 8),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    lesson.title,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: GoogleFonts.figtree(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w500,
+                      color: _ink,
+                    ),
                   ),
-                ),
-                const SizedBox(height: 2),
-                Text(
-                  lesson.duration,
-                  style: GoogleFonts.jetBrainsMono(
-                    fontSize: 10,
-                    fontWeight: FontWeight.w500,
-                    color: const Color(0xFF667080),
-                  ),
-                ),
-              ],
+                  if (lesson.duration.isNotEmpty) ...[
+                    const SizedBox(height: 2),
+                    Text(
+                      lesson.duration,
+                      style: GoogleFonts.jetBrainsMono(
+                        fontSize: 10,
+                        fontWeight: FontWeight.w500,
+                        color: const Color(0xFF667080),
+                      ),
+                    ),
+                  ],
+                ],
+              ),
             ),
-          ),
-          const Icon(
-            Icons.play_circle_outline,
-            size: 20,
-            color: _ink,
-          ),
-        ],
+            Icon(
+              lesson.isPlayable
+                  ? Icons.play_circle_outline
+                  : Icons.lock_outline,
+              size: 20,
+              color: _ink,
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -924,20 +1086,29 @@ class _IctBootcampPageState extends State<IctBootcampPage> {
   // ─────────────────────────────────────────────────────────────
   // RESOURCES TAB
   // ─────────────────────────────────────────────────────────────
-  Widget _buildResourcesTab() {
+  Widget _buildResourcesTab(BootcampDetail detail) {
+    final sections = detail.fileSections;
+    if (sections.isEmpty) {
+      return Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 32),
+        child: Text(
+          'No files have been added to this camp yet.',
+          textAlign: TextAlign.center,
+          style: GoogleFonts.figtree(fontSize: 12, color: _gray),
+        ),
+      );
+    }
+
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          for (final section in _resourceSections) ...[
-            _buildChapterHeader(
-              section.title,
-              section.resources.length,
-              'files',
-            ),
+          for (final section in sections) ...[
+            if (section.title.isNotEmpty)
+              _buildChapterHeader(section.title, section.files.length, 'files'),
             const SizedBox(height: 10),
-            for (final resource in section.resources) ...[
+            for (final resource in section.files) ...[
               _buildResourceRow(resource),
               const SizedBox(height: 10),
             ],
@@ -948,106 +1119,105 @@ class _IctBootcampPageState extends State<IctBootcampPage> {
     );
   }
 
-  Widget _buildResourceRow(_Resource resource) {
-    final colors = _formatColors(resource.formatStyle);
-    return Container(
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: const Color(0xFFF3F4F6)),
-        boxShadow: const [
-          BoxShadow(
-            color: Color(0x05000000),
-            blurRadius: 2,
-            offset: Offset(0, 1),
-          ),
-        ],
-      ),
-      child: Row(
-        children: [
-          Container(
-            width: 36,
-            height: 36,
-            decoration: BoxDecoration(
-              color: colors.iconBg,
-              borderRadius: BorderRadius.circular(8),
+  Widget _buildResourceRow(CourseResource resource) {
+    final colors = _formatColors(resource.type);
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: () => _openResource(resource),
+      child: Container(
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: const Color(0xFFF3F4F6)),
+          boxShadow: const [
+            BoxShadow(
+              color: Color(0x05000000),
+              blurRadius: 2,
+              offset: Offset(0, 1),
             ),
-            alignment: Alignment.center,
-            child: Image.asset(
-              _formatIcon(resource.formatStyle),
-              width: 20,
-              height: 20,
-              errorBuilder: (_, _, _) => Icon(
-                _formatFallbackIcon(resource.formatStyle),
-                size: 20,
-                color: colors.badgeText,
-              ),
-            ),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  resource.title,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: GoogleFonts.figtree(
-                    fontSize: 14,
-                    fontWeight: FontWeight.w600,
-                    color: _ink,
-                  ),
-                ),
-                const SizedBox(height: 2),
-                Container(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                  decoration: BoxDecoration(
-                    color: colors.badgeBg,
-                    borderRadius: BorderRadius.circular(4),
-                  ),
-                  child: Text(
-                    resource.format.toUpperCase(),
-                    style: GoogleFonts.figtree(
-                      fontSize: 9,
-                      fontWeight: FontWeight.w700,
-                      color: colors.badgeText,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-          GestureDetector(
-            behavior: HitTestBehavior.opaque,
-            onTap: () {
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(content: Text('Downloading ${resource.title}...')),
-              );
-            },
-            child: Container(
-              width: 32,
-              height: 32,
-              decoration: const BoxDecoration(
-                color: Color(0xFFF3F4F6),
-                shape: BoxShape.circle,
+          ],
+        ),
+        child: Row(
+          children: [
+            Container(
+              width: 36,
+              height: 36,
+              decoration: BoxDecoration(
+                color: colors.iconBg,
+                borderRadius: BorderRadius.circular(8),
               ),
               alignment: Alignment.center,
               child: Image.asset(
-                'assets/figma/bootcamp/download.png',
-                width: 16,
-                height: 16,
-                errorBuilder: (_, _, _) => const Icon(
-                  Icons.download_outlined,
-                  size: 16,
-                  color: _ink,
+                _formatIcon(resource.type),
+                width: 20,
+                height: 20,
+                errorBuilder: (_, _, _) =>
+                    Icon(resource.type.icon, size: 20, color: colors.badgeText),
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    resource.title,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: GoogleFonts.figtree(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w600,
+                      color: _ink,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 6,
+                      vertical: 2,
+                    ),
+                    decoration: BoxDecoration(
+                      color: colors.badgeBg,
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                    child: Text(
+                      resource.type.label,
+                      style: GoogleFonts.figtree(
+                        fontSize: 9,
+                        fontWeight: FontWeight.w700,
+                        color: colors.badgeText,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onTap: () => _openResource(resource),
+              child: Container(
+                width: 32,
+                height: 32,
+                decoration: const BoxDecoration(
+                  color: Color(0xFFF3F4F6),
+                  shape: BoxShape.circle,
+                ),
+                alignment: Alignment.center,
+                child: Image.asset(
+                  'assets/figma/bootcamp/download.png',
+                  width: 16,
+                  height: 16,
+                  errorBuilder: (_, _, _) => const Icon(
+                    Icons.download_outlined,
+                    size: 16,
+                    color: _ink,
+                  ),
                 ),
               ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
@@ -1055,31 +1225,68 @@ class _IctBootcampPageState extends State<IctBootcampPage> {
   // ─────────────────────────────────────────────────────────────
   // Q&A TAB
   // ─────────────────────────────────────────────────────────────
-  Widget _buildQaTab() {
+  Widget _buildQaTab(BootcampDetail detail) {
     const visibleCount = 6;
-    final comments = _showAllDiscussions
-        ? _qaComments
-        : _qaComments.take(visibleCount).toList();
+    final threads = _showAllDiscussions
+        ? _threads
+        : _threads.take(visibleCount).toList();
 
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          _buildDiscussionHeader(),
+          _buildDiscussionHeader(detail),
           const SizedBox(height: 12),
           _buildInputComposer(),
           const SizedBox(height: 12),
-          for (int i = 0; i < comments.length; i++) ...[
-            _buildCommentPost(index: i, comment: comments[i]),
-            const SizedBox(height: 12),
-          ],
-          if (_qaComments.length > visibleCount)
+          if (_threadsLoading)
+            const Padding(
+              padding: EdgeInsets.symmetric(vertical: 24),
+              child: Center(
+                child: SizedBox(
+                  width: 20,
+                  height: 20,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                ),
+              ),
+            )
+          else if (_threadsError != null)
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 16),
+              child: Column(
+                children: [
+                  Text(
+                    _threadsError!,
+                    textAlign: TextAlign.center,
+                    style: GoogleFonts.figtree(fontSize: 12, color: _gray),
+                  ),
+                  TextButton(
+                    onPressed: _loadThreads,
+                    child: const Text('Try again'),
+                  ),
+                ],
+              ),
+            )
+          else if (_threads.isEmpty)
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 24),
+              child: Text(
+                'No questions yet. Start the discussion.',
+                textAlign: TextAlign.center,
+                style: GoogleFonts.figtree(fontSize: 12, color: _gray),
+              ),
+            )
+          else
+            for (final thread in threads) ...[
+              _buildCommentPost(thread),
+              const SizedBox(height: 12),
+            ],
+          if (_threads.length > visibleCount)
             GestureDetector(
               behavior: HitTestBehavior.opaque,
-              onTap: () => setState(
-                () => _showAllDiscussions = !_showAllDiscussions,
-              ),
+              onTap: () =>
+                  setState(() => _showAllDiscussions = !_showAllDiscussions),
               child: Padding(
                 padding: const EdgeInsets.symmetric(vertical: 8),
                 child: Text(
@@ -1099,7 +1306,7 @@ class _IctBootcampPageState extends State<IctBootcampPage> {
     );
   }
 
-  Widget _buildDiscussionHeader() {
+  Widget _buildDiscussionHeader(BootcampDetail detail) {
     return Row(
       children: [
         Text(
@@ -1118,7 +1325,7 @@ class _IctBootcampPageState extends State<IctBootcampPage> {
             borderRadius: BorderRadius.circular(8),
           ),
           child: Text(
-            '${_qaComments.length}',
+            '$_threadCount',
             style: GoogleFonts.jetBrainsMono(
               fontSize: 10,
               fontWeight: FontWeight.w500,
@@ -1127,23 +1334,23 @@ class _IctBootcampPageState extends State<IctBootcampPage> {
           ),
         ),
         const Spacer(),
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-          color: _yellow,
-          child: Text(
-            'Episode 2',
-            style: GoogleFonts.figtree(
-              fontSize: 12,
-              fontWeight: FontWeight.w700,
-              color: _ink,
+        if (detail.episodeNo != null)
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+            color: _yellow,
+            child: Text(
+              'Episode ${detail.episodeNo}',
+              style: GoogleFonts.figtree(
+                fontSize: 12,
+                fontWeight: FontWeight.w700,
+                color: _ink,
+              ),
             ),
           ),
-        ),
       ],
     );
   }
 
-  // ── Working input composer with emoji picker + send ────────
   Widget _buildInputComposer() {
     return Container(
       padding: const EdgeInsets.all(12),
@@ -1168,16 +1375,12 @@ class _IctBootcampPageState extends State<IctBootcampPage> {
                     isDense: true,
                     border: InputBorder.none,
                     hintText: 'Add to the strategy discussion...',
-                    hintStyle: GoogleFonts.figtree(
-                      fontSize: 12,
-                      color: _gray,
-                    ),
+                    hintStyle: GoogleFonts.figtree(fontSize: 12, color: _gray),
                   ),
                   onSubmitted: (_) => _submitComment(),
                 ),
               ),
               const SizedBox(width: 8),
-              // Emoji picker toggle
               GestureDetector(
                 behavior: HitTestBehavior.opaque,
                 onTap: () =>
@@ -1189,7 +1392,6 @@ class _IctBootcampPageState extends State<IctBootcampPage> {
                 ),
               ),
               const SizedBox(width: 8),
-              // Send button
               GestureDetector(
                 behavior: HitTestBehavior.opaque,
                 onTap: _submitComment,
@@ -1232,10 +1434,7 @@ class _IctBootcampPageState extends State<IctBootcampPage> {
                 onTap: () => _insertEmoji(emoji),
                 child: Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 4),
-                  child: Text(
-                    emoji,
-                    style: const TextStyle(fontSize: 22),
-                  ),
+                  child: Text(emoji, style: const TextStyle(fontSize: 22)),
                 ),
               ),
           ],
@@ -1256,33 +1455,8 @@ class _IctBootcampPageState extends State<IctBootcampPage> {
     );
   }
 
-  void _submitComment() {
-    final text = _commentController.text.trim();
-    if (text.isEmpty) return;
-    setState(() {
-      _qaComments.insert(
-        0,
-        _Comment(
-          avatarPath: 'assets/figma/instructors/instructor.png',
-          username: 'you',
-          meta: 'just now • Student',
-          message: text,
-          likes: 0,
-        ),
-      );
-      _commentController.clear();
-      _showEmojiPicker = false;
-      _showAllDiscussions = false;
-    });
-    FocusScope.of(context).unfocus();
-  }
-
-  // ── Comment post card ──────────────────────────────────────
-  Widget _buildCommentPost({
-    required int index,
-    required _Comment comment,
-  }) {
-    final repliesOpen = _expandedReplies.contains(index);
+  Widget _buildCommentPost(CourseThread thread) {
+    final repliesOpen = _expandedReplies.contains(thread.id);
 
     return Container(
       padding: const EdgeInsets.all(12),
@@ -1298,19 +1472,22 @@ class _IctBootcampPageState extends State<IctBootcampPage> {
             crossAxisAlignment: CrossAxisAlignment.center,
             children: [
               ClipOval(
-                child: Image.asset(
-                  comment.avatarPath,
+                child: SizedBox(
                   width: 24,
                   height: 24,
-                  fit: BoxFit.cover,
-                  errorBuilder: (_, _, _) => Container(
-                    width: 24,
-                    height: 24,
-                    color: const Color(0xFFE5E7EB),
-                    child: const Icon(
-                      Icons.person,
-                      size: 14,
-                      color: Colors.white,
+                  child: CourseImage(
+                    thread.authorPhotoUrl ?? '',
+                    fallback: Image.asset(
+                      'assets/figma/instructors/instructor.png',
+                      fit: BoxFit.cover,
+                      errorBuilder: (_, _, _) => Container(
+                        color: const Color(0xFFE5E7EB),
+                        child: const Icon(
+                          Icons.person,
+                          size: 14,
+                          color: Colors.white,
+                        ),
+                      ),
                     ),
                   ),
                 ),
@@ -1321,7 +1498,7 @@ class _IctBootcampPageState extends State<IctBootcampPage> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      comment.username,
+                      thread.authorName,
                       style: GoogleFonts.figtree(
                         fontSize: 12,
                         fontWeight: FontWeight.w700,
@@ -1330,7 +1507,10 @@ class _IctBootcampPageState extends State<IctBootcampPage> {
                     ),
                     const SizedBox(height: 1),
                     Text(
-                      comment.meta,
+                      [
+                        if (thread.when.isNotEmpty) thread.when,
+                        if (thread.authorRole != null) thread.authorRole!,
+                      ].join(' • '),
                       style: GoogleFonts.figtree(
                         fontSize: 9,
                         fontWeight: FontWeight.w500,
@@ -1344,43 +1524,30 @@ class _IctBootcampPageState extends State<IctBootcampPage> {
           ),
           const SizedBox(height: 8),
           Text(
-            comment.message,
-            style: GoogleFonts.figtree(
-              fontSize: 14,
-              height: 1.4,
-              color: _ink,
-            ),
+            thread.body,
+            style: GoogleFonts.figtree(fontSize: 14, height: 1.4, color: _ink),
           ),
           const SizedBox(height: 8),
           Row(
             children: [
               GestureDetector(
                 behavior: HitTestBehavior.opaque,
-                onTap: () => setState(() {
-                  comment.isLiked = !comment.isLiked;
-                  comment.likes += comment.isLiked ? 1 : -1;
-                }),
+                onTap: () => _toggleLike(thread),
                 child: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     Icon(
-                      comment.isLiked
-                          ? Icons.favorite
-                          : Icons.favorite_border,
+                      thread.isLiked ? Icons.favorite : Icons.favorite_border,
                       size: 12,
-                      color: comment.isLiked
-                          ? const Color(0xFFEF4444)
-                          : _gray,
+                      color: thread.isLiked ? const Color(0xFFEF4444) : _gray,
                     ),
                     const SizedBox(width: 4),
                     Text(
-                      comment.likes > 0 ? '${comment.likes}' : 'Like',
+                      thread.likesCount > 0 ? '${thread.likesCount}' : 'Like',
                       style: GoogleFonts.manrope(
                         fontSize: 12,
                         fontWeight: FontWeight.w500,
-                        color: comment.isLiked
-                            ? const Color(0xFFEF4444)
-                            : _gray,
+                        color: thread.isLiked ? const Color(0xFFEF4444) : _gray,
                       ),
                     ),
                   ],
@@ -1391,9 +1558,9 @@ class _IctBootcampPageState extends State<IctBootcampPage> {
                 behavior: HitTestBehavior.opaque,
                 onTap: () => setState(() {
                   if (repliesOpen) {
-                    _expandedReplies.remove(index);
+                    _expandedReplies.remove(thread.id);
                   } else {
-                    _expandedReplies.add(index);
+                    _expandedReplies.add(thread.id);
                   }
                 }),
                 child: Row(
@@ -1406,9 +1573,9 @@ class _IctBootcampPageState extends State<IctBootcampPage> {
                     ),
                     const SizedBox(width: 4),
                     Text(
-                      comment.replies.isEmpty
+                      thread.replies.isEmpty
                           ? 'Reply'
-                          : 'Reply · ${comment.replies.length}',
+                          : 'Reply · ${thread.replies.length}',
                       style: GoogleFonts.manrope(
                         fontSize: 12,
                         fontWeight: FontWeight.w500,
@@ -1422,18 +1589,18 @@ class _IctBootcampPageState extends State<IctBootcampPage> {
           ),
           if (repliesOpen) ...[
             const SizedBox(height: 12),
-            for (final reply in comment.replies) ...[
+            for (final reply in thread.replies) ...[
               _buildReplyTile(reply),
               const SizedBox(height: 8),
             ],
-            _buildReplyComposer(index),
+            _buildReplyComposer(thread),
           ],
         ],
       ),
     );
   }
 
-  Widget _buildReplyTile(_Reply reply) {
+  Widget _buildReplyTile(CourseThread reply) {
     return Container(
       padding: const EdgeInsets.all(8),
       decoration: BoxDecoration(
@@ -1444,19 +1611,22 @@ class _IctBootcampPageState extends State<IctBootcampPage> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           ClipOval(
-            child: Image.asset(
-              reply.avatarPath,
+            child: SizedBox(
               width: 20,
               height: 20,
-              fit: BoxFit.cover,
-              errorBuilder: (_, _, _) => Container(
-                width: 20,
-                height: 20,
-                color: const Color(0xFFE5E7EB),
-                child: const Icon(
-                  Icons.person,
-                  size: 12,
-                  color: Colors.white,
+              child: CourseImage(
+                reply.authorPhotoUrl ?? '',
+                fallback: Image.asset(
+                  'assets/figma/instructors/instructor.png',
+                  fit: BoxFit.cover,
+                  errorBuilder: (_, _, _) => Container(
+                    color: const Color(0xFFE5E7EB),
+                    child: const Icon(
+                      Icons.person,
+                      size: 12,
+                      color: Colors.white,
+                    ),
+                  ),
                 ),
               ),
             ),
@@ -1469,7 +1639,7 @@ class _IctBootcampPageState extends State<IctBootcampPage> {
                 Row(
                   children: [
                     Text(
-                      reply.username,
+                      reply.authorName,
                       style: GoogleFonts.figtree(
                         fontSize: 11,
                         fontWeight: FontWeight.w700,
@@ -1478,17 +1648,14 @@ class _IctBootcampPageState extends State<IctBootcampPage> {
                     ),
                     const SizedBox(width: 6),
                     Text(
-                      reply.timeAgo,
-                      style: GoogleFonts.figtree(
-                        fontSize: 9,
-                        color: _gray,
-                      ),
+                      reply.when,
+                      style: GoogleFonts.figtree(fontSize: 9, color: _gray),
                     ),
                   ],
                 ),
                 const SizedBox(height: 2),
                 Text(
-                  reply.message,
+                  reply.body,
                   style: GoogleFonts.figtree(
                     fontSize: 12,
                     height: 1.4,
@@ -1503,8 +1670,8 @@ class _IctBootcampPageState extends State<IctBootcampPage> {
     );
   }
 
-  Widget _buildReplyComposer(int index) {
-    final controller = _replyController(index);
+  Widget _buildReplyComposer(CourseThread thread) {
+    final controller = _replyController(thread.id);
     return Row(
       children: [
         Expanded(
@@ -1522,19 +1689,16 @@ class _IctBootcampPageState extends State<IctBootcampPage> {
                 isDense: true,
                 border: InputBorder.none,
                 hintText: 'Write a reply...',
-                hintStyle: GoogleFonts.figtree(
-                  fontSize: 12,
-                  color: _gray,
-                ),
+                hintStyle: GoogleFonts.figtree(fontSize: 12, color: _gray),
               ),
-              onSubmitted: (_) => _submitReply(index),
+              onSubmitted: (_) => _submitReply(thread),
             ),
           ),
         ),
         const SizedBox(width: 8),
         GestureDetector(
           behavior: HitTestBehavior.opaque,
-          onTap: () => _submitReply(index),
+          onTap: () => _submitReply(thread),
           child: Container(
             padding: const EdgeInsets.all(8),
             decoration: BoxDecoration(
@@ -1548,92 +1712,100 @@ class _IctBootcampPageState extends State<IctBootcampPage> {
     );
   }
 
-  void _submitReply(int index) {
-    final controller = _replyControllers[index];
-    if (controller == null || controller.text.trim().isEmpty) return;
-    setState(() {
-      _qaComments[index].replies.add(
-            _Reply(
-              avatarPath: 'assets/figma/instructors/instructor.png',
-              username: 'you',
-              message: controller.text.trim(),
-              timeAgo: 'just now',
-            ),
-          );
-      controller.clear();
-    });
+  // ─────────────────────────────────────────────────────────────
+  // SHARED
+  // ─────────────────────────────────────────────────────────────
+  Future<void> _openResource(CourseResource resource) async {
+    final url = resource.url;
+    if (url == null) return;
+    await _openUrl(url);
+  }
+
+  Future<void> _openUrl(String url) async {
+    final uri = Uri.tryParse(url);
+    if (uri == null || !uri.hasScheme) {
+      _snack('That file has no address.');
+      return;
+    }
+    final opened = await launchUrl(uri, mode: LaunchMode.externalApplication);
+    if (!opened && mounted) {
+      _snack('No app on this device can open that file.');
+    }
+  }
+
+  void _snack(String message) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message, style: GoogleFonts.figtree(fontSize: 12.5)),
+        behavior: SnackBarBehavior.floating,
+      ),
+    );
   }
 
   // ─────────────────────────────────────────────────────────────
   // FORMAT HELPERS
   // ─────────────────────────────────────────────────────────────
-  String _formatIcon(_ResourceFormat format) {
-    switch (format) {
-      case _ResourceFormat.pdf:
+  String _formatIcon(CourseResourceType type) {
+    switch (type) {
+      case CourseResourceType.pdf:
         return 'assets/figma/bootcamp/pdf.png';
-      case _ResourceFormat.doc:
+      case CourseResourceType.doc:
         return 'assets/figma/bootcamp/doc.png';
-      case _ResourceFormat.xls:
+      case CourseResourceType.xls:
         return 'assets/figma/bootcamp/xls.png';
-      case _ResourceFormat.figma:
+      case CourseResourceType.figma:
         return 'assets/figma/bootcamp/figma.png';
-      case _ResourceFormat.svg:
+      case CourseResourceType.image:
         return 'assets/figma/bootcamp/svg.png';
-      case _ResourceFormat.zip:
+      case CourseResourceType.zip:
         return 'assets/figma/bootcamp/zip.png';
+      case CourseResourceType.link:
+      case CourseResourceType.other:
+        return '';
     }
   }
 
-  IconData _formatFallbackIcon(_ResourceFormat format) {
-    switch (format) {
-      case _ResourceFormat.pdf:
-        return Icons.picture_as_pdf_outlined;
-      case _ResourceFormat.doc:
-        return Icons.description_outlined;
-      case _ResourceFormat.xls:
-        return Icons.table_chart_outlined;
-      case _ResourceFormat.figma:
-        return Icons.design_services_outlined;
-      case _ResourceFormat.svg:
-        return Icons.image_outlined;
-      case _ResourceFormat.zip:
-        return Icons.folder_zip_outlined;
-    }
-  }
-
-  _FormatColors _formatColors(_ResourceFormat format) {
-    switch (format) {
-      case _ResourceFormat.pdf:
+  _FormatColors _formatColors(CourseResourceType type) {
+    switch (type) {
+      case CourseResourceType.pdf:
         return const _FormatColors(
           iconBg: Color(0xFFFEE2E2),
           badgeBg: Color(0xFFFEE2E2),
           badgeText: Color(0xFF991B1B),
         );
-      case _ResourceFormat.doc:
+      case CourseResourceType.doc:
         return const _FormatColors(
           iconBg: Color(0xFFDBEAFE),
           badgeBg: Color(0xFFDBEAFE),
           badgeText: Color(0xFF1E40AF),
         );
-      case _ResourceFormat.xls:
+      case CourseResourceType.xls:
         return const _FormatColors(
           iconBg: Color(0xFFD1FAE5),
           badgeBg: Color(0xFFD1FAE5),
           badgeText: Color(0xFF065F46),
         );
-      case _ResourceFormat.figma:
+      case CourseResourceType.figma:
         return const _FormatColors(
           iconBg: Color(0xFFF3E8FF),
           badgeBg: Color(0xFFF3E8FF),
           badgeText: Color(0xFF6B21A8),
         );
-      case _ResourceFormat.svg:
+      case CourseResourceType.image:
         return const _FormatColors(
           iconBg: Color(0xFFFEF3C7),
           badgeBg: Color(0xFFFEF3C7),
           badgeText: Color(0xFF92400E),
         );
-      case _ResourceFormat.zip:
+      case CourseResourceType.zip:
+        return const _FormatColors(
+          iconBg: Color(0xFFF3F4F6),
+          badgeBg: Color(0xFFF3F4F6),
+          badgeText: Color(0xFF374151),
+        );
+      case CourseResourceType.link:
+      case CourseResourceType.other:
         return const _FormatColors(
           iconBg: Color(0xFFF3F4F6),
           badgeBg: Color(0xFFF3F4F6),
@@ -1641,51 +1813,27 @@ class _IctBootcampPageState extends State<IctBootcampPage> {
         );
     }
   }
-}
 
-// ─────────────────────────────────────────────────────────────
-// MODELS
-// ─────────────────────────────────────────────────────────────
-class _Lesson {
-  const _Lesson({
-    required this.number,
-    required this.title,
-    required this.duration,
-    this.isActive = false,
-  });
-
-  final int number;
-  final String title;
-  final String duration;
-  final bool isActive;
-}
-
-class _LessonSection {
-  const _LessonSection({required this.title, required this.lessons});
-
-  final String title;
-  final List<_Lesson> lessons;
-}
-
-enum _ResourceFormat { pdf, doc, xls, figma, svg, zip }
-
-class _Resource {
-  const _Resource({
-    required this.title,
-    required this.format,
-    required this.formatStyle,
-  });
-
-  final String title;
-  final String format;
-  final _ResourceFormat formatStyle;
-}
-
-class _ResourceSection {
-  const _ResourceSection({required this.title, required this.resources});
-
-  final String title;
-  final List<_Resource> resources;
+  static const _emojiPalette = [
+    '😀',
+    '😂',
+    '🥹',
+    '😍',
+    '🤔',
+    '🙌',
+    '🔥',
+    '💯',
+    '🚀',
+    '✨',
+    '🎯',
+    '👏',
+    '😅',
+    '🙏',
+    '💡',
+    '📚',
+    '⭐',
+    '❤️',
+  ];
 }
 
 class _FormatColors {
@@ -1698,37 +1846,4 @@ class _FormatColors {
   final Color iconBg;
   final Color badgeBg;
   final Color badgeText;
-}
-
-class _Comment {
-  _Comment({
-    required this.avatarPath,
-    required this.username,
-    required this.meta,
-    required this.message,
-    this.likes = 0,
-    List<_Reply>? replies,
-  }) : replies = replies ?? [];
-
-  final String avatarPath;
-  final String username;
-  final String meta;
-  final String message;
-  int likes;
-  bool isLiked = false;
-  final List<_Reply> replies;
-}
-
-class _Reply {
-  _Reply({
-    required this.avatarPath,
-    required this.username,
-    required this.message,
-    required this.timeAgo,
-  });
-
-  final String avatarPath;
-  final String username;
-  final String message;
-  final String timeAgo;
 }

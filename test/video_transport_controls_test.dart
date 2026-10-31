@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:skillsikka/features/learning/presentation/widgets/video_transport_controls.dart';
+import 'package:skillsikka/core/widgets/video_transport_controls.dart';
 import 'package:video_player/video_player.dart';
 
 /// The transport bar over a lecture.

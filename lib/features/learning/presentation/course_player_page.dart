@@ -14,7 +14,8 @@ import '../../courses/presentation/widgets/review_sheet.dart';
 
 import '../../../core/widgets/course_detail_view.dart';
 import '../data/enrollment.dart';
-import 'widgets/video_transport_controls.dart';
+import '../data/learning_api.dart';
+import '../../../core/widgets/video_transport_controls.dart';
 
 const _ink = Color(0xFF111827);
 const _gray = Color(0xFF4B5563);
@@ -522,6 +523,10 @@ class _CoursePlayerPageState extends ConsumerState<CoursePlayerPage> {
     if (id == null) return;
     try {
       await ref.read(courseApiProvider).completeLesson(id);
+      // My Learning reads its numbers from the server and caches them, so a
+      // lesson finished here would otherwise leave the tab showing the progress
+      // it had when it was first opened.
+      ref.invalidate(myLearningProvider);
     } on ApiException catch (error) {
       if (mounted) showApiErrorSnack(context, error);
     }

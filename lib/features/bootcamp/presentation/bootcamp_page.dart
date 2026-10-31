@@ -7,8 +7,10 @@ import 'package:video_player/video_player.dart';
 import '../../../core/network/api_error.dart';
 import '../../../core/widgets/course_detail_view.dart';
 import '../../../core/widgets/course_image.dart';
+import '../../../core/widgets/video_transport_controls.dart';
 import '../../courses/data/course_api.dart';
 import '../../courses/data/course_discussions_api.dart';
+import '../../learning/data/learning_api.dart';
 import '../data/bootcamp.dart';
 import '../data/bootcamp_api.dart';
 
@@ -69,10 +71,6 @@ class _IctBootcampPageState extends ConsumerState<IctBootcampPage> {
 
   VideoPlayerController? _videoController;
   bool _videoReady = false;
-
-  /// The last `isPlaying` this screen drew. The video listener fires on every
-  /// position tick, so it is compared before any rebuild is scheduled.
-  bool _lastPlaying = false;
 
   final TextEditingController _commentController = TextEditingController();
   final Set<int> _expandedReplies = <int>{};
@@ -240,7 +238,6 @@ class _IctBootcampPageState extends ConsumerState<IctBootcampPage> {
     _videoController?.dispose();
     _videoController = null;
     _videoReady = false;
-    _lastPlaying = false;
 
     final remote = _sourceUrl;
     if (remote.isEmpty) return;
@@ -286,22 +283,15 @@ class _IctBootcampPageState extends ConsumerState<IctBootcampPage> {
     _videoController?.dispose();
     _videoController = null;
     _videoReady = false;
-    _lastPlaying = false;
   }
 
-  /// One tick listener does three jobs: keep the play/pause glyph honest, mark
-  /// a lesson finished when its video is, and follow it with `Auto Next`.
+  /// One tick listener does two jobs: mark a lesson finished when its video is,
+  /// and follow it with `Auto Next`. The play/pause glyph is the transport
+  /// bar's own business — it listens to the controller itself.
   void _onVideoTick() {
     final controller = _videoController;
     if (controller == null || !controller.value.isInitialized) return;
     final value = controller.value;
-
-    // Only rebuild when the glyph would change — this fires on every position
-    // update, and `setState` there would rebuild the whole screen 10×/second.
-    if (value.isPlaying != _lastPlaying) {
-      _lastPlaying = value.isPlaying;
-      if (mounted) setState(() {});
-    }
 
     final finished =
         value.duration > Duration.zero &&
@@ -417,6 +407,10 @@ class _IctBootcampPageState extends ConsumerState<IctBootcampPage> {
   Future<void> _postCompletion(int lessonId) async {
     try {
       await ref.read(courseApiProvider).completeLesson(lessonId);
+      // My Learning is server-driven and cached: without this its percentage
+      // and resume point stay at whatever they were when the tab loaded, so the
+      // bootcamp would still read `2 of 20` after finishing a third lesson.
+      ref.invalidate(myLearningProvider);
     } on ApiException catch (error) {
       _snack(error.message ?? 'That lesson could not be marked complete.');
     }
@@ -625,7 +619,7 @@ class _IctBootcampPageState extends ConsumerState<IctBootcampPage> {
   // ─────────────────────────────────────────────────────────────
   Widget _buildHero(BootcampDetail detail) {
     final controller = _videoController;
-    final playing = controller?.value.isPlaying ?? false;
+    final ready = _videoReady && controller != null;
     final poster = detail.heroPosterUrl.isNotEmpty
         ? detail.heroPosterUrl
         : detail.image;
@@ -636,7 +630,7 @@ class _IctBootcampPageState extends ConsumerState<IctBootcampPage> {
       child: Stack(
         children: [
           Positioned.fill(
-            child: _videoReady && controller != null
+            child: ready
                 ? FittedBox(
                     fit: BoxFit.cover,
                     child: SizedBox(
@@ -653,17 +647,26 @@ class _IctBootcampPageState extends ConsumerState<IctBootcampPage> {
                     ),
                   ),
           ),
-          if (_sourceUrl.isNotEmpty)
+          // Once there is a controller the transport bar owns play/pause, seek,
+          // mute and fullscreen — the same widget the course player uses, so the
+          // two players cannot drift apart. Before that, a plain play button
+          // starts whatever the hero is showing.
+          if (ready)
+            VideoTransportControls(
+              key: ValueKey(controller),
+              controller: controller,
+              title: _activeLesson?.title ?? detail.title,
+              onFullscreen: () => _openFullscreen(controller),
+            )
+          else if (_sourceUrl.isNotEmpty)
             Center(
               child: GestureDetector(
                 onTap: _togglePlay,
-                child: playing
-                    ? const Icon(Icons.pause, size: 52, color: Colors.white)
-                    : Image.asset(
-                        'assets/figma/bootcamp/play.png',
-                        width: 52,
-                        height: 52,
-                      ),
+                child: Image.asset(
+                  'assets/figma/bootcamp/play.png',
+                  width: 52,
+                  height: 52,
+                ),
               ),
             ),
           Positioned(
@@ -692,6 +695,21 @@ class _IctBootcampPageState extends ConsumerState<IctBootcampPage> {
         ],
       ),
     );
+  }
+
+  /// The same fullscreen route the course player opens: landscape, immersive,
+  /// and sharing this controller so playback continues across the push.
+  Future<void> _openFullscreen(VideoPlayerController controller) async {
+    await Navigator.of(context).push<void>(
+      MaterialPageRoute(
+        builder: (_) => FullscreenVideoPage(
+          controller: controller,
+          title: _activeLesson?.title ?? _detail?.title ?? 'Bootcamp',
+        ),
+      ),
+    );
+    // The route restores orientation and system UI in its own `dispose`.
+    if (mounted) setState(() {});
   }
 
   Widget _buildVideoProgress() {

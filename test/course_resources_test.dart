@@ -89,7 +89,7 @@ void main() {
         'xlsx': CourseResourceType.xls,
         'csv': CourseResourceType.xls,
         'zip': CourseResourceType.zip,
-        'figma': CourseResourceType.image,
+        'figma': CourseResourceType.figma,
         'svg': CourseResourceType.image,
         'link': CourseResourceType.link,
       };

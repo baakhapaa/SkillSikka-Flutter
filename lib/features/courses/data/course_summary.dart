@@ -25,13 +25,23 @@ class CourseSummary {
   final String? thumbnailUrl;
   final int? lessonCount;
 
-  /// `Rs 1,299`, `Free`, or `Paid` when the price is unreadable.
+  /// `Rs 1,299`, `Free`, or **empty**.
+  ///
+  /// **A free course says `Free`** (product decision, 2026-10-31). This reverses
+  /// the 2026-10-30 rule that no card printed the word: the price slot was then
+  /// blank for a free course, and a blank slot reads as a card whose price
+  /// failed to load. The original objection — that `Free` competed with the
+  /// DRAFT/LIVE chip — is answered by the chip keeping its own line.
+  ///
+  /// `is_paid` still wins over the amount: a paid course whose price is missing
+  /// or unreadable prints nothing rather than claiming to be free. The old
+  /// `'Paid'` fallback stays gone — that is not a price either.
   String get priceLabel {
     if (!isPaid) return 'Free';
     final raw = price;
-    if (raw == null || raw.trim().isEmpty) return 'Paid';
+    if (raw == null || raw.trim().isEmpty) return '';
     final value = double.tryParse(raw.replaceAll(',', ''));
-    if (value == null) return 'Rs $raw';
+    if (value == null) return '';
     final rounded = value.round();
     final digits = rounded.toString();
     final buffer = StringBuffer();

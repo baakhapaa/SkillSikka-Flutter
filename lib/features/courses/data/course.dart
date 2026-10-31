@@ -2,14 +2,17 @@ import 'package:flutter/material.dart';
 
 import '../../../core/widgets/course_detail_view.dart';
 
-/// The seven "This course includes" rows, identical across the catalogue.
+/// The six "This course includes" rows, identical across the catalogue.
+///
+/// **Six, not seven.** The `Access on mobile, desktop and TV` row was removed
+/// on 2026-10-30 — the app ships on mobile only, so it promised platforms that
+/// do not exist.
 const _standardIncludes = <CourseInclude>[
   CourseInclude(Icons.play_circle_outline, 'On-demand video, yours to keep'),
   CourseInclude(Icons.quiz_outlined, 'Quizzes after every section'),
   CourseInclude(Icons.description_outlined, 'Downloadable support files'),
   CourseInclude(Icons.article_outlined, 'Written notes for each lesson'),
   CourseInclude(Icons.all_inclusive, 'Full lifetime access'),
-  CourseInclude(Icons.devices, 'Access on mobile, desktop and TV'),
   CourseInclude(Icons.verified_outlined, 'Certificate of completion'),
 ];
 
@@ -46,7 +49,6 @@ const coursePool = <CourseDetailData>[
     instructorAvatar: 'assets/figma/instructors/instructor2.png',
     lastUpdated: 'Last updated 07/2026',
     languages: 'English, Nepali, Hindi',
-    subtitleTracks: 'CC English [Auto]',
     learningOutcomes: [
       'Write a two-column proof that another student can follow',
       'Know when triangles are congruent and when they only look it',
@@ -187,7 +189,6 @@ const coursePool = <CourseDetailData>[
     instructorAvatar: 'assets/figma/instructors/instructor4.png',
     lastUpdated: 'Last updated 09/2026',
     languages: 'English, Nepali, Hindi',
-    subtitleTracks: 'CC English [Auto]',
     learningOutcomes: [
       'Explain how a cell maintains itself against its own chemistry',
       'Read a metabolic pathway and say where it would break',
@@ -337,7 +338,6 @@ const coursePool = <CourseDetailData>[
     instructorAvatar: 'assets/figma/instructors/instructor6.png',
     lastUpdated: 'Last updated 08/2026',
     languages: 'English, Nepali, Hindi',
-    subtitleTracks: 'CC English [Auto]',
     learningOutcomes: [
       'Apply the ideal gas law and its real-gas corrections to real problems',
       'Read a phase diagram and say what happens as conditions change',
@@ -487,7 +487,6 @@ const coursePool = <CourseDetailData>[
     instructorAvatar: 'assets/figma/instructors/instructor7.png',
     lastUpdated: 'Last updated 08/2026',
     languages: 'English, Nepali, Hindi',
-    subtitleTracks: 'CC English [Auto]',
     learningOutcomes: [
       'Simplify an expression without losing a sign',
       'Translate a word problem into an equation you can solve',
@@ -635,7 +634,6 @@ const coursePool = <CourseDetailData>[
     instructorAvatar: 'assets/figma/instructors/instructor7.png',
     lastUpdated: 'Last updated 09/2026',
     languages: 'English, Nepali',
-    subtitleTracks: 'CC English [Auto]',
     learningOutcomes: [
       'Explain how trade routes shaped political power across three continents',
       'Trace a single commodity from source to market and back to politics',
@@ -784,7 +782,6 @@ const coursePool = <CourseDetailData>[
     instructorAvatar: 'assets/figma/instructors/instructor6.png',
     lastUpdated: 'Last updated 09/2026',
     languages: 'English, Nepali, Hindi',
-    subtitleTracks: 'CC English [Auto]',
     learningOutcomes: [
       'Describe motion with graphs instead of just words',
       'Use Newton\'s laws to explain everyday situations',
@@ -926,7 +923,6 @@ const coursePool = <CourseDetailData>[
     instructorAvatar: 'assets/figma/stlearning/avatar.png',
     lastUpdated: 'Last updated 09/2026',
     languages: 'English, Nepali, Hindi',
-    subtitleTracks: 'CC English [Auto]',
     learningOutcomes: [
       'Run user interviews and turn the notes into a defensible problem statement',
       'Build low-fidelity wireframes before touching a single colour',
@@ -1080,7 +1076,6 @@ const coursePool = <CourseDetailData>[
     instructorAvatar: 'assets/figma/instructors/instructor3.png',
     lastUpdated: 'Last updated 08/2026',
     languages: 'English, Nepali, Hindi',
-    subtitleTracks: 'CC English [Auto]',
     learningOutcomes: [
       'Map a funnel and find where you are actually losing people',
       'Choose channels based on unit economics, not vibes',
@@ -1224,7 +1219,6 @@ const coursePool = <CourseDetailData>[
     instructorAvatar: 'assets/figma/instructors/instructor5.png',
     lastUpdated: 'Last updated 07/2026',
     languages: 'English',
-    subtitleTracks: 'CC English [Auto]',
     learningOutcomes: [
       'Explain regions, availability zones and why they shape your design',
       'Pick between object, block and file storage with reasons',
@@ -1372,7 +1366,6 @@ const coursePool = <CourseDetailData>[
     instructorAvatar: 'assets/figma/instructors/instructor1.png',
     lastUpdated: 'Last updated 10/2026',
     languages: 'English, Nepali',
-    subtitleTracks: 'CC English [Auto]',
     learningOutcomes: [
       'Explain closures, hoisting and the prototype chain without hand-waving',
       'Trace exactly what the event loop does with your async code',
@@ -1532,7 +1525,6 @@ const coursePool = <CourseDetailData>[
     instructorAvatar: 'assets/figma/instructors/instructor2.png',
     lastUpdated: 'Last updated 10/2026',
     languages: 'English',
-    subtitleTracks: 'CC English [Auto]',
     learningOutcomes: [
       'Distinguish training, validation and test error — and why the gap matters',
       'Diagnose overfitting and underfitting from a learning curve',
@@ -1681,7 +1673,6 @@ const coursePool = <CourseDetailData>[
     instructorAvatar: 'assets/figma/instructors/instructor4.png',
     lastUpdated: 'Last updated 10/2026',
     languages: 'English',
-    subtitleTracks: 'CC English [Auto]',
     learningOutcomes: [
       'Build a navigation tree that survives deep links and back gestures',
       'Choose between local, lifted and server state without guessing',

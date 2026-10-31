@@ -608,7 +608,7 @@ class _SkillCoursesPageState extends ConsumerState<SkillCoursesPage> {
             Row(
               children: [
                 Text(
-                  course.price,
+                  course.priceLabel,
                   style: GoogleFonts.manrope(
                     fontSize: 14,
                     fontWeight: FontWeight.w800,
@@ -771,7 +771,7 @@ class _SkillCoursesPageState extends ConsumerState<SkillCoursesPage> {
                       ),
                       const SizedBox(width: 8),
                       Text(
-                        course.price,
+                        course.priceLabel,
                         style: GoogleFonts.manrope(
                           fontSize: 14,
                           fontWeight: FontWeight.w700,

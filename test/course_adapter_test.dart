@@ -122,6 +122,37 @@ void main() {
       expect(CourseMapper.summary(_course()).price, '');
     });
 
+    test(
+      'the card label says Free for a free course, blank if paid and unpriced',
+      () {
+        // `price` stays empty for a free course — it drives the detail screen's
+        // bottom bar, which leads with total time instead. `priceLabel` is the
+        // card's slot, and it states `Free` (product decision, 2026-10-31).
+        final free = CourseMapper.summary(_course());
+        expect(free.price, '');
+        expect(free.priceLabel, 'Free');
+
+        // A paid course whose price the API did not send must not be labelled
+        // free — that would hand out a paid course.
+        final unpriced = CourseMapper.summary({
+          ..._course(),
+          'is_paid': true,
+          'price': null,
+        });
+        expect(unpriced.priceLabel, '');
+        expect(unpriced.isPaid, isTrue);
+
+        expect(
+          CourseMapper.summary({
+            ..._course(),
+            'is_paid': true,
+            'price': '1299.00',
+          }).priceLabel,
+          'Rs. 1,299',
+        );
+      },
+    );
+
     test('an academic course labels itself by grade and subject', () {
       final course = CourseMapper.summary({
         ..._course(),
@@ -290,25 +321,21 @@ void main() {
       expect(course.descriptionBlocks, hasLength(1));
     });
 
-    test(
-      '"This course includes" states the video length and the policy rows',
-      () {
-        final course = CourseMapper.detail(
-          course: _course(),
-          lessons: _nineLessons(),
-        );
+    test('"This course includes" states the video length and the policy rows', () {
+      final course = CourseMapper.detail(
+        course: _course(),
+        lessons: _nineLessons(),
+      );
 
-        // The video row is the course's own total (3645s); the three pdf rows are
-        // the resource pack.
-        expect(course.includes.map((i) => i.label), [
-          '1hr of on-demand video',
-          '3 support files',
-          'Full lifetime access',
-          'Access on mobile, desktop and TV',
-          'Certificate of completion',
-        ]);
-      },
-    );
+      // The video row is the course's own total (3645s); the three pdf rows are
+      // the resource pack. The mobile/desktop/TV row was removed on 2026-10-30.
+      expect(course.includes.map((i) => i.label), [
+        '1hr of on-demand video',
+        '3 support files',
+        'Full lifetime access',
+        'Certificate of completion',
+      ]);
+    });
 
     test('a pdf lesson is a resource, never a lecture row', () {
       // The earlier version printed `2 documents · 1 written lesson` — a
@@ -341,7 +368,6 @@ void main() {
       expect(course.includes.map((i) => i.label), [
         '1hr of on-demand video',
         'Full lifetime access',
-        'Access on mobile, desktop and TV',
         'Certificate of completion',
       ]);
     });
@@ -578,9 +604,8 @@ void main() {
   group('courseMetaRows', () {
     test('an API course shows level and language beside the update date', () {
       // Level and language are both authored in the course builder and stored on
-      // `Course`, so an API course now fills the same rows the bundled catalogue
-      // does. The subtitle row is still genuinely empty and still omitted — a
-      // row with an icon and no words reads as broken.
+      // `Course`, so an API course fills the same rows the bundled catalogue
+      // does. There is no subtitle row at all — it was removed on 2026-10-30.
       final rows = courseMetaRows(CourseMapper.summary(_course()));
 
       expect(rows.map((row) => row.text), [
@@ -600,10 +625,7 @@ void main() {
         CourseMapper.summary({..._course(), 'level': ''}),
       );
 
-      expect(rows.map((row) => row.text), [
-        'Last updated 10/2026',
-        'English',
-      ]);
+      expect(rows.map((row) => row.text), ['Last updated 10/2026', 'English']);
     });
 
     test('the level is capitalised from the wire choice name', () {
@@ -620,17 +642,20 @@ void main() {
       );
     });
 
-    test('the bundled catalogue fills all four rows', () {
+    test('the bundled catalogue fills the same three rows as the API', () {
+      // Three, not four. The CC/subtitle row was removed on 2026-10-30: no
+      // backend field ever fed it, so its only content was the catalogue's
+      // hardcoded `CC English [Auto]` — and it disappeared the moment the same
+      // course arrived from the API. The catalogue must not be able to claim a
+      // row a real course cannot.
       final rows = courseMetaRows(coursePool.first);
 
-      expect(rows, hasLength(4));
+      expect(rows, hasLength(3));
       expect(rows[1].text, 'Beginner');
       expect(rows[1].semanticsLabel, 'Course level');
       expect(rows[2].text, contains('English'));
       expect(rows[2].semanticsLabel, 'Available languages');
-      // The CC row: the catalogue hardcodes a subtitle track, which is why it
-      // appears here and not on an API course.
-      expect(rows[3].text, contains('CC'));
+      expect(rows.where((row) => row.icon.contains('cc.svg')), isEmpty);
     });
 
     test('a course with nothing to say produces no rows', () {
@@ -648,7 +673,6 @@ void main() {
           instructorAvatar: '',
           lastUpdated: '',
           languages: '',
-          subtitleTracks: '',
           learningOutcomes: <String>[],
           curriculumSummary: '',
           modules: <CourseModule>[],

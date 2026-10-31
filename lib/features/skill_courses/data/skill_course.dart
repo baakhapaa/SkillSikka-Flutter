@@ -2,14 +2,17 @@ import 'package:flutter/material.dart';
 
 import '../../../core/widgets/course_detail_view.dart';
 
-/// The seven "This course includes" rows, identical across the catalogue.
+/// The six "This course includes" rows, identical across the catalogue.
+///
+/// **Six, not seven.** The `Access on mobile, desktop and TV` row was removed
+/// on 2026-10-30 — the app ships on mobile only, so it promised platforms that
+/// do not exist.
 const _standardIncludes = <CourseInclude>[
   CourseInclude(Icons.play_circle_outline, 'On-demand video, yours to keep'),
   CourseInclude(Icons.quiz_outlined, 'Quizzes after every section'),
   CourseInclude(Icons.description_outlined, 'Downloadable support files'),
   CourseInclude(Icons.article_outlined, 'Written notes for each lesson'),
   CourseInclude(Icons.all_inclusive, 'Full lifetime access'),
-  CourseInclude(Icons.devices, 'Access on mobile, desktop and TV'),
   CourseInclude(Icons.verified_outlined, 'Certificate of completion'),
 ];
 
@@ -52,7 +55,6 @@ const skillCoursePool = <CourseDetailData>[
     instructorAvatar: 'assets/figma/instructors/instructor1.png',
     lastUpdated: 'Last updated 09/2026',
     languages: 'English, Nepali, Hindi',
-    subtitleTracks: 'CC English [Auto]',
     learningOutcomes: [
       'Write and run your own Python programs with confidence',
       'Use lists, dictionaries and loops to hold real data',
@@ -199,7 +201,6 @@ const skillCoursePool = <CourseDetailData>[
     instructorAvatar: 'assets/figma/instructors/instructor2.png',
     lastUpdated: 'Last updated 09/2026',
     languages: 'English, Nepali',
-    subtitleTracks: 'CC English [Auto]',
     learningOutcomes: [
       'Build interfaces out of components instead of pages',
       'Manage state without losing track of where it lives',
@@ -344,7 +345,6 @@ const skillCoursePool = <CourseDetailData>[
     instructorAvatar: 'assets/figma/instructors/instructor3.png',
     lastUpdated: 'Last updated 08/2026',
     languages: 'English, Nepali, Hindi',
-    subtitleTracks: 'CC English [Auto]',
     learningOutcomes: [
       'Pick the right structure for a problem instead of guessing',
       'Reason about how long an approach will take before coding it',
@@ -488,7 +488,6 @@ const skillCoursePool = <CourseDetailData>[
     instructorAvatar: 'assets/figma/instructors/instructor4.png',
     lastUpdated: 'Last updated 07/2026',
     languages: 'English',
-    subtitleTracks: 'CC English [Auto]',
     learningOutcomes: [
       'Explain scope and closures without hand-waving',
       'Understand what `this` actually binds to, and why',
@@ -631,7 +630,6 @@ const skillCoursePool = <CourseDetailData>[
     instructorAvatar: 'assets/figma/instructors/instructor5.png',
     lastUpdated: 'Last updated 07/2026',
     languages: 'English',
-    subtitleTracks: 'CC English [Auto]',
     learningOutcomes: [
       'Structure an Express app so it can grow past one file',
       'Validate input at the edge instead of trusting the client',
@@ -769,7 +767,6 @@ const skillCoursePool = <CourseDetailData>[
     instructorAvatar: 'assets/figma/instructors/instructor6.png',
     lastUpdated: 'Last updated 08/2026',
     languages: 'English',
-    subtitleTracks: 'CC English [Auto]',
     learningOutcomes: [
       'Write generic functions instead of copy-pasting signatures',
       'Let inference do the work instead of annotating everything',
@@ -913,7 +910,6 @@ const skillCoursePool = <CourseDetailData>[
     instructorAvatar: 'assets/figma/instructors/instructor7.png',
     lastUpdated: 'Last updated 08/2026',
     languages: 'English, Hindi',
-    subtitleTracks: 'CC English [Auto]',
     learningOutcomes: [
       'Model a domain in Django and migrate it safely',
       'Expose it through a REST API with clean serializers',
@@ -1051,7 +1047,6 @@ const skillCoursePool = <CourseDetailData>[
     instructorAvatar: 'assets/figma/instructors/instructor1.png',
     lastUpdated: 'Last updated 07/2026',
     languages: 'English',
-    subtitleTracks: 'CC English [Auto]',
     learningOutcomes: [
       'Compose a screen out of widgets instead of nesting blindly',
       'Choose a state-management approach and stick with it',
@@ -1194,7 +1189,6 @@ const skillCoursePool = <CourseDetailData>[
     instructorAvatar: 'assets/figma/instructors/instructor2.png',
     lastUpdated: 'Last updated 06/2026',
     languages: 'English',
-    subtitleTracks: 'CC English [Auto]',
     learningOutcomes: [
       'Explain what a commit actually is',
       'Branch, merge and resolve conflicts without panic',
@@ -1332,7 +1326,6 @@ const skillCoursePool = <CourseDetailData>[
     instructorAvatar: 'assets/figma/instructors/instructor3.png',
     lastUpdated: 'Last updated 08/2026',
     languages: 'English',
-    subtitleTracks: 'CC English [Auto]',
     learningOutcomes: [
       'Write joins you can explain, not just ones that run',
       'Group and filter to answer a real business question',
@@ -1470,7 +1463,6 @@ const skillCoursePool = <CourseDetailData>[
     instructorAvatar: 'assets/figma/instructors/instructor4.png',
     lastUpdated: 'Last updated 08/2026',
     languages: 'English',
-    subtitleTracks: 'CC English [Auto]',
     learningOutcomes: [
       'Write a Dockerfile that produces a small, safe image',
       'Run several services together and have them find each other',
@@ -1608,7 +1600,6 @@ const skillCoursePool = <CourseDetailData>[
     instructorAvatar: 'assets/figma/instructors/instructor5.png',
     lastUpdated: 'Last updated 09/2026',
     languages: 'English, Hindi',
-    subtitleTracks: 'CC English [Auto]',
     learningOutcomes: [
       'Prepare messy data without leaking the test set',
       'Pick a model for a problem rather than the trendiest one',
@@ -1753,7 +1744,6 @@ const skillCoursePool = <CourseDetailData>[
     instructorAvatar: 'assets/figma/instructors/instructor6.png',
     lastUpdated: 'Last updated 07/2026',
     languages: 'English, Nepali',
-    subtitleTracks: 'CC English [Auto]',
     learningOutcomes: [
       'Measure a subject by eye instead of guessing at it',
       'Build a form from simple shapes before adding detail',
@@ -1896,7 +1886,6 @@ const skillCoursePool = <CourseDetailData>[
     instructorAvatar: 'assets/figma/instructors/instructor7.png',
     lastUpdated: 'Last updated 06/2026',
     languages: 'English, Nepali',
-    subtitleTracks: 'CC English [Auto]',
     learningOutcomes: [
       'Control water instead of fighting it',
       'Lay a flat wash and a graded wash cleanly',
@@ -2034,7 +2023,6 @@ const skillCoursePool = <CourseDetailData>[
     instructorAvatar: 'assets/figma/instructors/instructor1.png',
     lastUpdated: 'Last updated 08/2026',
     languages: 'English',
-    subtitleTracks: 'CC English [Auto]',
     learningOutcomes: [
       'Set up a brush and a canvas that suit the work',
       'Use layers and clipping to keep edits reversible',
@@ -2177,7 +2165,6 @@ const skillCoursePool = <CourseDetailData>[
     instructorAvatar: 'assets/figma/instructors/instructor2.png',
     lastUpdated: 'Last updated 08/2026',
     languages: 'English, Nepali, Hindi',
-    subtitleTracks: 'CC English [Auto]',
     learningOutcomes: [
       'Steady your breathing and your voice before you start',
       'Open with something that earns the next thirty seconds',
@@ -2317,7 +2304,6 @@ const skillCoursePool = <CourseDetailData>[
     instructorAvatar: 'assets/figma/instructors/instructor3.png',
     lastUpdated: 'Last updated 07/2026',
     languages: 'English, Nepali',
-    subtitleTracks: 'CC English [Auto]',
     learningOutcomes: [
       'Find the story hiding inside a technical talk',
       'Structure a presentation around tension, not a table of contents',
@@ -2459,7 +2445,6 @@ const skillCoursePool = <CourseDetailData>[
     instructorAvatar: 'assets/figma/instructors/instructor4.png',
     lastUpdated: 'Last updated 06/2026',
     languages: 'English, Hindi',
-    subtitleTracks: 'CC English [Auto]',
     learningOutcomes: [
       'Build an argument with premises you can defend',
       'Spot the common fallacies in real time',
@@ -2598,7 +2583,6 @@ const skillCoursePool = <CourseDetailData>[
     instructorAvatar: 'assets/figma/instructors/instructor5.png',
     lastUpdated: 'Last updated 08/2026',
     languages: 'English, Nepali',
-    subtitleTracks: 'CC English [Auto]',
     learningOutcomes: [
       'Hold and tune the guitar so it stops fighting you',
       'Play the eight chords most songs are built from',
@@ -2742,7 +2726,6 @@ const skillCoursePool = <CourseDetailData>[
     instructorAvatar: 'assets/figma/instructors/instructor6.png',
     lastUpdated: 'Last updated 07/2026',
     languages: 'English',
-    subtitleTracks: 'CC English [Auto]',
     learningOutcomes: [
       'Read a key signature and know what it means',
       'Build any major or minor scale from one pattern',
@@ -2885,7 +2868,6 @@ const skillCoursePool = <CourseDetailData>[
     instructorAvatar: 'assets/figma/instructors/instructor7.png',
     lastUpdated: 'Last updated 08/2026',
     languages: 'English, Nepali, Hindi',
-    subtitleTracks: 'CC English [Auto]',
     learningOutcomes: [
       'Warm up without straining your voice',
       'Sing in tune against a reference you trust',

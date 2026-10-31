@@ -105,6 +105,9 @@ CourseResource? tryParseCourseResource(Object? value) {
     url: url is String && url.trim().isNotEmpty ? url.trim() : null,
     lessonId: lesson is int ? lesson : null,
     sizeBytes: size is int ? size : null,
+    section: value['section'] is String
+        ? (value['section'] as String).trim()
+        : '',
   );
 }
 

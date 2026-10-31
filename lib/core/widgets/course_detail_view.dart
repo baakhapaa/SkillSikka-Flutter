@@ -413,8 +413,8 @@ class _CourseDetailViewState extends State<CourseDetailView> {
             ],
           ),
           const SizedBox(height: 12),
-          // Last updated · languages · subtitles — only the rows that have
-          // text are built. See [courseMetaRows].
+          // Last updated · level · languages — only the rows that have text are
+          // built. See [courseMetaRows].
           ..._buildMetaRows(data),
         ],
       ),
@@ -425,10 +425,9 @@ class _CourseDetailViewState extends State<CourseDetailView> {
   ///
   /// A row is `icon + text`, so a row with no text is an icon floating beside
   /// nothing — which reads as a rendering fault, not as "this course has none".
-  /// The backend has **no subtitle field**, so `CourseMapper` emits `''` for
-  /// `subtitleTracks` and the CC row is dropped; level, language and last-updated
-  /// all come from the course record. The filter stays regardless — it is what
-  /// keeps a future empty field from drawing a bare glyph.
+  /// Level, language and last-updated all come from the course record. The
+  /// filter stays regardless — it is what keeps a future empty field from
+  /// drawing a bare glyph.
   List<Widget> _buildMetaRows(CourseDetailData data) {
     final rows = courseMetaRows(data);
     return [
@@ -1363,16 +1362,19 @@ class CourseMetaRow {
 ///
 /// **Empty fields produce no row.** A row is `icon + text`, so a row with no text
 /// is an icon floating beside nothing — which reads as a rendering fault, not as
-/// "this course has none". The backend supplies level, language and last-updated;
-/// `subtitleTracks` has no field behind it at all, so the CC row is dropped. The
-/// bundled catalogue carries all four, so the full block still appears where the
-/// data supports it.
+/// "this course has none". Level, language and last-updated all come from the
+/// course record.
+///
+/// **There is no subtitle/CC row.** It was removed on 2026-10-30: no backend
+/// field ever fed it, so the only thing it ever printed was the catalogue's
+/// hardcoded `CC English [Auto]` — a claim about a course we cannot check, and
+/// a row that vanished the moment the same course came from the API. A row that
+/// exists for demo data and not for real data is a lie either way.
 ///
 /// Kept as a pure function rather than inline in the widget so it can be tested
 /// without pumping a screen.
 List<CourseMetaRow> courseMetaRows(CourseDetailData data) {
   const amber = Color(0xFFFBBF24);
-  const softGray = Color(0xFF4B5563);
 
   return [
     CourseMetaRow(
@@ -1393,11 +1395,6 @@ List<CourseMetaRow> courseMetaRows(CourseDetailData data) {
       text: data.languages,
       tint: amber,
       semanticsLabel: 'Available languages',
-    ),
-    CourseMetaRow(
-      icon: 'assets/figma/stlearning/cc.svg',
-      text: data.subtitleTracks,
-      tint: softGray,
     ),
   ].where((row) => row.text.trim().isNotEmpty).toList(growable: false);
 }
@@ -1425,7 +1422,6 @@ class CourseDetailData {
     required this.instructorAvatar,
     required this.lastUpdated,
     required this.languages,
-    required this.subtitleTracks,
     required this.learningOutcomes,
     required this.curriculumSummary,
     required this.modules,
@@ -1526,7 +1522,6 @@ class CourseDetailData {
   final String lastUpdated;
 
   final String languages;
-  final String subtitleTracks;
 
   final List<String> learningOutcomes;
   final String curriculumSummary;
@@ -1580,6 +1575,21 @@ class CourseDetailData {
   /// or `completed` enrolment, and inferring "free" from a missing string is
   /// exactly how a student would get in without paying.
   final bool isPaid;
+
+  /// What a card prints in its price slot: the price, or `Free`.
+  ///
+  /// **Reverses the 2026-10-30 "no card prints Free" rule** (product decision,
+  /// 2026-10-31). A free course's slot used to be blank, which reads as a card
+  /// that failed to load its price rather than as a course that costs nothing.
+  ///
+  /// `isPaid` decides, not `price.isEmpty`: a paid course whose price the API
+  /// did not send says nothing rather than claiming to be free. Cards use this;
+  /// the bottom bar keeps its own two-state rule on [price] (price vs. total
+  /// time), which is why [price] itself is left untouched.
+  String get priceLabel {
+    if (price.isNotEmpty) return price;
+    return isPaid ? '' : 'Free';
+  }
 
   /// The card's top-left tag, e.g. `Python`. Card-only — the detail screen does
   /// not render it. Empty for the class catalogue, whose cards label themselves
@@ -1784,6 +1794,7 @@ class CourseResource {
     this.url,
     this.lessonId,
     this.sizeBytes,
+    this.section = '',
   });
 
   final String title;
@@ -1799,6 +1810,12 @@ class CourseResource {
   final int? lessonId;
 
   final int? sizeBytes;
+
+  /// The `CourseResource.section` heading, e.g. `Section 1: Course Materials`.
+  ///
+  /// Empty for a course-wide file with no heading — the bootcamp player groups
+  /// the Resources tab by this, and an empty value becomes one unnamed group.
+  final String section;
 
   bool get isOpenable => url != null && url!.trim().isNotEmpty;
 
@@ -1830,6 +1847,11 @@ enum CourseResourceType {
   pdf('PDF', Color(0xFFD93025), Icons.picture_as_pdf_outlined),
   doc('DOC', Color(0xFF1A73E8), Icons.description_outlined),
   xls('XLS', Color(0xFF1E8E3E), Icons.grid_on_outlined),
+
+  /// Figma is its own format on the server (`figma`), and a design file is not
+  /// an image — the bootcamp's Resources tab has a Figma glyph for it, and
+  /// labelling it `IMG` made a design file look like a broken screenshot.
+  figma('FIGMA', Color(0xFF6B21A8), Icons.design_services_outlined),
   zip('ZIP', Color(0xFFB06000), Icons.folder_zip_outlined),
   image('IMG', Color(0xFF7B1FA2), Icons.image_outlined),
   link('LINK', Color(0xFF00695C), Icons.link),
@@ -1852,8 +1874,9 @@ enum CourseResourceType {
       'pdf' => CourseResourceType.pdf,
       'doc' || 'docx' || 'word' => CourseResourceType.doc,
       'xls' || 'xlsx' || 'csv' || 'excel' => CourseResourceType.xls,
+      'figma' => CourseResourceType.figma,
       'zip' || 'rar' || '7z' => CourseResourceType.zip,
-      'svg' || 'png' || 'jpg' || 'jpeg' || 'figma' => CourseResourceType.image,
+      'svg' || 'png' || 'jpg' || 'jpeg' => CourseResourceType.image,
       'link' => CourseResourceType.link,
       _ => CourseResourceType.other,
     };

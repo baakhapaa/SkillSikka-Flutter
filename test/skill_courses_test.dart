@@ -15,7 +15,16 @@ import 'package:skillsikka/features/search/presentation/search_page.dart';
 import 'support/courses_test_scope.dart';
 
 /// A `GET /courses/` row for a skill course, in the server's field names.
-Map<String, dynamic> skillRow(int id, String title, String category) => {
+///
+/// Free unless [isPaid] is set — the free shape is the one the dev seed and
+/// most published courses have.
+Map<String, dynamic> skillRow(
+  int id,
+  String title,
+  String category, {
+  bool isPaid = false,
+  String? price,
+}) => {
   'id': id,
   'title': title,
   'description': 'Learn by doing.',
@@ -26,8 +35,8 @@ Map<String, dynamic> skillRow(int id, String title, String category) => {
   'grade_name': null,
   'skill_category': 1,
   'skill_category_name': category,
-  'is_paid': false,
-  'price': null,
+  'is_paid': isPaid,
+  'price': isPaid ? (price ?? '1299.00') : null,
   'thumbnail_url': '',
   'is_published': true,
   'average_rating': 4.5,
@@ -189,6 +198,61 @@ void main() {
       await tester.pumpAndSettle();
     });
   }
+
+  group('the card price slot', () {
+    Widget appWith(List<Map<String, dynamic>> rows) => coursesTestScope(
+      api: FakeCourseApi(
+        catalogue: CoursePage(
+          count: rows.length,
+          courses: [for (final row in rows) CourseMapper.summary(row)],
+        ),
+      ),
+      child: MaterialApp(
+        theme: ThemeData(fontFamily: 'Roboto'),
+        home: const SkillCoursesPage(),
+      ),
+    );
+
+    testWidgets('a free course says Free, on the carousel and in the list', (
+      tester,
+    ) async {
+      await tester.binding.setSurfaceSize(const Size(360, 900));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+
+      await tester.pumpWidget(
+        appWith([skillRow(1, 'Python Basics', 'Coding')]),
+      );
+      await tester.pumpAndSettle();
+
+      // Both cards used to render an empty price slot, which reads as a price
+      // that failed to load rather than as a course that costs nothing
+      // (product decision, 2026-10-31).
+      expect(find.text('Free'), findsWidgets);
+    });
+
+    testWidgets('a paid course states its price and never Free', (
+      tester,
+    ) async {
+      await tester.binding.setSurfaceSize(const Size(360, 900));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+
+      await tester.pumpWidget(
+        appWith([
+          skillRow(
+            1,
+            'Python Basics',
+            'Coding',
+            isPaid: true,
+            price: '1299.00',
+          ),
+        ]),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('Rs. 1,299'), findsWidgets);
+      expect(find.text('Free'), findsNothing);
+    });
+  });
 
   group('categories the design did not name', () {
     /// The builder offers all fifteen `LearningInterest` rows, so a course can

@@ -51,17 +51,14 @@ Map<String, dynamic> tabRow({
 /// from both entry points that reach it: the Courses tab's grid and the home
 /// screen's "Courses" rail.
 ///
-/// **Why nothing here pumps `PremiumCourseDetailsPage`.** That screen's data
-/// carries a `bannerVideoAsset`, so `CourseDetailView.initState` constructs a
-/// `VideoPlayerController` and calls `initialize()`. `video_player` has no
-/// platform implementation under `flutter test`, so that future fails
-/// asynchronously with a `MissingPluginException` and no handler attached —
-/// which fails the test rather than surfacing as a catchable exception. It is
-/// the same wall that kept the premium screen untested before this refactor
-/// (`2026-09-22.md`, `spacing_audit_2026-09-22.md`). Covering it needs a fake
-/// `VideoPlayerPlatform.instance`; until then the premium path is verified by
-/// inspection, and the *shared* view is covered here through the video-less
-/// catalogue courses — which is the point of the extraction anyway.
+/// **`PremiumCourseDetailsPage` is no longer excluded.** It used to carry a
+/// `bannerVideoAsset`, so `CourseDetailView.initState` built a
+/// `VideoPlayerController` whose `initialize()` fails with a
+/// `MissingPluginException` under `flutter test` — an async failure with no
+/// handler, which fails the test outright. The trailer was removed on
+/// 2026-10-30 (premium now matches a skill course, which shows its cover), so
+/// the premium screen renders without the video plugin and is pumped in
+/// `premium_detail_page_test.dart`.
 void main() {
   installHomePageFontHarness();
 
@@ -335,8 +332,8 @@ void main() {
     tester,
   ) async {
     // Both rows are authored in the course builder and stored on `Course`, so an
-    // API course fills the same rows the bundled catalogue does. The subtitle
-    // row stays empty and stays dropped: it has no column.
+    // API course fills the same rows the bundled catalogue does. There is no
+    // subtitle row any more — it was removed on 2026-10-30.
     final course = CourseMapper.summary({
       ...tabRow(id: 1, title: 'Class Six Maths', grade: 6),
       'id': null,
@@ -364,10 +361,10 @@ void main() {
       greaterThan(tester.getTopLeft(find.text('Intermediate')).dy),
       reason: 'level then language, in the order `courseMetaRows` builds them',
     );
-    // The subtitle row is still empty and still dropped — `courseMetaRows` has
-    // no words to give it, and a bare CC glyph reads as a rendering fault. That
-    // drop is asserted directly in `course_adapter_test.dart`.
+    // No CC/subtitle row at all, for either data source. It was removed on
+    // 2026-10-30; the adapter-level assertion lives in `course_adapter_test.dart`.
     expect(find.textContaining('Subtitles'), findsNothing);
+    expect(find.textContaining('CC English'), findsNothing);
   });
 
   testWidgets('the enrol button runs the profile gate and opens the player', (

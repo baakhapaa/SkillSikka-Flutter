@@ -3,11 +3,17 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:skillsikka/core/network/api_error.dart';
 import 'package:skillsikka/features/auth/data/auth_repository.dart';
+import 'package:skillsikka/features/bootcamp/data/bootcamp_api.dart';
+import 'package:skillsikka/features/bootcamp/presentation/bootcamp_page.dart';
+import 'package:skillsikka/features/courses/data/course_api.dart';
+import 'package:skillsikka/features/learning/presentation/course_player_page.dart';
 import 'package:skillsikka/features/learning/data/learning_api.dart';
 import 'package:skillsikka/features/learning/data/my_learning.dart';
 import 'package:skillsikka/features/learning/presentation/my_learning_page.dart';
 import 'package:skillsikka/features/payment/data/payment_api.dart';
 
+import 'support/bootcamp_fixtures.dart';
+import 'support/courses_test_scope.dart';
 import 'support/learning_test_scope.dart';
 import 'support/payment_test_scope.dart';
 
@@ -616,6 +622,54 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(auth.logOuts, 1);
+    });
+  });
+
+  group('opening a course', () {
+    /// A bootcamp row, exactly as `/my-learning/` returns one: the course is a
+    /// `bootcamp` and the card carries its progress like any other.
+    MyLearning bootcamp() {
+      final row = learningRow(courseId: 78, completed: 2, total: 20);
+      row['course'] = {
+        ...course(78),
+        'title': 'ICT & AI BOOTCAMP at Sundarbazar',
+        'course_type': 'bootcamp',
+        'lessons_count': 20,
+      };
+      return MyLearning.tryParse(payload(hero: row))!;
+    }
+
+    testWidgets('a bootcamp opens the bootcamp player, not the course player', (
+      tester,
+    ) async {
+      // The regression: `continueCourse` pushed `CoursePlayerPage` for every
+      // course. A bootcamp summary carries no modules, so that screen opened
+      // with **no lessons at all** — a blank player.
+      await tester.binding.setSurfaceSize(const Size(360, 900));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+
+      final api = FakeBootcampApi(value: camp());
+      await tester.pumpWidget(
+        learningTestScope(
+          learning: bootcamp(),
+          child: ProviderScope(
+            overrides: [
+              bootcampApiProvider.overrideWithValue(api),
+              courseApiProvider.overrideWithValue(FakeCourseApi()),
+            ],
+            child: const MaterialApp(home: MyLearningPage()),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('Resume'));
+      await tester.pumpAndSettle();
+
+      expect(find.byType(IctBootcampPage), findsOneWidget);
+      expect(find.byType(CoursePlayerPage), findsNothing);
+      // It opened *this* camp, not some other id.
+      expect(api.calls, [78]);
     });
   });
 }

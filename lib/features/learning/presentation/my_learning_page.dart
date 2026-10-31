@@ -972,18 +972,25 @@ class _SectionLabel extends StatelessWidget {
 class _Badge extends StatelessWidget {
   const _Badge(this.text);
   final String text;
+
   @override
-  Widget build(BuildContext context) => Container(
-    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-    decoration: BoxDecoration(
-      color: const Color(0xFFF9FAFB),
-      borderRadius: BorderRadius.circular(4),
-    ),
-    child: Text(
-      text,
-      style: _tiny(color: const Color(0xFF4B5563), weight: FontWeight.w600),
-    ),
-  );
+  Widget build(BuildContext context) {
+    // `level` is empty for every course that came from the API — the column is
+    // not on the wire — so this pill was a small empty grey box on every hero
+    // card. No text, no pill.
+    if (text.trim().isEmpty) return const SizedBox.shrink();
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF9FAFB),
+        borderRadius: BorderRadius.circular(4),
+      ),
+      child: Text(
+        text,
+        style: _tiny(color: const Color(0xFF4B5563), weight: FontWeight.w600),
+      ),
+    );
+  }
 }
 
 TextStyle _boldSmall() => const TextStyle(

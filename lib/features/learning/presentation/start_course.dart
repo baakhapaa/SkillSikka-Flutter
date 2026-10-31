@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/network/api_error.dart';
 import '../../../core/widgets/api_error_snack.dart';
 import '../../../core/widgets/course_detail_view.dart';
+import '../../bootcamp/presentation/bootcamp_page.dart';
 import '../../courses/data/course_api.dart';
 import '../../payment/data/payment_api.dart';
 import '../../payment/presentation/checkout_sheet.dart';
@@ -145,6 +146,10 @@ Future<void> startCourse(
       .record(course, startIndex: startIndex);
 
   if (!context.mounted) return;
+  if (_isBootcamp(course)) {
+    await openBootcamp(context, course.id!);
+    return;
+  }
   await Navigator.of(context).push<void>(
     MaterialPageRoute(
       builder: (_) => CoursePlayerPage(course: course, startIndex: startIndex),
@@ -166,6 +171,16 @@ Future<void> continueCourse(
   CourseDetailData course, {
   int? startIndex,
 }) async {
+  // **A bootcamp is not a course player screen.** It has its own player — day
+  // tabs, a file pack, its own hero — and the generic one would open with no
+  // lessons at all: `CourseMapper.summary` is what My Learning holds, and a
+  // summary row carries no modules. That was the blank screen a bootcamp
+  // opened from My Learning.
+  if (_isBootcamp(course)) {
+    await openBootcamp(context, course.id!);
+    return;
+  }
+
   final resume =
       startIndex ??
       scopeOf(
@@ -177,5 +192,22 @@ Future<void> continueCourse(
     MaterialPageRoute(
       builder: (_) => CoursePlayerPage(course: course, startIndex: resume),
     ),
+  );
+}
+
+/// A bootcamp with an id — the only kind that can be opened at all.
+///
+/// A catalogue entry has no id and no bootcamp type, so this is false for every
+/// fixture card.
+bool _isBootcamp(CourseDetailData course) =>
+    course.courseType == 'bootcamp' && course.id != null;
+
+/// Opens the bootcamp player for [courseId].
+///
+/// The page enrols itself and reads its own payload, so there is nothing to
+/// pass but the id — the same way the home rail opens it.
+Future<void> openBootcamp(BuildContext context, int courseId) async {
+  await Navigator.of(context).push<void>(
+    MaterialPageRoute(builder: (_) => IctBootcampPage(courseId: courseId)),
   );
 }

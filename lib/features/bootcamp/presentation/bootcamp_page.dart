@@ -62,8 +62,17 @@ class _IctBootcampPageState extends ConsumerState<IctBootcampPage> {
   /// The lesson whose video is on the hero, or null for the camp's own trailer.
   int? _activeLessonId;
 
+  /// Lessons finished in this session. The server's `is_completed` is the
+  /// starting state; this is what the player adds to it, so a tick appears the
+  /// moment a video ends rather than after the next fetch.
+  final Set<int> _completed = <int>{};
+
   VideoPlayerController? _videoController;
   bool _videoReady = false;
+
+  /// The last `isPlaying` this screen drew. The video listener fires on every
+  /// position tick, so it is compared before any rebuild is scheduled.
+  bool _lastPlaying = false;
 
   final TextEditingController _commentController = TextEditingController();
   final Set<int> _expandedReplies = <int>{};
@@ -103,7 +112,8 @@ class _IctBootcampPageState extends ConsumerState<IctBootcampPage> {
         _selectedDay = detail.days.isEmpty ? 1 : detail.days.first.number;
         _loading = false;
       });
-      _syncVideo();
+      // Deliberately no `_syncVideo()` here: the camp opens on its poster and
+      // waits for a tap. The hero builds the controller on demand.
     } on ApiException catch (error) {
       if (!mounted) return;
       setState(() {
@@ -173,21 +183,36 @@ class _IctBootcampPageState extends ConsumerState<IctBootcampPage> {
   /// **No controller when there is no URL** — that is what keeps `video_player`
   /// (no platform implementation under `flutter test`) off the path of every
   /// test that mounts this screen.
-  void _syncVideo() {
+  /// What the hero would play right now: the selected lesson's video, or the
+  /// camp's own trailer when nothing is selected.
+  String get _sourceUrl {
+    final detail = _detail;
+    if (detail == null) return '';
+    final lesson = _activeLesson;
+    if (lesson != null && lesson.kind == CourseLessonKind.video) {
+      final url = (lesson.contentUrl ?? '').trim();
+      if (url.isNotEmpty) return url;
+    }
+    return detail.heroVideoUrl.trim();
+  }
+
+  /// Builds the controller for [_sourceUrl]. **Plays only when asked.**
+  ///
+  /// The screen used to call this on load and play immediately, so opening a
+  /// camp started a video — and its audio — that nobody had asked for. It now
+  /// opens on the poster and waits for a tap, the way the course player waits
+  /// for a lesson.
+  ///
+  /// **No controller when there is no URL** — that is what keeps `video_player`
+  /// (no platform implementation under `flutter test`) off the path of every
+  /// test that mounts this screen.
+  void _syncVideo({bool autoplay = false}) {
     _videoController?.dispose();
     _videoController = null;
     _videoReady = false;
+    _lastPlaying = false;
 
-    final detail = _detail;
-    if (detail == null) return;
-
-    final lesson = _activeLesson;
-    final lessonUrl = lesson?.kind == CourseLessonKind.video
-        ? (lesson?.contentUrl ?? '').trim()
-        : '';
-    final remote = lessonUrl.isNotEmpty
-        ? lessonUrl
-        : detail.heroVideoUrl.trim();
+    final remote = _sourceUrl;
     if (remote.isEmpty) return;
 
     final controller = VideoPlayerController.networkUrl(Uri.parse(remote));
@@ -197,7 +222,7 @@ class _IctBootcampPageState extends ConsumerState<IctBootcampPage> {
         .then((_) {
           if (!mounted) return;
           setState(() => _videoReady = true);
-          if (_autoPlay) controller.play();
+          if (autoplay) controller.play();
         })
         .catchError((Object error) {
           debugPrint('bootcamp: video failed to load: $error');
@@ -207,16 +232,56 @@ class _IctBootcampPageState extends ConsumerState<IctBootcampPage> {
     controller.addListener(_onVideoTick);
   }
 
-  /// `Auto Next` lives here: the lesson is finished when its video is.
+  /// Starts whatever the hero is showing — from the top if it had finished.
+  Future<void> _togglePlay() async {
+    final controller = _videoController;
+    if (controller == null || !controller.value.isInitialized) {
+      _syncVideo(autoplay: true);
+      return;
+    }
+    if (controller.value.isPlaying) {
+      await controller.pause();
+      return;
+    }
+    final value = controller.value;
+    if (value.duration > Duration.zero && value.position >= value.duration) {
+      await controller.seekTo(Duration.zero);
+    }
+    await controller.play();
+  }
+
+  /// Back to the camp's own poster — what `Prev` does from the first lesson.
+  void _backToTrailer() {
+    setState(() => _activeLessonId = null);
+    _videoController?.dispose();
+    _videoController = null;
+    _videoReady = false;
+    _lastPlaying = false;
+  }
+
+  /// One tick listener does three jobs: keep the play/pause glyph honest, mark
+  /// a lesson finished when its video is, and follow it with `Auto Next`.
   void _onVideoTick() {
     final controller = _videoController;
     if (controller == null || !controller.value.isInitialized) return;
     final value = controller.value;
+
+    // Only rebuild when the glyph would change — this fires on every position
+    // update, and `setState` there would rebuild the whole screen 10×/second.
+    if (value.isPlaying != _lastPlaying) {
+      _lastPlaying = value.isPlaying;
+      if (mounted) setState(() {});
+    }
+
     final finished =
         value.duration > Duration.zero &&
         value.position >= value.duration &&
         !value.isPlaying;
-    if (!finished || !_autoNext) return;
+    if (!finished) return;
+
+    final lesson = _activeLesson;
+    if (lesson != null) _markComplete(lesson);
+    if (!_autoNext) return;
     // Deferred: advancing disposes this controller from inside its own
     // listener, and the last lesson clamps back to itself — which would restart
     // the video and fire this again, forever.
@@ -254,8 +319,7 @@ class _IctBootcampPageState extends ConsumerState<IctBootcampPage> {
       return;
     }
     if (lesson.kind == CourseLessonKind.video) {
-      setState(() => _activeLessonId = lesson.id);
-      _syncVideo();
+      _selectLesson(lesson);
       return;
     }
     if (lesson.kind.isInlineText) {
@@ -265,21 +329,67 @@ class _IctBootcampPageState extends ConsumerState<IctBootcampPage> {
     _openUrl(lesson.contentUrl!);
   }
 
-  /// Previous / next across the whole camp, not within the selected day: the
-  /// design's `Next` sits beside `Auto Next`, which follows the course order.
+  /// The flow: the hero becomes the lesson, the Day chip follows it, and the
+  /// lesson being left is recorded as finished — the same rule the course
+  /// player uses, where leaving a lecture is this product's playback-completed
+  /// signal.
+  void _selectLesson(BootcampLesson lesson) {
+    final leaving = _activeLesson;
+    setState(() {
+      _activeLessonId = lesson.id;
+      _selectedDay = lesson.dayNumber;
+    });
+    if (leaving != null && leaving.id != lesson.id) _markComplete(leaving);
+    // After the id moves, so it picks up the new lesson's URL.
+    _syncVideo(autoplay: _autoPlay);
+  }
+
+  /// Previous / next across the whole camp, not within the selected day.
+  ///
+  /// `Prev` from the first lesson goes back to the trailer and `Next` from the
+  /// trailer starts the camp, so neither button is ever a dead tap.
   void _go(int delta) {
     final lessons = _flatLessons;
     if (lessons.isEmpty) return;
     final current = lessons.indexWhere(
       (lesson) => lesson.id == _activeLessonId,
     );
-    final next = current < 0
-        ? (delta > 0 ? 0 : lessons.length - 1)
-        : (current + delta).clamp(0, lessons.length - 1);
-    // A no-op at either end: `Auto Next` on the last lesson would otherwise
-    // clamp back to the lesson it just finished, restart it, and loop.
-    if (next == current) return;
+
+    if (current < 0) {
+      if (delta > 0) _openLesson(lessons.first);
+      return;
+    }
+    final next = current + delta;
+    if (next < 0) {
+      _backToTrailer();
+      return;
+    }
+    if (next >= lessons.length) {
+      // The end of the camp: the lesson stays, and its video has just ended.
+      _markComplete(lessons[current]);
+      return;
+    }
     _openLesson(lessons[next]);
+  }
+
+  bool _isComplete(BootcampLesson lesson) =>
+      lesson.isCompleted ||
+      (lesson.id != null && _completed.contains(lesson.id));
+
+  /// Ticked locally first, posted after — a failure is a snack, not a rollback.
+  void _markComplete(BootcampLesson lesson) {
+    final id = lesson.id;
+    if (id == null || lesson.isCompleted || _completed.contains(id)) return;
+    setState(() => _completed.add(id));
+    _postCompletion(id);
+  }
+
+  Future<void> _postCompletion(int lessonId) async {
+    try {
+      await ref.read(courseApiProvider).completeLesson(lessonId);
+    } on ApiException catch (error) {
+      _snack(error.message ?? 'That lesson could not be marked complete.');
+    }
   }
 
   void _showTextLesson(BootcampLesson lesson) {
@@ -412,6 +522,7 @@ class _IctBootcampPageState extends ConsumerState<IctBootcampPage> {
                 children: [
                   _buildHero(detail),
                   _buildVideoProgress(),
+                  _buildNowPlaying(),
                   _buildPlayerControls(),
                   _buildCourseInfoSection(detail),
                   _buildCourseNavigationTabs(),
@@ -512,12 +623,10 @@ class _IctBootcampPageState extends ConsumerState<IctBootcampPage> {
                     ),
                   ),
           ),
-          if (_videoReady && controller != null)
+          if (_sourceUrl.isNotEmpty)
             Center(
               child: GestureDetector(
-                onTap: () => setState(() {
-                  playing ? controller.pause() : controller.play();
-                }),
+                onTap: _togglePlay,
                 child: playing
                     ? const Icon(Icons.pause, size: 52, color: Colors.white)
                     : Image.asset(
@@ -575,9 +684,63 @@ class _IctBootcampPageState extends ConsumerState<IctBootcampPage> {
   }
 
   // ─────────────────────────────────────────────────────────────
+  // NOW PLAYING
+  // ─────────────────────────────────────────────────────────────
+  /// Which lesson the hero is showing, and which day it belongs to.
+  ///
+  /// The design has no such row, and without it the player had no way to say
+  /// that a lesson had been picked — the video simply changed. It collapses to
+  /// nothing while the camp's own trailer is on screen.
+  Widget _buildNowPlaying() {
+    final lesson = _activeLesson;
+    if (lesson == null) return const SizedBox.shrink();
+    return Container(
+      color: Colors.white,
+      padding: const EdgeInsets.fromLTRB(16, 10, 16, 0),
+      child: Row(
+        children: [
+          _buildMetaTag('DAY ${lesson.dayNumber}', highlighted: true),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              lesson.title,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: GoogleFonts.figtree(
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+                color: _ink,
+              ),
+            ),
+          ),
+          if (lesson.duration.isNotEmpty) ...[
+            const SizedBox(width: 8),
+            Text(
+              lesson.duration,
+              style: GoogleFonts.jetBrainsMono(
+                fontSize: 10,
+                fontWeight: FontWeight.w500,
+                color: _softGray,
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  // ─────────────────────────────────────────────────────────────
   // PLAYER CONTROLS
   // ─────────────────────────────────────────────────────────────
   Widget _buildPlayerControls() {
+    final lessons = _flatLessons;
+    final index = lessons.indexWhere((lesson) => lesson.id == _activeLessonId);
+    // A selected lesson can always step back — to the lesson before it, or to
+    // the trailer. `Next` is live from the trailer (it starts the camp) and
+    // dead on the last lesson, which is the only real end of the list.
+    final canGoBack = index >= 0;
+    final canGoForward = lessons.isNotEmpty && index < lessons.length - 1;
+
     return Container(
       color: Colors.white,
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
@@ -605,9 +768,15 @@ class _IctBootcampPageState extends ConsumerState<IctBootcampPage> {
             ),
           ),
           const Spacer(),
-          _buildPlayerButton(label: 'Prev', onTap: () => _go(-1)),
+          _buildPlayerButton(
+            label: 'Prev',
+            onTap: canGoBack ? () => _go(-1) : null,
+          ),
           const SizedBox(width: 12),
-          _buildPlayerButton(label: 'Next', onTap: () => _go(1)),
+          _buildPlayerButton(
+            label: 'Next',
+            onTap: canGoForward ? () => _go(1) : null,
+          ),
         ],
       ),
     );
@@ -650,8 +819,11 @@ class _IctBootcampPageState extends ConsumerState<IctBootcampPage> {
 
   Widget _buildPlayerButton({
     required String label,
-    required VoidCallback onTap,
+    required VoidCallback? onTap,
   }) {
+    // Disabled is a greyed label, not a hidden one: the design keeps both
+    // buttons in place, and a control that disappears reads as a layout jump.
+    final color = onTap == null ? const Color(0xFFC3C8CE) : _gray;
     return GestureDetector(
       behavior: HitTestBehavior.opaque,
       onTap: onTap,
@@ -664,6 +836,7 @@ class _IctBootcampPageState extends ConsumerState<IctBootcampPage> {
                 : 'assets/figma/bootcamp/next.png',
             width: 14,
             height: 14,
+            color: onTap == null ? const Color(0xFFC3C8CE) : null,
           ),
           const SizedBox(width: 4),
           Text(
@@ -671,7 +844,7 @@ class _IctBootcampPageState extends ConsumerState<IctBootcampPage> {
             style: GoogleFonts.figtree(
               fontSize: 12,
               fontWeight: FontWeight.w500,
-              color: _gray,
+              color: color,
             ),
           ),
         ],
@@ -1020,7 +1193,7 @@ class _IctBootcampPageState extends ConsumerState<IctBootcampPage> {
         ),
         child: Row(
           children: [
-            if (lesson.isCompleted)
+            if (_isComplete(lesson))
               Image.asset(
                 'assets/figma/bootcamp/greentick.png',
                 width: 20,

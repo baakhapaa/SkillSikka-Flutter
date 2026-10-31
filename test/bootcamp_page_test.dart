@@ -268,6 +268,80 @@ void main() {
     expect(find.text('Does the grid work?'), findsOneWidget);
   });
 
+  testWidgets('picking a lesson says what is playing, and ticks the one left', (
+    tester,
+  ) async {
+    await tester.binding.setSurfaceSize(const Size(360, 900));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    final courses = FakeCourseApi();
+    await tester.pumpWidget(app(courses: courses));
+    await tester.pumpAndSettle();
+
+    // Nothing is playing when the camp opens, so there is no now-playing row.
+    expect(find.text('DAY 2'), findsNothing);
+
+    await tester.tap(find.text('Day 2'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Wireframing for Mobile Interfaces'));
+    await tester.pumpAndSettle();
+
+    // The strip names the lesson and the day it belongs to. `DAY 2` is the
+    // strip's tag only — the Day chip prints `Day 2`, lower case.
+    expect(find.text('DAY 2'), findsOneWidget);
+    expect(find.text('Wireframing for Mobile Interfaces'), findsWidgets);
+    // The first lesson was never opened, so nothing has been marked finished.
+    expect(courses.completions, isEmpty);
+
+    // Moving on finishes the lesson being left — the course player's rule.
+    await tester.tap(find.text('Day 1'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Defining the Product Strategy Grid'));
+    await tester.pumpAndSettle();
+
+    expect(courses.completions, [12]);
+    expect(find.text('DAY 1'), findsOneWidget);
+  });
+
+  testWidgets('Prev on the first lesson goes back to the trailer', (
+    tester,
+  ) async {
+    await tester.binding.setSurfaceSize(const Size(360, 900));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    await tester.pumpWidget(app());
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Defining the Product Strategy Grid'));
+    await tester.pumpAndSettle();
+    expect(find.text('DAY 1'), findsOneWidget);
+
+    await tester.tap(find.text('Prev'));
+    await tester.pumpAndSettle();
+
+    // Back on the camp's own poster: the strip collapses.
+    expect(find.text('DAY 1'), findsNothing);
+  });
+
+  testWidgets('Next is dead on the last lesson, Prev is live', (tester) async {
+    await tester.binding.setSurfaceSize(const Size(360, 900));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    await tester.pumpWidget(app());
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Day 2'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Wireframing for Mobile Interfaces'));
+    await tester.pumpAndSettle();
+
+    // Tapping Next at the end is a no-op rather than a wrap-around.
+    await tester.tap(find.text('Next'));
+    await tester.pumpAndSettle();
+    expect(find.text('Wireframing for Mobile Interfaces'), findsWidgets);
+    expect(find.text('DAY 2'), findsOneWidget);
+  });
+
   testWidgets('a failed load offers a retry', (tester) async {
     await tester.pumpWidget(
       app(

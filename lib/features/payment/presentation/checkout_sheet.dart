@@ -347,6 +347,8 @@ class _CheckoutSheetState extends State<CheckoutSheet>
           borderRadius: BorderRadius.circular(8),
           child: CourseImage(
             course.image,
+            title: course.title,
+            coverSeed: course.id ?? 0,
             width: 56,
             height: 56,
             fallback: Container(

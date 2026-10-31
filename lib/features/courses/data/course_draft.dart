@@ -399,19 +399,6 @@ class CourseDraft {
     return double.tryParse(cleaned);
   }
 
-  /// The initials the generated cover prints, e.g. `DI`.
-  String get initials {
-    final words = title.trim().split(RegExp(r'\s+'))
-      ..removeWhere((word) => word.isEmpty);
-    if (words.isEmpty) return 'NEW';
-    if (words.length == 1) {
-      return words.first
-          .substring(0, words.first.length.clamp(0, 2))
-          .toUpperCase();
-    }
-    return (words[0][0] + words[1][0]).toUpperCase();
-  }
-
   CourseDraft copyWith({
     int? id,
     String? title,

@@ -52,19 +52,6 @@ class CourseSummary {
     return 'Rs $buffer';
   }
 
-  /// The two initials the generated cover prints when there is no image.
-  String get initials {
-    final words = title.trim().split(RegExp(r'\s+'))
-      ..removeWhere((word) => word.isEmpty);
-    if (words.isEmpty) return 'NEW';
-    if (words.length == 1) {
-      return words.first
-          .substring(0, words.first.length.clamp(0, 2))
-          .toUpperCase();
-    }
-    return (words[0][0] + words[1][0]).toUpperCase();
-  }
-
   static CourseSummary? tryParse(Object? row) {
     if (row is! Map<String, dynamic>) return null;
     final id = row['id'];

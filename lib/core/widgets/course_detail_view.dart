@@ -238,6 +238,8 @@ class _CourseDetailViewState extends State<CourseDetailView> {
         // API course — see [CourseImage].
         child: CourseImage(
           data.image,
+          title: data.title,
+          coverSeed: data.id ?? 0,
           fallback: Container(color: Colors.grey.shade300),
         ),
       );

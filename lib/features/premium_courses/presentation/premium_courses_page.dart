@@ -501,6 +501,8 @@ class _CourseImage extends StatelessWidget {
     // app already uses.
     child: CourseImage(
       course.image,
+      title: course.title,
+      coverSeed: course.id ?? 0,
       width: width,
       height: height,
       fallback: const ColoredBox(

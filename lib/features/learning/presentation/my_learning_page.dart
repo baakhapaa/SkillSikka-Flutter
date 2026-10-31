@@ -342,6 +342,8 @@ class _CourseInProgress extends StatelessWidget {
             aspectRatio: 16 / 7.1,
             child: CourseImage(
               course.image,
+              title: course.title,
+              coverSeed: course.id ?? 0,
               fallback: const ColoredBox(color: Color(0xFFEDEDED)),
             ),
           ),
@@ -438,6 +440,8 @@ class _MiniCourse extends StatelessWidget {
               borderRadius: BorderRadius.circular(8),
               child: CourseImage(
                 course.image,
+                title: course.title,
+                coverSeed: course.id ?? 0,
                 width: 60,
                 height: 60,
                 fallback: const ColoredBox(color: Color(0xFFEDEDED)),
@@ -701,6 +705,8 @@ class _CompletedCard extends StatelessWidget {
               borderRadius: BorderRadius.circular(10),
               child: CourseImage(
                 learning.course.image,
+                title: learning.course.title,
+                coverSeed: learning.course.id ?? 0,
                 width: 64,
                 height: 64,
                 fallback: const ColoredBox(color: Color(0xFFEDEDED)),
@@ -889,6 +895,8 @@ class _PendingCardState extends ConsumerState<_PendingCard> {
                 borderRadius: BorderRadius.circular(8),
                 child: CourseImage(
                   course.image,
+                  title: course.title,
+                  coverSeed: course.id ?? 0,
                   width: 56,
                   height: 56,
                   fallback: const ColoredBox(color: Color(0xFFEDEDED)),

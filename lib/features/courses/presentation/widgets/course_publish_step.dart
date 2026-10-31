@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 import '../../../../core/widgets/course_detail_view.dart' show CourseResource;
+import '../../../../core/widgets/course_cover_tile.dart';
 import '../../../../core/widgets/course_image.dart';
 import '../../../../core/widgets/labeled_text_field.dart';
 import '../../../../core/widgets/pressable_chip.dart';
@@ -411,24 +412,7 @@ class _SummaryCard extends StatelessWidget {
     return _generatedThumb();
   }
 
-  Widget _generatedThumb() => Container(
-    decoration: const BoxDecoration(
-      gradient: LinearGradient(
-        begin: Alignment.topLeft,
-        end: Alignment.bottomRight,
-        colors: [Color(0xFFFBE8A8), Color(0xFFEFCB63)],
-      ),
-    ),
-    alignment: Alignment.center,
-    child: Text(
-      draft.initials,
-      style: GoogleFonts.manrope(
-        fontSize: 16,
-        fontWeight: FontWeight.w800,
-        color: const Color(0xFF6B5410),
-      ),
-    ),
-  );
+  Widget _generatedThumb() => CourseCoverTile(draft.title, seed: draft.id ?? 0);
 
   /// `1,299` — no trailing `.00` on a round price, which is how every price in
   /// the app is printed.

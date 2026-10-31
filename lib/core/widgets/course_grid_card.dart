@@ -75,6 +75,8 @@ class CourseGridCard extends StatelessWidget {
                 // — `CourseImage` is the one place that branch lives.
                 child: CourseImage(
                   course.image,
+                  title: course.title,
+                  coverSeed: course.id ?? 0,
                   fallback: CourseThumbPlaceholder(label: tag),
                 ),
               ),
@@ -178,56 +180,64 @@ class CourseThumbPlaceholder extends StatelessWidget {
   /// Light two-stop tint plus the glyph ink for each subject family. Kept pale
   /// on purpose — the real covers in the catalogue are light illustrations, so
   /// a saturated panel would read as a different kind of card.
-  static const _families = <({List<String> keys, IconData icon, int tint, int ink})>[
-    (
-      keys: ['geometry', 'algebra', 'math', 'trigonometr', 'fraction', 'arithmetic'],
-      icon: Icons.square_foot,
-      tint: 0xFFE7EFFC,
-      ink: 0xFF6B93D6,
-    ),
-    (
-      keys: ['biolog', 'life', 'botany'],
-      icon: Icons.biotech,
-      tint: 0xFFE4F5EA,
-      ink: 0xFF5CA47B,
-    ),
-    (
-      keys: ['chem', 'matter', 'reaction', 'lab'],
-      icon: Icons.science_outlined,
-      tint: 0xFFF0EAFB,
-      ink: 0xFF8B7BC4,
-    ),
-    (
-      keys: ['physic', 'force', 'motion', 'newton', 'energy'],
-      icon: Icons.bolt,
-      tint: 0xFFFDF1E0,
-      ink: 0xFFD2A04A,
-    ),
-    (
-      keys: ['read', 'writ', 'english', 'language', 'literature'],
-      icon: Icons.menu_book_outlined,
-      tint: 0xFFFCEAEC,
-      ink: 0xFFCB7F88,
-    ),
-    (
-      keys: ['draw', 'art', 'paint', 'design'],
-      icon: Icons.brush_outlined,
-      tint: 0xFFFDECE4,
-      ink: 0xFFD08C67,
-    ),
-    (
-      keys: ['music', 'rhythm', 'melody', 'sing'],
-      icon: Icons.music_note_outlined,
-      tint: 0xFFE8F1F6,
-      ink: 0xFF6E93A8,
-    ),
-    (
-      keys: ['python', 'code', 'web', 'programming', 'comput'],
-      icon: Icons.code,
-      tint: 0xFFE8EEF7,
-      ink: 0xFF64809E,
-    ),
-  ];
+  static const _families =
+      <({List<String> keys, IconData icon, int tint, int ink})>[
+        (
+          keys: [
+            'geometry',
+            'algebra',
+            'math',
+            'trigonometr',
+            'fraction',
+            'arithmetic',
+          ],
+          icon: Icons.square_foot,
+          tint: 0xFFE7EFFC,
+          ink: 0xFF6B93D6,
+        ),
+        (
+          keys: ['biolog', 'life', 'botany'],
+          icon: Icons.biotech,
+          tint: 0xFFE4F5EA,
+          ink: 0xFF5CA47B,
+        ),
+        (
+          keys: ['chem', 'matter', 'reaction', 'lab'],
+          icon: Icons.science_outlined,
+          tint: 0xFFF0EAFB,
+          ink: 0xFF8B7BC4,
+        ),
+        (
+          keys: ['physic', 'force', 'motion', 'newton', 'energy'],
+          icon: Icons.bolt,
+          tint: 0xFFFDF1E0,
+          ink: 0xFFD2A04A,
+        ),
+        (
+          keys: ['read', 'writ', 'english', 'language', 'literature'],
+          icon: Icons.menu_book_outlined,
+          tint: 0xFFFCEAEC,
+          ink: 0xFFCB7F88,
+        ),
+        (
+          keys: ['draw', 'art', 'paint', 'design'],
+          icon: Icons.brush_outlined,
+          tint: 0xFFFDECE4,
+          ink: 0xFFD08C67,
+        ),
+        (
+          keys: ['music', 'rhythm', 'melody', 'sing'],
+          icon: Icons.music_note_outlined,
+          tint: 0xFFE8F1F6,
+          ink: 0xFF6E93A8,
+        ),
+        (
+          keys: ['python', 'code', 'web', 'programming', 'comput'],
+          icon: Icons.code,
+          tint: 0xFFE8EEF7,
+          ink: 0xFF64809E,
+        ),
+      ];
 
   static const _neutralTint = Color(0xFFF1F0EC);
   static const _neutralInk = Color(0xFF9A948B);
@@ -235,9 +245,7 @@ class CourseThumbPlaceholder extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final value = label.trim().toLowerCase();
-    final match = _families.where(
-      (family) => family.keys.any(value.contains),
-    );
+    final match = _families.where((family) => family.keys.any(value.contains));
 
     final tint = match.isEmpty ? _neutralTint : Color(match.first.tint);
     final ink = match.isEmpty ? _neutralInk : Color(match.first.ink);
@@ -248,15 +256,14 @@ class CourseThumbPlaceholder extends StatelessWidget {
         gradient: LinearGradient(
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
-          colors: [tint, Color.alphaBlend(Colors.white.withValues(alpha: 0.55), tint)],
+          colors: [
+            tint,
+            Color.alphaBlend(Colors.white.withValues(alpha: 0.55), tint),
+          ],
         ),
       ),
       child: Center(
-        child: Icon(
-          icon,
-          size: 34,
-          color: ink.withValues(alpha: 0.85),
-        ),
+        child: Icon(icon, size: 34, color: ink.withValues(alpha: 0.85)),
       ),
     );
   }

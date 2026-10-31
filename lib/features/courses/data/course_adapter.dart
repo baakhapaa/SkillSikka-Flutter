@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 
 import '../../../core/widgets/course_detail_view.dart';
-import 'course_cover_art.dart';
 
 /// Maps the course API's wire shapes onto [CourseDetailData].
 ///
@@ -73,20 +72,17 @@ class CourseMapper {
     final description = _str(course['description']);
     final updates = _courseUpdates(course);
 
-    // A real cover always wins. Only when the server has none does the bundled
-    // subject art stand in — see `course_cover_art.dart` for why that is not
-    // inventing data.
+    // **The server's cover, or nothing.** This used to fall back to a stock
+    // illustration matched by subject/title keywords, which meant a course
+    // called `paytest` in the Coding category was drawn with the Python logo —
+    // a cover nobody uploaded, and not what the builder previews for the same
+    // course. Empty now means empty, and the card draws the generated initials
+    // tile instead (see `CourseImage.title`).
     final thumbnail = _str(course['thumbnail_url']);
 
     return CourseDetailData(
       id: _int(course['id']),
-      image: thumbnail.isNotEmpty
-          ? thumbnail
-          : courseCoverAsset(
-              subject: subject,
-              category: category,
-              title: _str(course['title']),
-            ),
+      image: thumbnail,
       courseType: _str(course['course_type']),
       title: _str(course['title'], fallback: 'Untitled course'),
       // **The description belongs under the title, not in the Description

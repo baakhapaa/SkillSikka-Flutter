@@ -99,7 +99,10 @@ class _SkillCoursesPageState extends ConsumerState<SkillCoursesPage> {
         return byCount != 0 ? byCount : a.compareTo(b);
       });
 
-    return [..._knownSkills, for (final label in extra) (_iconFor(label), label)];
+    return [
+      ..._knownSkills,
+      for (final label in extra) (_iconFor(label), label),
+    ];
   }
 
   /// The selected label, resolved against the current chip list.
@@ -525,6 +528,8 @@ class _SkillCoursesPageState extends ConsumerState<SkillCoursesPage> {
                   children: [
                     CourseImage(
                       course.image,
+                      title: course.title,
+                      coverSeed: course.id ?? 0,
                       fallback: Container(
                         color: Colors.grey.shade300,
                         child: const Icon(
@@ -705,6 +710,8 @@ class _SkillCoursesPageState extends ConsumerState<SkillCoursesPage> {
               borderRadius: BorderRadius.circular(12),
               child: CourseImage(
                 course.image,
+                title: course.title,
+                coverSeed: course.id ?? 0,
                 width: 80,
                 height: 80,
                 fallback: Container(

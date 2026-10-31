@@ -557,18 +557,20 @@ void main() {
       'thumbnail_url': '',
     };
 
-    test('a missing thumbnail falls back to the subject art', () {
+    test('a missing thumbnail stays empty — no borrowed art', () {
       final course = CourseMapper.summary(
         academic('Grade 9: Matter and Chemical Reactions', 'Science'),
       );
 
-      // `thumbnail_url` is empty on every row in the dev database — the column
-      // exists and nothing fills it — so without this every catalogue card was
-      // a grey box while the bundled home rail showed illustrations.
-      expect(course.image, 'assets/figma/homescreen/course-thumbnail.png');
+      // **This used to substitute a stock illustration matched by keyword.** A
+      // course called `paytest` in the Coding category came out with the Python
+      // logo — a cover its instructor never uploaded, and not the tile the
+      // builder previews for the same course. Empty is the honest answer: the
+      // card draws the generated initials tile instead (see `CourseImage`).
+      expect(course.image, '');
     });
 
-    test('a real thumbnail wins over the subject art', () {
+    test('a real thumbnail is used as it is', () {
       final course = CourseMapper.summary({
         ...academic('Grade 10: Geometry and Trigonometry', 'Mathematics'),
         'thumbnail_url': 'https://example.com/geometry.png',
@@ -577,13 +579,13 @@ void main() {
       expect(course.image, 'https://example.com/geometry.png');
     });
 
-    test('a subject the app has no art for stays empty, not wrong', () {
+    test('a subject the app has no art for is no different', () {
       final course = CourseMapper.summary(
         academic('Grade 10: Reading and Writing with Confidence', 'English'),
       );
 
-      // Empty is a real answer: the card then draws its own subject glyph.
-      // A reading course illustrated with beakers would be worse than a blank.
+      // Every course without a cover is in the same state now — there is no
+      // "matched" and "unmatched" any more, just a cover or the tile.
       expect(course.image, '');
     });
 

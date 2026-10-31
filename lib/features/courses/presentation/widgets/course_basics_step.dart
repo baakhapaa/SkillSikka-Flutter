@@ -2,6 +2,7 @@ import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 
+import '../../../../core/widgets/course_cover_tile.dart';
 import '../../../../core/widgets/course_image.dart';
 import '../../../../core/widgets/labeled_text_field.dart';
 import '../../../../core/widgets/option_picker_sheet.dart';
@@ -493,24 +494,8 @@ class _CoverPicker extends StatelessWidget {
     return _generated();
   }
 
-  Widget _generated() {
-    return Container(
-      decoration: const BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [Color(0xFFFBE8A8), Color(0xFFEFCB63)],
-        ),
-      ),
-      alignment: Alignment.center,
-      child: Text(
-        draft.initials,
-        style: GoogleFonts.manrope(
-          fontSize: 34,
-          fontWeight: FontWeight.w800,
-          color: const Color(0xFF6B5410),
-        ),
-      ),
-    );
-  }
+  /// The tile the catalogue will draw for this course until a cover is added.
+  /// One implementation, so the preview cannot promise a different tile from
+  /// the one the cards show.
+  Widget _generated() => CourseCoverTile(draft.title, seed: draft.id ?? 0);
 }

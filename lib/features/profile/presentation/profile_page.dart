@@ -8,6 +8,7 @@ import '../../courses/data/course_builder_api.dart';
 import '../../courses/data/course_summary.dart';
 import '../../courses/data/my_courses_api.dart';
 import '../../courses/presentation/course_builder_page.dart';
+import '../../../core/widgets/course_cover_tile.dart';
 import '../../../core/network/api_error.dart';
 import '../data/profile_role.dart';
 import '../data/user_profile.dart';
@@ -854,35 +855,8 @@ class _InstructorProfilePageState extends State<InstructorProfilePage> {
     return _generatedCover(course);
   }
 
-  /// Four tints, matching the palette the design uses for course covers.
-  static const _coverTints = <({Color from, Color to, Color ink})>[
-    (from: Color(0xFFFBE8A8), to: Color(0xFFEFCB63), ink: Color(0xFF6B5410)),
-    (from: Color(0xFFCFE3F7), to: Color(0xFF9CC4E8), ink: Color(0xFF274B6B)),
-    (from: Color(0xFFE7DCF7), to: Color(0xFFC3A9EA), ink: Color(0xFF4A3570)),
-    (from: Color(0xFFD7EBD3), to: Color(0xFFA8D3A0), ink: Color(0xFF33512C)),
-  ];
-
-  Widget _generatedCover(CourseSummary course) {
-    final tint = _coverTints[course.id.abs() % _coverTints.length];
-    return Container(
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [tint.from, tint.to],
-        ),
-      ),
-      alignment: Alignment.center,
-      child: Text(
-        course.initials,
-        style: GoogleFonts.manrope(
-          fontSize: 22,
-          fontWeight: FontWeight.w800,
-          color: tint.ink,
-        ),
-      ),
-    );
-  }
+  Widget _generatedCover(CourseSummary course) =>
+      CourseCoverTile(course.title, seed: course.id);
 
   /// `LIVE` for a published course, `DRAFT` for one students cannot see yet.
   Widget _statusChip(bool isPublished) => Container(

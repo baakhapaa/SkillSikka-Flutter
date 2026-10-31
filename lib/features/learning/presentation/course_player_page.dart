@@ -698,6 +698,8 @@ class _CoursePlayerPageState extends ConsumerState<CoursePlayerPage> {
         // Asset for the catalogue, http URL from the API.
         CourseImage(
           _course.image,
+          title: _course.title,
+          coverSeed: _course.id ?? 0,
           fallback: const ColoredBox(color: Color(0xFF1F1F1F)),
         ),
         const ColoredBox(color: Color(0x8C0B0B0B)),

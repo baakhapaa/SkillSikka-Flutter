@@ -3,8 +3,10 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 
 import '../../../core/network/api_error.dart';
+import '../../../core/widgets/api_error_snack.dart';
 import '../../../core/widgets/course_image.dart';
 import '../../auth/data/auth_repository.dart';
+import '../../payment/data/payment_api.dart';
 import '../../profile/data/user_profile.dart';
 import '../data/learning_api.dart';
 import '../data/my_learning.dart';
@@ -20,9 +22,13 @@ import 'start_course.dart';
 ///
 /// **What the payload does not give, and what the screen therefore does not
 /// show.** `hours_learned` is always null — there are no watch times to sum — so
-/// the strip prints `—` rather than a number. A `pending_payment` enrolment is
-/// excluded from this endpoint entirely, so there is nowhere here to show
-/// "payment pending" without a second call; that is a backend ask.
+/// the strip prints `—` rather than a number.
+///
+/// **`pending_payment` is its own section since 2026-10-30.** It used to be
+/// excluded from the endpoint, which meant a student whose app died during
+/// checkout saw nothing at all for a course the gateway may already have
+/// charged them for. The row is now here with the payment to re-ask about; it is
+/// deliberately *not* in Continue learning, because it cannot be resumed.
 ///
 /// **Certificates are metadata only.** The API returns an id, a type and a
 /// title — no file, no URL, no serial — so the cards cannot be opened. They show
@@ -57,6 +63,10 @@ class MyLearningPage extends ConsumerWidget {
               data: (data) => Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
+                  if (data.pending.isNotEmpty) ...[
+                    _PaymentPending(pending: data.pending),
+                    const SizedBox(height: 24),
+                  ],
                   _ContinueLearning(learning: data),
                   const SizedBox(height: 24),
                   _LearningStats(learning: data),
@@ -777,12 +787,181 @@ class _SectionTitle extends StatelessWidget {
   );
 }
 
-class _SectionLabel extends StatelessWidget {
-  const _SectionLabel();
+/// The unpaid courses, above the resumable ones.
+///
+/// **This section is a hole being closed, not a decoration.** `/my-learning/`
+/// used to filter `pending_payment` out entirely, so a student whose app died
+/// during checkout opened this tab and found nothing at all for a course the
+/// gateway may already have charged them for. It is not in Continue learning —
+/// it cannot be resumed — so it needs its own heading and its own two actions.
+class _PaymentPending extends StatelessWidget {
+  const _PaymentPending({required this.pending});
+
+  final List<PendingEnrolment> pending;
+
   @override
-  Widget build(BuildContext context) => const Text(
-    'MY CERTIFICATES',
-    style: TextStyle(
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const _SectionLabel('PAYMENT PENDING'),
+        const SizedBox(height: 8),
+        for (final row in pending) ...[
+          _PendingCard(row: row),
+          const SizedBox(height: 10),
+        ],
+      ],
+    );
+  }
+}
+
+/// One unpaid enrolment: the course, what the server last saw, and the one
+/// action that is safe from here.
+class _PendingCard extends ConsumerStatefulWidget {
+  const _PendingCard({required this.row});
+
+  final PendingEnrolment row;
+
+  @override
+  ConsumerState<_PendingCard> createState() => _PendingCardState();
+}
+
+class _PendingCardState extends ConsumerState<_PendingCard> {
+  bool _busy = false;
+
+  /// **Two different actions, and the difference matters.** A failed or absent
+  /// payment means checkout again. Anything else — `initiated`, or even
+  /// `successful` with an enrolment the server has not flipped — means the
+  /// gateway may already hold the money, so the only safe move is to re-ask
+  /// `GET /payments/{id}/`, which is what refreshes the row. Starting a second
+  /// payment from there is how a student pays twice for one course.
+  Future<void> _act() async {
+    final row = widget.row;
+
+    if (row.needsNewPayment) {
+      await startCourse(context, row.course);
+      if (mounted) ref.invalidate(myLearningProvider);
+      return;
+    }
+
+    final id = row.paymentId;
+    if (id == null) return;
+    setState(() => _busy = true);
+    try {
+      final payment = await ref.read(paymentApiProvider).status(id);
+      if (!mounted) return;
+      ref.invalidate(myLearningProvider);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            payment.isSuccessful
+                ? 'Payment confirmed. Your course is ready.'
+                : 'The gateway has not confirmed this payment yet. '
+                      'Nothing more is needed from you — try again shortly.',
+          ),
+        ),
+      );
+    } on ApiException catch (error) {
+      if (mounted) showApiErrorSnack(context, error);
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final row = widget.row;
+    final course = row.course;
+
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        border: Border.all(color: const Color(0xFFF3F4F6)),
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              ClipRRect(
+                borderRadius: BorderRadius.circular(8),
+                child: CourseImage(
+                  course.image,
+                  width: 56,
+                  height: 56,
+                  fallback: const ColoredBox(color: Color(0xFFEDEDED)),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      course.title,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: _miniTitle(),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      row.statusLabel,
+                      style: _tiny(color: const Color(0xFF9CA3AF)),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Align(
+            alignment: Alignment.centerRight,
+            child: TextButton(
+              onPressed: _busy ? null : _act,
+              style: TextButton.styleFrom(
+                backgroundColor: const Color(0xFFFFD233),
+                foregroundColor: const Color(0xFF111827),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 14,
+                  vertical: 6,
+                ),
+                minimumSize: Size.zero,
+                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+              ),
+              child: _busy
+                  ? const SizedBox(
+                      width: 12,
+                      height: 12,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : Text(
+                      row.needsNewPayment
+                          ? 'Complete payment'
+                          : 'Check payment',
+                      style: _boldSmall(),
+                    ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _SectionLabel extends StatelessWidget {
+  const _SectionLabel([this.label = 'MY CERTIFICATES']);
+
+  final String label;
+
+  @override
+  Widget build(BuildContext context) => Text(
+    label,
+    style: const TextStyle(
       color: Color(0xFF4B5563),
       fontSize: 14,
       fontWeight: FontWeight.w700,

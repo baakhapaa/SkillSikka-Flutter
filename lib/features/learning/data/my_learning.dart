@@ -14,6 +14,7 @@ class MyLearning {
     this.continueLearning,
     this.courses = const [],
     this.completed = const [],
+    this.pending = const [],
     this.stats = const LearningStats(),
     this.certificates = const [],
   });
@@ -25,13 +26,18 @@ class MyLearning {
   final List<LearningCourse> courses;
 
   final List<LearningCourse> completed;
+
+  /// Courses the student started paying for and the server has not marked paid.
+  /// **Not** learning: they have no lessons to open and no progress to resume.
+  final List<PendingEnrolment> pending;
+
   final LearningStats stats;
   final List<CourseCertificate> certificates;
 
   /// Every course the student is enrolled in, hero first.
   List<LearningCourse> get all => [?continueLearning, ...courses];
 
-  bool get isEmpty => all.isEmpty && completed.isEmpty;
+  bool get isEmpty => all.isEmpty && completed.isEmpty && pending.isEmpty;
 
   static MyLearning? tryParse(Object? body) {
     if (body is! Map) return null;
@@ -42,11 +48,13 @@ class MyLearning {
           : null,
       courses: _rows(body['courses']),
       completed: _rows(body['completed_courses']),
+      pending: _pendingRows(body['pending_payment']),
       stats: LearningStats.tryParse(body['stats']) ?? const LearningStats(),
       certificates: [
-        for (final row in body['certificates'] is List
-            ? body['certificates'] as List
-            : const [])
+        for (final row
+            in body['certificates'] is List
+                ? body['certificates'] as List
+                : const [])
           if (row is Map<String, dynamic>) ?CourseCertificate.tryParse(row),
       ],
     );
@@ -58,6 +66,73 @@ class MyLearning {
             if (row is Map<String, dynamic>) ?LearningCourse.tryParse(row),
         ]
       : const [];
+
+  static List<PendingEnrolment> _pendingRows(Object? value) => value is List
+      ? [
+          for (final row in value)
+            if (row is Map<String, dynamic>) ?PendingEnrolment.tryParse(row),
+        ]
+      : const [];
+}
+
+/// One row of `/my-learning/`'s `pending_payment`: a course the student began
+/// paying for, plus the payment that decides it.
+///
+/// **This row exists because a payment can succeed and the app can still not
+/// know.** There is no webhook, so the server learns the outcome only when
+/// something asks — the checkout sheet's poll, or `GET /payments/{id}/`. If the
+/// app dies mid-checkout, nothing asks, the enrolment stays `pending_payment`,
+/// and before this row existed the course simply vanished from My Learning.
+///
+/// **It must not invite a second payment.** The gateway may already hold the
+/// money; starting another payment for the same course is how a student pays
+/// twice. So [paymentId] is the thing to re-ask about, and only a genuinely
+/// failed or cancelled payment — or the absence of one — justifies checkout
+/// again.
+class PendingEnrolment {
+  const PendingEnrolment({
+    required this.course,
+    required this.enrollmentId,
+    this.paymentId,
+    this.paymentStatus,
+  });
+
+  final CourseDetailData course;
+  final int enrollmentId;
+
+  /// The row `GET /payments/{id}/` refreshes. Null when no payment was ever
+  /// created (the enrolment exists but the browser never opened).
+  final int? paymentId;
+
+  /// `initiated | successful | failed | cancelled`, or null when [paymentId] is.
+  final String? paymentStatus;
+
+  /// Whether starting a new payment is the right move rather than re-checking.
+  bool get needsNewPayment =>
+      paymentId == null ||
+      paymentStatus == 'failed' ||
+      paymentStatus == 'cancelled';
+
+  /// The line under the title. Never claims a state we cannot see: `initiated`
+  /// and `successful` both mean "the server has not settled this yet".
+  String get statusLabel => needsNewPayment
+      ? 'Payment did not complete. Nothing was charged.'
+      : 'Confirming your payment…';
+
+  static PendingEnrolment? tryParse(Map<String, dynamic> row) {
+    final raw = row['course'];
+    if (raw is! Map<String, dynamic>) return null;
+    final id = row['enrollment_id'];
+    if (id is! int) return null;
+    final paymentId = row['latest_payment_id'];
+    final status = row['latest_payment_status'];
+    return PendingEnrolment(
+      course: CourseMapper.summary(raw),
+      enrollmentId: id,
+      paymentId: paymentId is int ? paymentId : null,
+      paymentStatus: status is String && status.isNotEmpty ? status : null,
+    );
+  }
 }
 
 /// One row of `/my-learning/`: a course plus this student's progress in it.
@@ -78,9 +153,9 @@ class LearningCourse {
   final CourseDetailData course;
   final int enrollmentId;
 
-  /// `active | completed`. A `pending_payment` row never appears here — the
-  /// endpoint excludes it — which is why the screen cannot show "payment
-  /// pending" without a second call.
+  /// `active | completed`. A `pending_payment` row never appears **here** — the
+  /// endpoint puts those in [MyLearning.pending] instead, so a card that can be
+  /// resumed is never confused with one that cannot.
   final String status;
 
   /// 0–100, as the server rounded it.
@@ -137,7 +212,9 @@ class LearningCourse {
     final percentage = row['progress_percentage'];
     return LearningCourse(
       course: CourseMapper.summary(raw),
-      enrollmentId: row['enrollment_id'] is int ? row['enrollment_id'] as int : 0,
+      enrollmentId: row['enrollment_id'] is int
+          ? row['enrollment_id'] as int
+          : 0,
       status: row['enrollment_status'] is String
           ? row['enrollment_status'] as String
           : 'active',
@@ -216,9 +293,7 @@ class CourseCertificate {
     final type = row['certificate_type'] is String
         ? row['certificate_type'] as String
         : 'course';
-    final title = type == 'grade'
-        ? row['grade_name']
-        : row['course_title'];
+    final title = type == 'grade' ? row['grade_name'] : row['course_title'];
     return CourseCertificate(
       id: id,
       type: type,

@@ -1,11 +1,15 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:skillsikka/core/network/api_error.dart';
 import 'package:skillsikka/features/auth/data/auth_repository.dart';
+import 'package:skillsikka/features/learning/data/learning_api.dart';
 import 'package:skillsikka/features/learning/data/my_learning.dart';
 import 'package:skillsikka/features/learning/presentation/my_learning_page.dart';
+import 'package:skillsikka/features/payment/data/payment_api.dart';
 
 import 'support/learning_test_scope.dart';
+import 'support/payment_test_scope.dart';
 
 /// A row shaped like `/my-learning/` — captured from the running backend on
 /// 2026-10-27, field names included.
@@ -73,15 +77,41 @@ Map<String, dynamic> payload({
   Map<String, dynamic>? hero,
   List<Map<String, dynamic>> courses = const [],
   List<Map<String, dynamic>> completed = const [],
+  List<Map<String, dynamic>> pending = const [],
   Map<String, dynamic>? stats,
   List<Map<String, dynamic>> certificates = const [],
 }) => {
   'continue_learning': hero,
   'courses': courses,
   'completed_courses': completed,
+  'pending_payment': pending,
   'stats':
       stats ?? {'courses_completed': 0, 'day_streak': 0, 'hours_learned': null},
   'certificates': certificates,
+};
+
+/// A `pending_payment` row, as the endpoint now returns it: the same card plus
+/// the payment to re-ask about, and nothing to resume.
+Map<String, dynamic> pendingRow({
+  int courseId = 21,
+  int enrollmentId = 9,
+  int? paymentId = 44,
+  String? paymentStatus = 'initiated',
+}) => {
+  'enrollment_id': enrollmentId,
+  'enrollment_status': 'pending_payment',
+  'enrolled_at': '2026-10-30T06:00:00Z',
+  'completed_at': null,
+  'course': course(courseId),
+  'progress_percentage': 0.0,
+  'completed_lessons': 0,
+  'total_lessons': 9,
+  'is_completed': false,
+  'next_lesson': null,
+  'resume_url': null,
+  'last_learning_activity': null,
+  'latest_payment_id': paymentId,
+  'latest_payment_status': paymentStatus,
 };
 
 void main() {
@@ -131,6 +161,79 @@ void main() {
     test('a body that is not an object is rejected', () {
       expect(MyLearning.tryParse(const []), isNull);
       expect(MyLearning.tryParse(null), isNull);
+    });
+
+    group('pending_payment', () {
+      test('is parsed into its own list, never into the learning ones', () {
+        // The whole point of the section: an unpaid course is visible without
+        // being counted as something the student is learning.
+        final learning = MyLearning.tryParse(
+          payload(hero: learningRow(), pending: [pendingRow()]),
+        );
+
+        expect(learning!.pending, hasLength(1));
+        expect(learning.pending.single.course.id, 21);
+        expect(learning.pending.single.paymentId, 44);
+        expect(learning.pending.single.paymentStatus, 'initiated');
+        expect(learning.all, hasLength(1), reason: 'hero only');
+        expect(learning.courses, isEmpty);
+        expect(learning.completed, isEmpty);
+      });
+
+      test('a student whose only course is unpaid is not "empty"', () {
+        // The empty state says "Enrol in a course" — showing it beside a pending
+        // card would contradict the card.
+        final learning = MyLearning.tryParse(payload(pending: [pendingRow()]));
+
+        expect(learning!.pending, hasLength(1));
+        expect(learning.isEmpty, isFalse);
+      });
+
+      test(
+        'only a failed, cancelled or absent payment offers checkout again',
+        () {
+          PendingEnrolment parse(String? status, int? id) =>
+              PendingEnrolment.tryParse(
+                pendingRow(paymentId: id, paymentStatus: status),
+              )!;
+
+          expect(parse('failed', 44).needsNewPayment, isTrue);
+          expect(parse('cancelled', 44).needsNewPayment, isTrue);
+          expect(parse(null, null).needsNewPayment, isTrue);
+          // The gateway may already hold the money in both of these, so starting a
+          // second payment is how a student pays twice.
+          expect(parse('initiated', 44).needsNewPayment, isFalse);
+          expect(parse('successful', 44).needsNewPayment, isFalse);
+        },
+      );
+
+      test('the status line never claims more than the server said', () {
+        expect(
+          PendingEnrolment.tryParse(
+            pendingRow(paymentStatus: 'initiated'),
+          )!.statusLabel,
+          contains('Confirming'),
+        );
+        expect(
+          PendingEnrolment.tryParse(
+            pendingRow(paymentId: null, paymentStatus: null),
+          )!.statusLabel,
+          contains('did not complete'),
+        );
+      });
+
+      test('a row without a course is dropped rather than rendered blank', () {
+        final learning = MyLearning.tryParse(
+          payload(
+            pending: [
+              pendingRow(),
+              {'enrollment_id': 3},
+            ],
+          ),
+        );
+
+        expect(learning!.pending, hasLength(1));
+      });
     });
 
     test('certificates take their title from the right field', () {
@@ -249,6 +352,84 @@ void main() {
 
       expect(find.text('HOURS LEARNED'), findsOneWidget);
       expect(find.text('—'), findsOneWidget);
+    });
+
+    testWidgets('an unpaid course has its own section and its own action', (
+      tester,
+    ) async {
+      // Before 2026-10-30 this row did not exist at all: the endpoint filtered
+      // `pending_payment` out, so a student whose app died during checkout saw
+      // nothing for a course the gateway may already have charged them for.
+      await pump(
+        tester,
+        MyLearning.tryParse(
+          payload(hero: learningRow(), pending: [pendingRow()]),
+        )!,
+      );
+
+      expect(find.text('PAYMENT PENDING'), findsOneWidget);
+      expect(find.text('Check payment'), findsOneWidget);
+      // Never a Resume: an unpaid course has no lesson to open. The hero above
+      // it still has one.
+      expect(find.text('Resume'), findsOneWidget);
+      expect(find.textContaining('Confirming your payment'), findsOneWidget);
+    });
+
+    testWidgets('a payment the gateway refused offers checkout again', (
+      tester,
+    ) async {
+      await pump(
+        tester,
+        MyLearning.tryParse(
+          payload(
+            pending: [pendingRow(paymentStatus: 'failed', paymentId: 44)],
+          ),
+        )!,
+      );
+
+      expect(find.text('Complete payment'), findsOneWidget);
+      expect(find.text('Check payment'), findsNothing);
+      expect(find.textContaining('Nothing was charged'), findsOneWidget);
+    });
+
+    testWidgets('"Check payment" re-asks the gateway instead of paying again', (
+      tester,
+    ) async {
+      // **The double-charge guard.** An `initiated` payment may already have
+      // taken the student's money; starting a second one is how they pay twice.
+      // So the button must call `GET /payments/{id}/` — which is what refreshes
+      // the row — and never `initiate`.
+      final api = FakePaymentApi()
+        ..statusResults = [payment(id: 44, status: 'successful')];
+      final learning = MyLearning.tryParse(
+        payload(pending: [pendingRow(paymentId: 44)]),
+      )!;
+
+      await tester.binding.setSurfaceSize(const Size(360, 800));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            myLearningProvider.overrideWith((ref) async => learning),
+            paymentApiProvider.overrideWithValue(api),
+          ],
+          // A Scaffold, because the card reports its answer in a SnackBar and
+          // `ScaffoldMessenger` has nothing to present to without one. In the
+          // app this page lives inside `AppShell`, which owns the Scaffold.
+          child: const MaterialApp(home: Scaffold(body: MyLearningPage())),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('Check payment'));
+      await tester.pumpAndSettle();
+
+      expect(api.statusCalls, [44]);
+      expect(
+        api.initiateCalls,
+        isEmpty,
+        reason: 'a second payment must never be created from this card',
+      );
     });
 
     testWidgets('a completed course lists with its completion month', (

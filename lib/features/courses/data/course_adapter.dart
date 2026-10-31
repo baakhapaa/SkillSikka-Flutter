@@ -18,8 +18,7 @@ import 'course_cover_art.dart';
 /// |---|---|
 /// | `level` | `Course.level` — `Beginner` / `Intermediate` / `Advanced` |
 /// | `languages` | `Course.language`, one value |
-/// | `subtitleTracks` | **no field** — dropped by `courseMetaRows` |
-/// | `includes` | derived from the course's total duration plus three product rows, see [_includes] |
+/// | `includes` | derived from the course's total duration plus two product rows, see [_includes] |
 /// | `resources` | lifted from `pdf`/`ebook` lessons, see [_resources] |
 /// | `rating` | `null` on the wire until a course has a review |
 ///
@@ -57,7 +56,13 @@ class CourseMapper {
     final isAcademic = _str(course['course_type']) == 'academic';
     final subject = _str(course['subject_name']);
     final grade = _str(course['grade_name']);
-    final category = _str(course['skill_category_name']);
+    // **Premium courses are filed in their own taxonomy.** Reading only
+    // `skill_category_name` left every premium course with a blank category
+    // line, because the server nulls `skill_category` for them — see
+    // `PremiumCategory`.
+    final category = _str(course['premium_category_name']).isNotEmpty
+        ? _str(course['premium_category_name'])
+        : _str(course['skill_category_name']);
 
     final rating = _ratingLabel(course['average_rating']);
     final reviewCount = _int(course['review_count']) ?? 0;
@@ -115,7 +120,6 @@ class CourseMapper {
       instructorAvatar: _str(instructor?['profile_photo_url']),
       lastUpdated: _lastUpdated(course['updated_at']),
       languages: _str(course['language']),
-      subtitleTracks: '',
       learningOutcomes: _stringList(course['learning_outcomes']),
       curriculumSummary: _curriculumSummary(modules, totalSeconds),
       modules: modules,
@@ -250,9 +254,13 @@ class CourseMapper {
   /// rather than a sum filtered by `content_type`, and the support-files row
   /// counts [resourceCount].
   ///
-  /// The last three rows are **product policy, not payload**: lifetime access,
-  /// mobile/desktop/TV and the certificate hold for every course in the app, and
-  /// the catalogue prints the same three on all 34 entries.
+  /// The last two rows are **product policy, not payload**: lifetime access and
+  /// the certificate hold for every course in the app, and the catalogue prints
+  /// the same two on all 34 entries.
+  ///
+  /// **No `Access on mobile, desktop and TV` row.** Removed 2026-10-30: the app
+  /// ships on mobile only, so that row was advertising a desktop and a TV build
+  /// that do not exist.
   ///
   /// **Quizzes are deliberately missing.** `Quiz` exists and
   /// `GET /courses/{id}/quizzes/` could count them, but it answers
@@ -284,7 +292,6 @@ class CourseMapper {
           '$resourceCount support ${resourceCount == 1 ? 'file' : 'files'}',
         ),
       const CourseInclude(Icons.all_inclusive, 'Full lifetime access'),
-      const CourseInclude(Icons.devices, 'Access on mobile, desktop and TV'),
       const CourseInclude(Icons.verified_outlined, 'Certificate of completion'),
     ];
   }

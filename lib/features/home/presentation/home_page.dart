@@ -62,6 +62,21 @@ class _HomePageState extends State<HomePage>
   int _hoveredClassIndex = -1;
   bool _hoveredBootcampSelector = false;
 
+  /// The camps the rail is currently drawing, in the order the server sent
+  /// them. Assigned in the builder (no rebuild) and read by the scroll listener,
+  /// which needs to know which card is at the left edge.
+  List<BootcampCard> _bootcampCamps = const <BootcampCard>[];
+
+  /// Anchors the duration popup under its button.
+  final GlobalKey _bootcampSelectorKey = GlobalKey();
+
+  /// Card geometry. Fixed because every card is 311 wide with an 8pt gap, which
+  /// is what makes "scroll to card N" an offset multiplication rather than a
+  /// layout search.
+  static const double _bootcampCardWidth = 311;
+  static const double _bootcampCardGap = 8;
+  static const double _bootcampCardStep = _bootcampCardWidth + _bootcampCardGap;
+
   static const _promoSlides = <_PromoSlide>[
     _PromoSlide(
       eyebrow: 'WELCOME',
@@ -204,7 +219,7 @@ class _HomePageState extends State<HomePage>
   void initState() {
     super.initState();
     _promoController = PageController();
-    _bootcampController = ScrollController();
+    _bootcampController = ScrollController()..addListener(_onBootcampScroll);
     _heroController =
         AnimationController(
           vsync: this,
@@ -694,7 +709,7 @@ class _HomePageState extends State<HomePage>
   Widget _buildBootcampSkeleton() {
     return Column(
       children: [
-        _buildBootcampHeading(selector: null),
+        _buildBootcampHeading(selectedDays: 0),
         SizedBox(
           height: 223,
           child: ListView.separated(
@@ -716,42 +731,35 @@ class _HomePageState extends State<HomePage>
   }
 
   Widget _buildBootcampRail(List<BootcampCard> camps) {
+    // **The order is the server's and never changes.** Reordering on selection
+    // pulled the chosen card to the front, which is what made the rail jump:
+    // two cards simply swapped places under the finger. Picking a run now
+    // scrolls to it instead, and the cards stay where they are.
+    _bootcampCamps = camps;
+
     // Distinct runs, ascending — a camp is filed under the number of days it
     // takes, and the selector only ever offers runs that exist.
     final durations = <int>{
       for (final camp in camps)
         if (camp.days > 0) camp.days,
     }.toList()..sort();
-    final selected = _selectedBootcampDays != null &&
+
+    // The selection follows the card at the left edge, so the pill never claims
+    // a run that is not on screen.
+    final selected =
+        _selectedBootcampDays != null &&
             durations.contains(_selectedBootcampDays)
         ? _selectedBootcampDays!
-        : (durations.isEmpty ? 0 : durations.first);
-
-    // Only the carousel reorders: the card matching the selected duration is
-    // pulled to the front, the rest keep their original relative order.
-    final ordered = [
-      ...camps.where((camp) => camp.days == selected),
-      ...camps.where((camp) => camp.days != selected),
-    ];
+        : (camps.isEmpty ? 0 : camps.first.days);
 
     return Column(
       children: [
         _buildBootcampHeading(
-          selector: durations.length < 2
+          selectedDays: selected,
+          // One run means nothing to choose between.
+          onTap: durations.length < 2
               ? null
-              : (selected, durations, (days) {
-                  setState(() => _selectedBootcampDays = days);
-                  // The matching card is now first in the list — snap the
-                  // carousel back to it so the swap is visible.
-                  WidgetsBinding.instance.addPostFrameCallback((_) {
-                    if (!_bootcampController.hasClients) return;
-                    _bootcampController.animateTo(
-                      0,
-                      duration: const Duration(milliseconds: 260),
-                      curve: Curves.easeOut,
-                    );
-                  });
-                }),
+              : () => _pickBootcampDuration(durations, selected),
         ),
         SizedBox(
           height: 223,
@@ -759,10 +767,10 @@ class _HomePageState extends State<HomePage>
             controller: _bootcampController,
             padding: const EdgeInsets.symmetric(horizontal: 16),
             scrollDirection: Axis.horizontal,
-            itemCount: ordered.length,
-            separatorBuilder: (c, i) => const SizedBox(width: 8),
+            itemCount: camps.length,
+            separatorBuilder: (c, i) => const SizedBox(width: _bootcampCardGap),
             itemBuilder: (context, index) {
-              final camp = ordered[index];
+              final camp = camps[index];
               return GestureDetector(
                 key: ValueKey(camp.id),
                 behavior: HitTestBehavior.opaque,
@@ -778,7 +786,7 @@ class _HomePageState extends State<HomePage>
                     top: Radius.circular(12),
                   ),
                   child: SizedBox(
-                    width: 311,
+                    width: _bootcampCardWidth,
                     child: Stack(
                       fit: StackFit.expand,
                       children: [
@@ -854,8 +862,15 @@ class _HomePageState extends State<HomePage>
       ? 'assets/figma/homescreen/ict2.png'
       : 'assets/figma/homescreen/ict1.png';
 
+  /// The section heading, with the run selector on the right.
+  ///
+  /// The pill is a button now, not a `DropdownButton`: Material's menu is a
+  /// square grey slab that belongs to a different app. [onTap] is null when
+  /// there is nothing to choose (one run, or the skeleton), which is also when
+  /// the pill is not drawn at all.
   Widget _buildBootcampHeading({
-    required (int, List<int>, ValueChanged<int>)? selector,
+    required int selectedDays,
+    VoidCallback? onTap,
   }) {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
@@ -873,50 +888,38 @@ class _HomePageState extends State<HomePage>
               ),
             ),
           ),
-          if (selector != null)
+          if (onTap != null)
             MouseRegion(
               onEnter: (_) => setState(() => _hoveredBootcampSelector = true),
               onExit: (_) => setState(() => _hoveredBootcampSelector = false),
-              child: _glossyGlassButton(
-                pressed: false,
-                hovered: _hoveredBootcampSelector,
-                fill: Colors.white,
-                radius: BorderRadius.circular(14),
-                padding: const EdgeInsets.only(
-                  left: 10,
-                  right: 4,
-                  top: 2,
-                  bottom: 2,
-                ),
-                child: SizedBox(
-                  height: 22,
-                  child: DropdownButtonHideUnderline(
-                    child: DropdownButton<int>(
-                      value: selector.$1,
-                      isDense: true,
-                      icon: const Icon(
-                        Icons.chevron_right,
-                        size: 18,
-                        color: Colors.black,
+              child: GestureDetector(
+                key: _bootcampSelectorKey,
+                behavior: HitTestBehavior.opaque,
+                onTap: onTap,
+                child: _glossyGlassButton(
+                  pressed: false,
+                  hovered: _hoveredBootcampSelector,
+                  fill: Colors.white,
+                  radius: BorderRadius.circular(14),
+                  padding: const EdgeInsets.fromLTRB(12, 6, 6, 6),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        '$selectedDays Days',
+                        style: GoogleFonts.figtree(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                          color: const Color(0xFF141414),
+                        ),
                       ),
-                      style: GoogleFonts.figtree(
-                        fontSize: 12,
-                        fontWeight: FontWeight.w600,
-                        color: const Color(0xFF141414),
+                      const SizedBox(width: 2),
+                      const Icon(
+                        Icons.expand_more_rounded,
+                        size: 16,
+                        color: Color(0xFF141414),
                       ),
-                      items: selector.$2
-                          .map(
-                            (days) => DropdownMenuItem<int>(
-                              value: days,
-                              child: Text('$days Days'),
-                            ),
-                          )
-                          .toList(),
-                      onChanged: (days) {
-                        if (days == null) return;
-                        selector.$3(days);
-                      },
-                    ),
+                    ],
                   ),
                 ),
               ),
@@ -924,6 +927,104 @@ class _HomePageState extends State<HomePage>
         ],
       ),
     );
+  }
+
+  /// The run picker, in the app's own clothes.
+  ///
+  /// `showMenu` rather than a hand-rolled overlay: it already owns the
+  /// dismiss-on-outside-tap, the route and the keyboard handling. What it does
+  /// not own is how it looks, so the corners, the border, the type and the
+  /// selected tick are all set here — and the highlight is warmed from Material
+  /// grey to the cream the rest of the page uses.
+  Future<void> _pickBootcampDuration(List<int> durations, int selected) async {
+    const width = 168.0;
+    const rowHeight = 44.0;
+    final box =
+        _bootcampSelectorKey.currentContext?.findRenderObject() as RenderBox?;
+    if (box == null) return;
+
+    // Global coordinates, because the menu is drawn in a full-screen route.
+    final topLeft = box.localToGlobal(Offset.zero);
+    final screen = MediaQuery.of(context).size;
+    final menuHeight = durations.length * rowHeight + 8;
+
+    // Under the pill and right-aligned to it — the anchor the old popup had.
+    // It flips above the pill rather than hanging off the bottom of the screen.
+    final left = (topLeft.dx + box.size.width - width).clamp(
+      8.0,
+      screen.width - width - 8,
+    );
+    var top = topLeft.dy + box.size.height + 6;
+    if (top + menuHeight > screen.height - 24) {
+      top = topLeft.dy - menuHeight - 6;
+    }
+
+    final picked = await showGeneralDialog<int>(
+      context: context,
+      barrierDismissible: true,
+      barrierLabel: 'Choose the bootcamp run',
+      // Barely there: the card should look attached to the pill, not modal.
+      barrierColor: const Color(0x0D111827),
+      transitionDuration: const Duration(milliseconds: 170),
+      pageBuilder: (context, _, _) => Stack(
+        children: [
+          Positioned(
+            left: left,
+            top: top,
+            width: width,
+            child: _BootcampRunMenu(
+              durations: durations,
+              selected: selected,
+              onPick: (days) => Navigator.of(context).pop(days),
+            ),
+          ),
+        ],
+      ),
+      transitionBuilder: (context, animation, _, child) {
+        final curved = CurvedAnimation(
+          parent: animation,
+          curve: Curves.easeOutCubic,
+        );
+        // Grows out of the pill's bottom-right corner, the way a menu should.
+        return FadeTransition(
+          opacity: curved,
+          child: ScaleTransition(
+            alignment: Alignment.topRight,
+            scale: Tween<double>(begin: 0.94, end: 1).animate(curved),
+            child: child,
+          ),
+        );
+      },
+    );
+
+    if (picked != null && picked != selected) _selectBootcampDays(picked);
+  }
+
+  /// Slides the rail to the first card of [days].
+  ///
+  /// A scroll, not a rebuild: the cards keep their order and their identity, so
+  /// the change is a movement the eye can follow rather than a swap.
+  void _selectBootcampDays(int days) {
+    setState(() => _selectedBootcampDays = days);
+    final index = _bootcampCamps.indexWhere((camp) => camp.days == days);
+    if (index < 0 || !_bootcampController.hasClients) return;
+    _bootcampController.animateTo(
+      index * _bootcampCardStep,
+      duration: const Duration(milliseconds: 360),
+      curve: Curves.easeOutCubic,
+    );
+  }
+
+  /// Keeps the pill honest while the rail is dragged: the label is the run of
+  /// the card at the left edge.
+  void _onBootcampScroll() {
+    if (!_bootcampController.hasClients || _bootcampCamps.isEmpty) return;
+    final index = (_bootcampController.offset / _bootcampCardStep)
+        .round()
+        .clamp(0, _bootcampCamps.length - 1);
+    final days = _bootcampCamps[index].days;
+    if (days <= 0 || days == _selectedBootcampDays) return;
+    setState(() => _selectedBootcampDays = days);
   }
 
   Widget _buildPill(String text) {
@@ -1976,9 +2077,9 @@ class _HomePageState extends State<HomePage>
             // to avoid.
             page.nearScope?.railTitle ?? 'Upcoming events',
             trailing: GestureDetector(
-              onTap: () => Navigator.of(context).push(
-                MaterialPageRoute(builder: (_) => const EventsListPage()),
-              ),
+              onTap: () => Navigator.of(
+                context,
+              ).push(MaterialPageRoute(builder: (_) => const EventsListPage())),
               child: Text(
                 'See All',
                 style: GoogleFonts.figtree(
@@ -2660,6 +2761,84 @@ class _HeroBookCard extends StatelessWidget {
                         color: Colors.white.withValues(alpha: 0.9),
                         size: layout.playSize * 0.55,
                       ),
+                    ),
+                  ),
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// The run picker's panel — the one the section's pill opens.
+///
+/// Drawn by hand rather than with `showMenu`: Material's menu brings a square
+/// grey slab and a cold highlight, and the only way to change either is to stop
+/// using it. This is the app's own card — white, 16pt corners, a hairline
+/// border, a soft shadow, and a warm highlight under the finger.
+class _BootcampRunMenu extends StatelessWidget {
+  const _BootcampRunMenu({
+    required this.durations,
+    required this.selected,
+    required this.onPick,
+  });
+
+  final List<int> durations;
+  final int selected;
+  final ValueChanged<int> onPick;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: Colors.transparent,
+      child: Container(
+        clipBehavior: Clip.antiAlias,
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: const Color(0xFFEFEDE7)),
+          boxShadow: const [
+            BoxShadow(
+              color: Color(0x1A111827),
+              blurRadius: 18,
+              offset: Offset(0, 8),
+            ),
+          ],
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            for (final days in durations)
+              InkWell(
+                onTap: () => onPick(days),
+                highlightColor: const Color(0xFFFFF6D8),
+                splashColor: Colors.transparent,
+                child: SizedBox(
+                  height: 44,
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 14),
+                    child: Row(
+                      children: [
+                        Text(
+                          '$days Days',
+                          style: GoogleFonts.figtree(
+                            fontSize: 13,
+                            fontWeight: days == selected
+                                ? FontWeight.w700
+                                : FontWeight.w500,
+                            color: _titleInk,
+                          ),
+                        ),
+                        const Spacer(),
+                        if (days == selected)
+                          const Icon(
+                            Icons.check_rounded,
+                            size: 16,
+                            color: _yellow,
+                          ),
+                      ],
                     ),
                   ),
                 ),

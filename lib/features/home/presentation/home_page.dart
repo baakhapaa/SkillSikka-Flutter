@@ -1895,18 +1895,15 @@ class _HomePageState extends State<HomePage>
               child: GestureDetector(
                 behavior: HitTestBehavior.opaque,
                 onTap: () {
-                  Navigator.of(context).push(
-                    MaterialPageRoute(
-                      builder: (_) => BookDetailsPage(
-                        image: books[i].$1,
-                        title: books[i].$2,
-                        category: books[i].$3,
-                        tags: [books[i].$4, books[i].$5],
-                        description: books[i].$6,
-                        author: books[i].$7,
-                        rating: books[i].$8,
-                      ),
-                    ),
+                  openRecommendedBook(
+                    context,
+                    image: books[i].$1,
+                    title: books[i].$2,
+                    category: books[i].$3,
+                    tags: [books[i].$4, books[i].$5],
+                    description: books[i].$6,
+                    author: books[i].$7,
+                    rating: books[i].$8,
                   );
                 },
                 child: Row(

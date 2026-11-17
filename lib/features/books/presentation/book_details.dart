@@ -1,5 +1,39 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:skillsikka/features/books/data/book_library.dart';
+import 'package:skillsikka/features/books/presentation/book_place_page.dart';
+
+/// Opens the place screen when [title] is already bought, otherwise the buy page.
+void openRecommendedBook(
+  BuildContext context, {
+  required String image,
+  required String title,
+  required String category,
+  required List<String> tags,
+  required String description,
+  required String author,
+  required String rating,
+}) {
+  if (BookLibrary.instance.owns(title)) {
+    Navigator.of(
+      context,
+    ).push(MaterialPageRoute(builder: (_) => BookPlacePage(title: title)));
+    return;
+  }
+  Navigator.of(context).push(
+    MaterialPageRoute(
+      builder: (_) => BookDetailsPage(
+        image: image,
+        title: title,
+        category: category,
+        tags: tags,
+        description: description,
+        author: author,
+        rating: rating,
+      ),
+    ),
+  );
+}
 
 const _bg = Color(0xFFFFFFFF);
 const _ink = Color(0xFF111827);
@@ -44,18 +78,20 @@ class _BookDetailsPageState extends State<BookDetailsPage> {
     return Scaffold(
       backgroundColor: _bg,
       body: SafeArea(
-        bottom: false,
         child: Column(
           children: [
             _buildScreenHeader(),
             Expanded(
               child: SingleChildScrollView(
-                padding: const EdgeInsets.only(bottom: 24),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [_buildBookCoverArea(), _buildDetailsCard()],
                 ),
               ),
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+              child: _buildBottomBuyBar(),
             ),
           ],
         ),
@@ -130,7 +166,7 @@ class _BookDetailsPageState extends State<BookDetailsPage> {
   Widget _buildBookCoverArea() {
     return Container(
       color: Colors.white,
-      padding: const EdgeInsets.all(24),
+      padding: const EdgeInsets.fromLTRB(24, 16, 24, 8),
       child: Center(
         child: Container(
           width: 140,
@@ -261,10 +297,6 @@ class _BookDetailsPageState extends State<BookDetailsPage> {
           _buildHighlight('Step-by-step visual proofs and diagrams'),
           const SizedBox(height: 8),
           _buildHighlight('Access to supplementary digital practice tools'),
-          const SizedBox(height: 20),
-
-          // ── Bottom buy bar ─────────────────────────────────────
-          _buildBottomBuyBar(),
         ],
       ),
     );
@@ -298,7 +330,7 @@ class _BookDetailsPageState extends State<BookDetailsPage> {
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Icon(Icons.check_circle, size: 14, color: Color(0xFF22C55E)),
+        const Icon(Icons.check_circle, size: 14, color: Color(0xFFE6B800)),
         const SizedBox(width: 8),
         Expanded(
           child: Text(
@@ -347,14 +379,17 @@ class _BookDetailsPageState extends State<BookDetailsPage> {
             ],
           ),
           const Spacer(),
-          // Add to cart button
           GestureDetector(
             onTap: () {
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
-                  content: Text('${widget.title} added to cart'),
-                  behavior: SnackBarBehavior.floating,
-                  backgroundColor: _ink,
+              BookLibrary.instance.buy(
+                title: widget.title,
+                author: widget.author,
+                image: widget.image,
+                description: widget.description,
+              );
+              Navigator.of(context).push(
+                MaterialPageRoute(
+                  builder: (_) => BookPlacePage(title: widget.title),
                 ),
               );
             },
@@ -365,7 +400,7 @@ class _BookDetailsPageState extends State<BookDetailsPage> {
                 borderRadius: BorderRadius.circular(100),
               ),
               child: Text(
-                'Add To Cart',
+                'Buy',
                 style: GoogleFonts.figtree(
                   fontSize: 13,
                   fontWeight: FontWeight.w700,

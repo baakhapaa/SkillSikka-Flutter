@@ -446,18 +446,15 @@ class _BrowseCategoriesPageState extends State<BrowseCategoriesPage> {
     return GestureDetector(
       behavior: HitTestBehavior.opaque,
       onTap: () {
-        Navigator.of(context).push(
-          MaterialPageRoute(
-            builder: (_) => BookDetailsPage(
-              image: book.image,
-              title: book.title,
-              category: book.category,
-              tags: book.tags,
-              description: book.description,
-              author: book.author,
-              rating: book.rating,
-            ),
-          ),
+        openRecommendedBook(
+          context,
+          image: book.image,
+          title: book.title,
+          category: book.category,
+          tags: book.tags,
+          description: book.description,
+          author: book.author,
+          rating: book.rating,
         );
       },
       child: Padding(

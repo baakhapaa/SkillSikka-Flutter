@@ -1,0 +1,23 @@
+---
+description: Do not stage or commit files until the user explicitly asks
+alwaysApply: true
+---
+
+# No staging or commits until asked
+
+Do not stage or commit any file until the user explicitly says to.
+
+- Do not run `git add`, `git commit`, `git commit --amend`, or any command that stages or records a commit.
+- Do not stage a subset of files "to be helpful," and do not commit after finishing a task.
+- Leave the working tree as it is. Editing files is fine; putting them in the index or in history is not.
+- Stage or commit only after a direct request in the current message, such as "commit this" or "stage these files." A request to implement, fix, or save code is not that request.
+
+```text
+# Not allowed on your own
+git add .
+git commit -m "..."
+
+# Allowed only after the user asks
+git add lib/features/books/
+git commit -m "..."
+```

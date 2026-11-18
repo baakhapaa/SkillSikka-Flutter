@@ -12,6 +12,9 @@ class CourseSummary {
     this.price,
     this.thumbnailUrl,
     this.lessonCount,
+    this.category = 'Uncategorized',
+    this.updatedAt,
+    this.durationSeconds,
   });
 
   final int id;
@@ -24,6 +27,25 @@ class CourseSummary {
 
   final String? thumbnailUrl;
   final int? lessonCount;
+
+  /// Skill, premium, or subject name. `Uncategorized` when the row has none.
+  final String category;
+
+  final DateTime? updatedAt;
+
+  /// Total lesson time, in seconds, when the server sent it.
+  final int? durationSeconds;
+
+  /// `3h 24m total`, or empty when the course has no recorded time.
+  String get durationLabel {
+    final seconds = durationSeconds;
+    if (seconds == null || seconds <= 0) return '';
+    final hours = seconds ~/ 3600;
+    final minutes = (seconds % 3600) ~/ 60;
+    if (hours > 0 && minutes > 0) return '${hours}h ${minutes}m total';
+    if (hours > 0) return '${hours}h total';
+    return '${minutes}m total';
+  }
 
   /// `Rs 1,299`, `Free`, or **empty**.
   ///
@@ -57,6 +79,15 @@ class CourseSummary {
     final id = row['id'];
     if (id is! int) return null;
     final thumbnail = row['thumbnail_url'];
+    final premium = _label(row['premium_category_name']);
+    final skill = _label(row['skill_category_name']);
+    final subject = _label(row['subject_name']);
+    final category = premium.isNotEmpty
+        ? premium
+        : skill.isNotEmpty
+        ? skill
+        : subject;
+    final updated = row['updated_at'];
     return CourseSummary(
       id: id,
       title: (row['title'] as String?)?.trim().isNotEmpty ?? false
@@ -71,6 +102,13 @@ class CourseSummary {
       lessonCount: row['lessons_count'] is int
           ? row['lessons_count'] as int
           : null,
+      category: category.isEmpty ? 'Uncategorized' : category,
+      updatedAt: updated is String ? DateTime.tryParse(updated) : null,
+      durationSeconds: row['total_duration_seconds'] is int
+          ? row['total_duration_seconds'] as int
+          : null,
     );
   }
+
+  static String _label(Object? value) => value is String ? value.trim() : '';
 }

@@ -174,11 +174,18 @@ class FakeCourseApi extends CourseApi {
   @override
   Future<void> completeLesson(int lessonId) async => completions.add(lessonId);
 
+  @override
+  Future<void> reportLessonProgress(
+    int lessonId, {
+    required int watchedSeconds,
+    required int positionSeconds,
+  }) async {}
+
   /// Every course id passed to [enroll], in order.
   final List<int> enrolCalls = [];
 
   @override
-  Future<CourseEnrollment> enroll(int courseId) async {
+  Future<CourseEnrollment> enroll(int courseId, {String? source}) async {
     enrolCalls.add(courseId);
     final error = enrollFailure;
     if (error != null) throw error;

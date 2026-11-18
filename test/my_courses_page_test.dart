@@ -43,7 +43,7 @@ void main() {
         child: const MaterialApp(home: MyCoursesPage()),
       );
 
-  testWidgets('lists every course with its state and price', (tester) async {
+  testWidgets('lists every course with its published state', (tester) async {
     await tester.binding.setSurfaceSize(const Size(360, 800));
     addTearDown(() => tester.binding.setSurfaceSize(null));
 
@@ -52,12 +52,11 @@ void main() {
 
     expect(find.text('Digital Illustration'), findsOneWidget);
     expect(find.text('Portrait Lighting'), findsOneWidget);
-    expect(find.text('DRAFT'), findsOneWidget);
-    expect(find.text('LIVE'), findsOneWidget);
-    expect(find.text('Rs 1,299'), findsOneWidget);
-    // A free course states that it is free (product decision, 2026-10-31) —
-    // the row used to carry an empty price slot.
-    expect(find.text('Free'), findsOneWidget);
+    expect(find.text('Draft'), findsOneWidget);
+    expect(find.text('Published'), findsOneWidget);
+    // Price stays off the card. The grid shows status, video count, and Manage.
+    expect(find.text('Rs 1,299'), findsNothing);
+    expect(find.text('Free'), findsNothing);
     // The heading count agrees with the list.
     expect(find.text('2'), findsOneWidget);
   });

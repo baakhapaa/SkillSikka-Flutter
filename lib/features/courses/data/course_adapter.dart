@@ -301,7 +301,7 @@ class CourseMapper {
           name: _studentName(row['student']),
           when: _relativeWhen(row['created_at']),
           body: _str(row['review']),
-          stars: _int(row['rating']) ?? 0,
+          stars: _int(row['rating']) ?? _number(row['rating'])?.round() ?? 0,
         ),
     ];
   }
@@ -316,7 +316,7 @@ class CourseMapper {
     if (rows.isEmpty) return const <RatingBar>[];
     final counts = <int, int>{for (var star = 1; star <= 5; star++) star: 0};
     for (final row in rows) {
-      final stars = _int(row['rating']);
+      final stars = _int(row['rating']) ?? _number(row['rating'])?.round();
       if (stars != null && counts.containsKey(stars)) {
         counts[stars] = counts[stars]! + 1;
       }

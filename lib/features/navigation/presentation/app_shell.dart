@@ -1,29 +1,25 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 
 import '../../challenge/presentation/challenge_page.dart';
 import '../../home/presentation/home_page.dart';
 import '../../learning/presentation/my_learning_page.dart';
+import '../../profile/data/profile_role.dart';
+import '../../profile/data/user_profile.dart';
+import '../../profile/presentation/my_courses_page.dart';
 import '../../profile/presentation/profile_page.dart';
 import '../../short/presentation/short_page.dart';
 
-class AppShell extends StatefulWidget {
+class AppShell extends ConsumerStatefulWidget {
   const AppShell({super.key});
 
   @override
-  State<AppShell> createState() => _AppShellState();
+  ConsumerState<AppShell> createState() => _AppShellState();
 }
 
-class _AppShellState extends State<AppShell> {
+class _AppShellState extends ConsumerState<AppShell> {
   int _selectedIndex = 0;
-
-  static final _pages = <Widget>[
-    HomePage(),
-    ShortPage(),
-    ChallengesPage(),
-    MyLearningPage(),
-    ProfilePage(),
-  ];
 
   void _selectPage(int index) {
     if (index == _selectedIndex) return;
@@ -32,6 +28,18 @@ class _AppShellState extends State<AppShell> {
 
   @override
   Widget build(BuildContext context) {
+    final instructor =
+        ref.watch(userProfileProvider).effectiveRole == ProfileRole.instructor;
+    final pages = <Widget>[
+      HomePage(),
+      ShortPage(active: _selectedIndex == 1),
+      ChallengesPage(),
+      instructor
+          ? const MyCoursesPage(showBack: false)
+          : const MyLearningPage(),
+      ProfilePage(),
+    ];
+
     return Scaffold(
       resizeToAvoidBottomInset: false,
       body: IndexedStack(
@@ -48,15 +56,12 @@ class _AppShellState extends State<AppShell> {
         // Every page here is a full-screen destination, so tight constraints are
         // what they all want.
         sizing: StackFit.expand,
-        children: _pages,
+        children: pages,
       ),
       bottomNavigationBar: SkillSikkaFooter(
         selectedIndex: _selectedIndex,
         onSelected: _selectPage,
-        backgroundColor: _selectedIndex == 1
-            ? const Color.fromARGB(255, 0, 15, 42)
-            : const Color(0xFFFAF9F6),
-        isDarkBackground: _selectedIndex == 1,
+        learningLabel: instructor ? 'My Courses' : 'My Learning',
       ),
     );
   }
@@ -66,6 +71,7 @@ class SkillSikkaFooter extends StatelessWidget {
   const SkillSikkaFooter({
     required this.selectedIndex,
     required this.onSelected,
+    this.learningLabel = 'My Learning',
     this.backgroundColor = const Color(0xFFFAF9F6),
     this.isDarkBackground = false,
     super.key,
@@ -73,39 +79,39 @@ class SkillSikkaFooter extends StatelessWidget {
 
   final int selectedIndex;
   final ValueChanged<int> onSelected;
+  final String learningLabel;
   final Color backgroundColor;
   final bool isDarkBackground;
 
-  static const _items = <_FooterItem>[
-    _FooterItem(
-      'Home',
-      'assets/figma/footer/home.svg',
-      'assets/figma/footer/home_inactive.svg',
-    ),
-    _FooterItem(
-      'Short',
-      'assets/figma/footer/short_active.svg',
-      'assets/figma/footer/short.svg',
-    ),
-    _FooterItem(
-      'Challenge',
-      'assets/figma/footer/challenge_active.svg',
-      'assets/figma/footer/challenge.svg',
-    ),
-    _FooterItem(
-      'My Learning',
-      'assets/figma/footer/learning_active.svg',
-      'assets/figma/footer/learning.svg',
-    ),
-    _FooterItem(
-      'Profile',
-      'assets/figma/footer/profile_active.svg',
-      'assets/figma/footer/profile.svg',
-    ),
-  ];
-
   @override
   Widget build(BuildContext context) {
+    final items = <_FooterItem>[
+      const _FooterItem(
+        'Home',
+        'assets/figma/footer/home.svg',
+        'assets/figma/footer/home_inactive.svg',
+      ),
+      const _FooterItem(
+        'Short',
+        'assets/figma/footer/short_active.svg',
+        'assets/figma/footer/short.svg',
+      ),
+      const _FooterItem(
+        'Challenge',
+        'assets/figma/footer/challenge_active.svg',
+        'assets/figma/footer/challenge.svg',
+      ),
+      _FooterItem(
+        learningLabel,
+        'assets/figma/footer/learning_active.svg',
+        'assets/figma/footer/learning.svg',
+      ),
+      const _FooterItem(
+        'Profile',
+        'assets/figma/footer/profile_active.svg',
+        'assets/figma/footer/profile.svg',
+      ),
+    ];
     return Container(
       key: const ValueKey('skill-sikka-footer'),
       decoration: BoxDecoration(
@@ -133,10 +139,10 @@ class SkillSikkaFooter extends StatelessWidget {
             padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
             child: Row(
               children: [
-                for (var index = 0; index < _items.length; index++)
+                for (var index = 0; index < items.length; index++)
                   Expanded(
                     child: _FooterButton(
-                      item: _items[index],
+                      item: items[index],
                       selected: selectedIndex == index,
                       isDarkBackground: isDarkBackground,
                       onTap: () => onSelected(index),

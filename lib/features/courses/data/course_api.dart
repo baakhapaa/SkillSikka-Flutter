@@ -4,6 +4,7 @@ import '../../../core/network/api_client.dart';
 import '../../../core/network/api_error.dart';
 import '../../../core/widgets/course_detail_view.dart';
 import 'course_adapter.dart';
+import 'instructor_analytics.dart';
 
 /// Reads and writes the course endpoints.
 ///
@@ -124,9 +125,13 @@ class CourseApi {
   /// A paid course enrols into `pending_payment`, which grants no lesson access;
   /// the caller has to branch on [CourseEnrollment.awaitsPayment] rather than
   /// treating any 201 as "you can start learning".
-  Future<CourseEnrollment> enroll(int courseId) async {
+  ///
+  /// [source] is optional: `direct`, `organic`, `social`, or `unknown`. Omitting
+  /// it is `unknown`. Anything else is `400`.
+  Future<CourseEnrollment> enroll(int courseId, {String? source}) async {
     final body = await _client.post<Map<String, dynamic>>(
       '/courses/$courseId/enroll/',
+      data: source == null ? null : {'source': source},
     );
     final enrollment = CourseEnrollment.tryParse(body);
     if (enrollment == null) {
@@ -157,6 +162,46 @@ class CourseApi {
       if (error.statusCode == 404) return null;
       rethrow;
     }
+  }
+
+  /// `GET /courses/{id}/instructor-analytics/?period=`.
+  ///
+  /// Course owner or admin. `period` is `7d`, `30d`, `90d`, or `all`; omitted
+  /// on the server means `30d`. Null fields are not recorded. Zero is a real zero.
+  Future<InstructorCourseAnalytics> instructorAnalytics(
+    int courseId, {
+    String period = '30d',
+  }) async {
+    final body = await _client.get<Map<String, dynamic>>(
+      '/courses/$courseId/instructor-analytics/',
+      query: {'period': period},
+    );
+    final analytics = InstructorCourseAnalytics.tryParse(body);
+    if (analytics == null) {
+      throw const ApiException(
+        kind: ApiErrorKind.unknown,
+        message: 'Those analytics came back in an unexpected shape.',
+      );
+    }
+    return analytics;
+  }
+
+  /// `POST /lessons/{lessonId}/progress/` — seconds watched since the last report.
+  ///
+  /// [watchedSeconds] is 1–120. The server may credit fewer than were sent.
+  Future<void> reportLessonProgress(
+    int lessonId, {
+    required int watchedSeconds,
+    required int positionSeconds,
+  }) async {
+    final watched = watchedSeconds.clamp(1, 120);
+    await _client.post<Object?>(
+      '/lessons/$lessonId/progress/',
+      data: {
+        'watched_seconds': watched,
+        'position_seconds': positionSeconds < 0 ? 0 : positionSeconds,
+      },
+    );
   }
 
   /// `POST /lessons/{lessonId}/complete/` — records the completion.

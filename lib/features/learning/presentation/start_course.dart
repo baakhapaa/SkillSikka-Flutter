@@ -88,7 +88,7 @@ Future<void> startCourse(
     CourseEnrollment? enrollment;
 
     try {
-      enrollment = await api.enroll(id);
+      enrollment = await api.enroll(id, source: 'direct');
     } on ApiException catch (error) {
       // `ALREADY_ENROLLED` is success from the user's point of view *only if*
       // the row grants access. The server refuses a second `enroll/` for a

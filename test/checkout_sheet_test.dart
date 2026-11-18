@@ -80,7 +80,10 @@ void main() {
       ),
     );
     await tester.tap(find.text('buy'));
-    await tester.pumpAndSettle();
+    // A fixed pump, not pumpAndSettle: the sheet's waiting state has a spinner
+    // and a poll timer, and settle waits until both stop.
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
   }
 
   late FakePaymentApi api;

@@ -4,6 +4,7 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:video_player/video_player.dart';
 
+import '../../../core/video/video_playback.dart';
 import '../../../core/widgets/course_image.dart';
 import '../../../core/network/api_error.dart';
 import '../../../core/widgets/api_error_snack.dart';
@@ -14,6 +15,7 @@ import '../../courses/presentation/widgets/review_sheet.dart';
 
 import '../../../core/widgets/course_detail_view.dart';
 import '../data/enrollment.dart';
+import '../data/lesson_watch_reporter.dart';
 import '../data/learning_api.dart';
 import '../../../core/widgets/video_transport_controls.dart';
 
@@ -157,6 +159,7 @@ class _CoursePlayerPageState extends ConsumerState<CoursePlayerPage> {
 
   VideoPlayerController? _videoController;
   bool _videoReady = false;
+  late final LessonWatchReporter _watch;
 
   /// Set when `initialize()` rejects.
   ///
@@ -177,13 +180,33 @@ class _CoursePlayerPageState extends ConsumerState<CoursePlayerPage> {
     _currentIndex = _lessons.isEmpty
         ? 0
         : widget.startIndex.clamp(0, _lessons.length - 1);
+    _watch = LessonWatchReporter(_reportWatch);
     _syncVideo();
+    _syncWatch();
     _loadServerProgress();
+  }
+
+  Future<void> _reportWatch(
+    int lessonId, {
+    required int watchedSeconds,
+    required int positionSeconds,
+  }) {
+    return ref
+        .read(courseApiProvider)
+        .reportLessonProgress(
+          lessonId,
+          watchedSeconds: watchedSeconds,
+          positionSeconds: positionSeconds,
+        );
   }
 
   @override
   void dispose() {
-    _videoController?.dispose();
+    _watch.dispose();
+    final player = _videoController;
+    _videoController = null;
+    player?.removeListener(_onVideoTick);
+    player?.dispose();
     _composer.dispose();
     _composerFocus.dispose();
     super.dispose();
@@ -201,10 +224,13 @@ class _CoursePlayerPageState extends ConsumerState<CoursePlayerPage> {
   /// Non-video lessons never reach here: a `text` lecture renders its body and a
   /// `pdf`/`ebook` renders a document panel, both in `_buildStage`.
   void _syncVideo() {
-    _videoController?.dispose();
+    final previous = _videoController;
     _videoController = null;
     _videoReady = false;
     _videoError = null;
+    previous?.removeListener(_onVideoTick);
+    previous?.dispose();
+    if (!videoPlaybackSupported) return;
 
     if (_lessons.isEmpty) return;
     final lesson = _lessons[_currentIndex];
@@ -229,18 +255,22 @@ class _CoursePlayerPageState extends ConsumerState<CoursePlayerPage> {
     player
         .initialize()
         .then((_) {
-          if (!mounted) return;
+          if (!mounted || _videoController != player) return;
+          player.addListener(_onVideoTick);
           setState(() => _videoReady = true);
           if (_autoPlay) player.play();
         })
         .catchError((Object error) {
           // A platform video error carries no user-facing message, so the frame is
           // the only place the failure can surface. The detail goes to logcat.
+          // The controller is dropped: under `flutter test` init throws and a
+          // live controller keeps scheduling frames, which hangs pumpAndSettle.
           debugPrint('course player: video failed to load: $error');
-          if (!mounted) return;
+          if (!mounted || _videoController != player) return;
+          _videoController = null;
+          player.dispose();
           setState(() => _videoError = 'This video could not be loaded.');
         });
-    player.addListener(_onVideoTick);
   }
 
   /// `Auto Next` lives here: the lecture is finished when its video is.
@@ -252,7 +282,20 @@ class _CoursePlayerPageState extends ConsumerState<CoursePlayerPage> {
         value.duration > Duration.zero &&
         value.position >= value.duration &&
         !value.isPlaying;
+    _syncWatch();
     if (finished && _autoNext) _go(1, countPrevious: true);
+  }
+
+  /// Video counts while it plays. Anything else counts while that lesson is open.
+  void _syncWatch() {
+    final lesson = _currentLesson;
+    final playing = _videoController?.value.isPlaying ?? false;
+    final reading = lesson != null && lesson.kind != CourseLessonKind.video;
+    _watch.setActive(
+      lessonId: lesson?.id,
+      active: playing || reading,
+      positionSeconds: _videoController?.value.position.inSeconds ?? 0,
+    );
   }
 
   /// Moves to the lecture [delta] away, clamped to the course.
@@ -276,6 +319,7 @@ class _CoursePlayerPageState extends ConsumerState<CoursePlayerPage> {
     // outside `setState`, because it only reassigns the controller and the
     // rebuild above has already been scheduled.
     _syncVideo();
+    _syncWatch();
 
     final store = ref.read(enrolledCoursesProvider.notifier);
     store.setLast(_course, index);

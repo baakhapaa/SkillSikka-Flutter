@@ -5,12 +5,14 @@ import 'package:url_launcher/url_launcher.dart';
 import 'package:video_player/video_player.dart';
 
 import '../../../core/network/api_error.dart';
+import '../../../core/video/video_playback.dart';
 import '../../../core/widgets/course_detail_view.dart';
 import '../../../core/widgets/course_image.dart';
 import '../../../core/widgets/video_transport_controls.dart';
 import '../../courses/data/course_api.dart';
 import '../../courses/data/course_discussions_api.dart';
 import '../../learning/data/learning_api.dart';
+import '../../learning/data/lesson_watch_reporter.dart';
 import '../data/bootcamp.dart';
 import '../data/bootcamp_api.dart';
 
@@ -71,6 +73,8 @@ class _IctBootcampPageState extends ConsumerState<IctBootcampPage> {
 
   VideoPlayerController? _videoController;
   bool _videoReady = false;
+  late final LessonWatchReporter _watch;
+  int? _autoAdvancedFrom;
 
   final TextEditingController _commentController = TextEditingController();
   final Set<int> _expandedReplies = <int>{};
@@ -79,16 +83,35 @@ class _IctBootcampPageState extends ConsumerState<IctBootcampPage> {
   @override
   void initState() {
     super.initState();
+    _watch = LessonWatchReporter(_reportWatch);
     _load();
+  }
+
+  Future<void> _reportWatch(
+    int lessonId, {
+    required int watchedSeconds,
+    required int positionSeconds,
+  }) {
+    return ref
+        .read(courseApiProvider)
+        .reportLessonProgress(
+          lessonId,
+          watchedSeconds: watchedSeconds,
+          positionSeconds: positionSeconds,
+        );
   }
 
   @override
   void dispose() {
+    _watch.dispose();
     _commentController.dispose();
     for (final controller in _replyControllers.values) {
       controller.dispose();
     }
-    _videoController?.dispose();
+    final player = _videoController;
+    _videoController = null;
+    player?.removeListener(_onVideoTick);
+    player?.dispose();
     super.dispose();
   }
 
@@ -138,7 +161,7 @@ class _IctBootcampPageState extends ConsumerState<IctBootcampPage> {
     try {
       final existing = await api.enrollmentFor(widget.courseId);
       if (existing != null) return;
-      await api.enroll(widget.courseId);
+      await api.enroll(widget.courseId, source: 'direct');
     } on ApiException catch (error) {
       // A double tap can race the first request; that is not a failure.
       if (error.code == 'ALREADY_ENROLLED') return;
@@ -235,9 +258,12 @@ class _IctBootcampPageState extends ConsumerState<IctBootcampPage> {
   /// (no platform implementation under `flutter test`) off the path of every
   /// test that mounts this screen.
   void _syncVideo({bool autoplay = false}) {
-    _videoController?.dispose();
+    final previous = _videoController;
     _videoController = null;
     _videoReady = false;
+    previous?.removeListener(_onVideoTick);
+    previous?.dispose();
+    if (!videoPlaybackSupported) return;
 
     final remote = _sourceUrl;
     if (remote.isEmpty) return;
@@ -247,16 +273,18 @@ class _IctBootcampPageState extends ConsumerState<IctBootcampPage> {
     controller
         .initialize()
         .then((_) {
-          if (!mounted) return;
+          if (!mounted || _videoController != controller) return;
+          controller.addListener(_onVideoTick);
           setState(() => _videoReady = true);
           if (autoplay) controller.play();
         })
         .catchError((Object error) {
           debugPrint('bootcamp: video failed to load: $error');
-          if (!mounted) return;
+          if (!mounted || _videoController != controller) return;
+          _videoController = null;
+          controller.dispose();
           setState(() => _videoReady = false);
         });
-    controller.addListener(_onVideoTick);
   }
 
   /// Starts whatever the hero is showing — from the top if it had finished.
@@ -280,9 +308,12 @@ class _IctBootcampPageState extends ConsumerState<IctBootcampPage> {
   /// Back to the camp's own poster — what `Prev` does from the first lesson.
   void _backToTrailer() {
     setState(() => _activeLessonId = null);
-    _videoController?.dispose();
+    _syncWatch();
+    final player = _videoController;
     _videoController = null;
     _videoReady = false;
+    player?.removeListener(_onVideoTick);
+    player?.dispose();
   }
 
   /// One tick listener does two jobs: mark a lesson finished when its video is,
@@ -293,15 +324,20 @@ class _IctBootcampPageState extends ConsumerState<IctBootcampPage> {
     if (controller == null || !controller.value.isInitialized) return;
     final value = controller.value;
 
+    final lesson = _activeLesson;
+    _syncWatch();
+
     final finished =
         value.duration > Duration.zero &&
         value.position >= value.duration &&
         !value.isPlaying;
     if (!finished) return;
 
-    final lesson = _activeLesson;
     if (lesson != null) _markComplete(lesson);
     if (!_autoNext) return;
+    final marker = lesson?.id ?? -1;
+    if (_autoAdvancedFrom == marker) return;
+    _autoAdvancedFrom = marker;
     // Deferred: advancing disposes this controller from inside its own
     // listener, and the last lesson clamps back to itself — which would restart
     // the video and fire this again, forever.
@@ -333,6 +369,18 @@ class _IctBootcampPageState extends ConsumerState<IctBootcampPage> {
     return null;
   }
 
+  /// Video counts while it plays. A text lesson counts while its page is open.
+  void _syncWatch() {
+    final lesson = _activeLesson;
+    final playing = _videoController?.value.isPlaying ?? false;
+    final reading = lesson != null && lesson.kind != CourseLessonKind.video;
+    _watch.setActive(
+      lessonId: lesson?.id,
+      active: playing || reading,
+      positionSeconds: _videoController?.value.position.inSeconds ?? 0,
+    );
+  }
+
   void _openLesson(BootcampLesson lesson) {
     if (!lesson.isPlayable) {
       _snack('Enrol in this bootcamp to open this lesson.');
@@ -362,6 +410,7 @@ class _IctBootcampPageState extends ConsumerState<IctBootcampPage> {
     if (leaving != null && leaving.id != lesson.id) _markComplete(leaving);
     // After the id moves, so it picks up the new lesson's URL.
     _syncVideo(autoplay: _autoPlay);
+    _syncWatch();
   }
 
   /// Previous / next across the whole camp, not within the selected day.
@@ -417,6 +466,7 @@ class _IctBootcampPageState extends ConsumerState<IctBootcampPage> {
   }
 
   void _showTextLesson(BootcampLesson lesson) {
+    _watch.setActive(lessonId: lesson.id, active: true, positionSeconds: 0);
     showDialog<void>(
       context: context,
       builder: (context) => AlertDialog(
@@ -437,7 +487,9 @@ class _IctBootcampPageState extends ConsumerState<IctBootcampPage> {
           ),
         ],
       ),
-    );
+    ).whenComplete(() {
+      if (mounted) _syncWatch();
+    });
   }
 
   // ── Q&A ───────────────────────────────────────────────────────────────────

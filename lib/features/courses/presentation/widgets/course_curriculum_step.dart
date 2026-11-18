@@ -41,7 +41,7 @@ class CourseCurriculumStep extends StatelessWidget {
     final modules = draft.value.modules;
 
     return SingleChildScrollView(
-      padding: const EdgeInsets.fromLTRB(24, 8, 24, 24),
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -53,8 +53,8 @@ class CourseCurriculumStep extends StatelessWidget {
                 child: Text(
                   'Curriculum',
                   style: GoogleFonts.manrope(
-                    fontSize: 16,
-                    fontWeight: FontWeight.w700,
+                    fontSize: 18,
+                    fontWeight: FontWeight.w800,
                     color: builderInk,
                   ),
                 ),
@@ -212,8 +212,8 @@ class _ModuleCard extends StatelessWidget {
       margin: const EdgeInsets.only(bottom: 12),
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: builderBorder),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: builderFieldBorder),
       ),
       clipBehavior: Clip.antiAlias,
       child: Column(

@@ -77,195 +77,203 @@ class CourseBasicsStep extends StatelessWidget {
     final isAcademic = value.kind == CourseKind.academic;
 
     return SingleChildScrollView(
-      padding: const EdgeInsets.fromLTRB(24, 8, 24, 24),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          _label('Course type'),
-          // **`Wrap`, not `Row`, since Premium made it three chips.** Two chips
-          // fit in 360pt; three overflow by ~119pt and the third lands off
-          // screen, untappable. `Wrap` keeps the same chips, the same 8pt gaps
-          // and the same appearance — it only allows the third to take a second
-          // line, which is the one thing a fixed `Row` cannot do. The row is
-          // still built from `CourseKind.values`, so a new type appears here
-          // without touching this widget.
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: [
-              for (final kind in CourseKind.values)
-                PressableChip(
-                  label: kind.label,
-                  selected: value.kind == kind,
-                  onTap: () => _write(value.copyWith(kind: kind)),
-                ),
-            ],
-          ),
-
-          const SizedBox(height: 18),
-          _label('Cover'),
-          _CoverPicker(
-            draft: value,
-            onPick: () => _pickCover(context),
-            onRemove: () => _write(value.copyWith(clearCover: true)),
-          ),
-          const SizedBox(height: 6),
-          Text(
-            value.cover == null && (value.coverUrl ?? '').isEmpty
-                ? 'Recommended 16:9. A generated tile is used until you add one.'
-                : 'This is the picture students see in the catalogue.',
-            style: GoogleFonts.figtree(fontSize: 11, color: builderMuted),
-          ),
-
-          const SizedBox(height: 18),
-          LabeledTextField(
-            label: 'Course title',
-            hint: 'e.g. Digital Illustration for Beginners',
-            controller: titleController,
-            requiredField: true,
-            onChanged: (text) {
-              _write(draft.value.copyWith(title: text));
-            },
-          ),
-
-          const SizedBox(height: 16),
-          if (isAcademic) ...[
-            BuilderPickerField(
-              label: 'Subject',
-              value: _nameFor(subjectOptions, value.subjectId),
-              hint: subjectOptions.isEmpty
-                  ? 'No subjects available yet'
-                  : 'Select subject',
-              requiredField: true,
-              onTap: () => _pick(
-                context,
-                title: 'subject',
-                options: subjectOptions,
-                onPicked: (id) => _write(draft.value.copyWith(subjectId: id)),
-              ),
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
+      child: Container(
+        padding: const EdgeInsets.fromLTRB(16, 16, 16, 20),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: builderFieldBorder),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            _label('Course type'),
+            // **`Wrap`, not `Row`, since Premium made it three chips.** Two chips
+            // fit in 360pt; three overflow by ~119pt and the third lands off
+            // screen, untappable. `Wrap` keeps the same chips, the same 8pt gaps
+            // and the same appearance — it only allows the third to take a second
+            // line, which is the one thing a fixed `Row` cannot do. The row is
+            // still built from `CourseKind.values`, so a new type appears here
+            // without touching this widget.
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                for (final kind in CourseKind.values)
+                  PressableChip(
+                    label: kind.label,
+                    selected: value.kind == kind,
+                    onTap: () => _write(value.copyWith(kind: kind)),
+                  ),
+              ],
             ),
+
+            const SizedBox(height: 18),
+            _label('Cover'),
+            _CoverPicker(
+              draft: value,
+              onPick: () => _pickCover(context),
+              onRemove: () => _write(value.copyWith(clearCover: true)),
+            ),
+            const SizedBox(height: 6),
+            Text(
+              value.cover == null && (value.coverUrl ?? '').isEmpty
+                  ? 'Recommended 16:9. A generated tile is used until you add one.'
+                  : 'This is the picture students see in the catalogue.',
+              style: GoogleFonts.figtree(fontSize: 11, color: builderMuted),
+            ),
+
+            const SizedBox(height: 18),
+            LabeledTextField(
+              label: 'Course title',
+              hint: 'e.g. Digital Illustration for Beginners',
+              controller: titleController,
+              requiredField: true,
+              onChanged: (text) {
+                _write(draft.value.copyWith(title: text));
+              },
+            ),
+
             const SizedBox(height: 16),
-            BuilderPickerField(
-              label: 'Grade',
-              value: _nameFor(gradeOptions, value.gradeId),
-              hint: gradeOptions.isEmpty
-                  ? 'No grades available'
-                  : 'Select grade',
-              requiredField: true,
-              onTap: () => _pick(
-                context,
-                title: 'grade',
-                options: gradeOptions,
-                onPicked: (id) => _write(draft.value.copyWith(gradeId: id)),
-              ),
-            ),
-          ] else
-            BuilderPickerField(
-              label: 'Category',
-              // The two course types carry **different ids from different
-              // tables**, so the field has to read and write the one that
-              // belongs to this draft. `categoryOptions` is already the premium
-              // list when the type is Premium — the page swaps it.
-              value: _categoryId(value) == null
-                  ? value.category
-                  : _nameFor(categoryOptions, _categoryId(value)!),
-              hint: categoryOptions.isEmpty
-                  ? 'No categories available'
-                  : 'Select category',
-              // Writes the id as well as the label: the server stores the id, and
-              // the label is only what this field prints.
-              onTap: () => _pick(
-                context,
-                title: 'category',
-                options: categoryOptions,
-                onPicked: (id) => _write(
-                  value.kind.isAlwaysPaid
-                      ? value.copyWith(
-                          premiumCategoryId: id,
-                          category: _nameFor(categoryOptions, id),
-                        )
-                      : value.copyWith(
-                          skillCategoryId: id,
-                          category: _nameFor(categoryOptions, id),
-                        ),
+            if (isAcademic) ...[
+              BuilderPickerField(
+                label: 'Subject',
+                value: _nameFor(subjectOptions, value.subjectId),
+                hint: subjectOptions.isEmpty
+                    ? 'No subjects available yet'
+                    : 'Select subject',
+                requiredField: true,
+                onTap: () => _pick(
+                  context,
+                  title: 'subject',
+                  options: subjectOptions,
+                  onPicked: (id) => _write(draft.value.copyWith(subjectId: id)),
                 ),
               ),
-            ),
-
-          const SizedBox(height: 16),
-          _label('Level', optional: true),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: [
-              for (final level in CourseLevel.values)
-                PressableChip(
-                  label: level.label,
-                  selected: value.level == level,
-                  // Tapping the selected chip clears it: level is optional, and
-                  // without a way back out a mis-tap is permanent.
-                  onTap: () => _write(
-                    value.level == level
-                        ? value.copyWith(clearLevel: true)
-                        : value.copyWith(level: level),
+              const SizedBox(height: 16),
+              BuilderPickerField(
+                label: 'Grade',
+                value: _nameFor(gradeOptions, value.gradeId),
+                hint: gradeOptions.isEmpty
+                    ? 'No grades available'
+                    : 'Select grade',
+                requiredField: true,
+                onTap: () => _pick(
+                  context,
+                  title: 'grade',
+                  options: gradeOptions,
+                  onPicked: (id) => _write(draft.value.copyWith(gradeId: id)),
+                ),
+              ),
+            ] else
+              BuilderPickerField(
+                label: 'Category',
+                // The two course types carry **different ids from different
+                // tables**, so the field has to read and write the one that
+                // belongs to this draft. `categoryOptions` is already the premium
+                // list when the type is Premium — the page swaps it.
+                value: _categoryId(value) == null
+                    ? value.category
+                    : _nameFor(categoryOptions, _categoryId(value)!),
+                hint: categoryOptions.isEmpty
+                    ? 'No categories available'
+                    : 'Select category',
+                // Writes the id as well as the label: the server stores the id, and
+                // the label is only what this field prints.
+                onTap: () => _pick(
+                  context,
+                  title: 'category',
+                  options: categoryOptions,
+                  onPicked: (id) => _write(
+                    value.kind.isAlwaysPaid
+                        ? value.copyWith(
+                            premiumCategoryId: id,
+                            category: _nameFor(categoryOptions, id),
+                          )
+                        : value.copyWith(
+                            skillCategoryId: id,
+                            category: _nameFor(categoryOptions, id),
+                          ),
                   ),
                 ),
-            ],
-          ),
+              ),
 
-          // The language the lessons are taught in. One value, because that is
-          // what `Course.language` stores and what the detail screen prints.
-          const SizedBox(height: 16),
-          _label('Language'),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: [
-              for (final language in CourseDraft.languages)
-                PressableChip(
-                  label: language,
-                  selected: value.language == language,
-                  onTap: () => _write(value.copyWith(language: language)),
-                ),
-            ],
-          ),
+            const SizedBox(height: 16),
+            _label('Level', optional: true),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                for (final level in CourseLevel.values)
+                  PressableChip(
+                    label: level.label,
+                    selected: value.level == level,
+                    // Tapping the selected chip clears it: level is optional, and
+                    // without a way back out a mis-tap is permanent.
+                    onTap: () => _write(
+                      value.level == level
+                          ? value.copyWith(clearLevel: true)
+                          : value.copyWith(level: level),
+                    ),
+                  ),
+              ],
+            ),
 
-          const SizedBox(height: 18),
-          LabeledTextField(
-            label: 'Description',
-            hint: 'What will a student be able to do by the end?',
-            controller: descriptionController,
-            maxLines: 5,
-            onChanged: (text) {
-              _write(draft.value.copyWith(description: text));
-            },
-          ),
-          const SizedBox(height: 6),
-          Text(
-            'Required before you publish.',
-            style: GoogleFonts.figtree(fontSize: 11, color: builderMuted),
-          ),
+            // The language the lessons are taught in. One value, because that is
+            // what `Course.language` stores and what the detail screen prints.
+            const SizedBox(height: 16),
+            _label('Language'),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                for (final language in CourseDraft.languages)
+                  PressableChip(
+                    label: language,
+                    selected: value.language == language,
+                    onTap: () => _write(value.copyWith(language: language)),
+                  ),
+              ],
+            ),
 
-          const SizedBox(height: 18),
-          RepeatableField(
-            label: 'What students will learn',
-            values: value.outcomes,
-            addLabel: 'Add outcome',
-            hint: 'One thing they will be able to do',
-            onChanged: (next) => _write(draft.value.copyWith(outcomes: next)),
-          ),
+            const SizedBox(height: 18),
+            LabeledTextField(
+              label: 'Description',
+              hint: 'What will a student be able to do by the end?',
+              controller: descriptionController,
+              maxLines: 5,
+              onChanged: (text) {
+                _write(draft.value.copyWith(description: text));
+              },
+            ),
+            const SizedBox(height: 6),
+            Text(
+              'Required before you publish.',
+              style: GoogleFonts.figtree(fontSize: 11, color: builderMuted),
+            ),
 
-          const SizedBox(height: 18),
-          RepeatableField(
-            label: 'Requirements',
-            values: value.requirements,
-            addLabel: 'Add requirement',
-            hint: 'A tool, or prior knowledge',
-            max: 4,
-            onChanged: (next) =>
-                _write(draft.value.copyWith(requirements: next)),
-          ),
-        ],
+            const SizedBox(height: 18),
+            RepeatableField(
+              label: 'What students will learn',
+              values: value.outcomes,
+              addLabel: 'Add outcome',
+              hint: 'One thing they will be able to do',
+              onChanged: (next) => _write(draft.value.copyWith(outcomes: next)),
+            ),
+
+            const SizedBox(height: 18),
+            RepeatableField(
+              label: 'Requirements',
+              values: value.requirements,
+              addLabel: 'Add requirement',
+              hint: 'A tool, or prior knowledge',
+              max: 4,
+              onChanged: (next) =>
+                  _write(draft.value.copyWith(requirements: next)),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -403,7 +411,7 @@ class _CoverPicker extends StatelessWidget {
         AspectRatio(
           aspectRatio: 16 / 9,
           child: ClipRRect(
-            borderRadius: BorderRadius.circular(12),
+            borderRadius: BorderRadius.circular(16),
             child: Stack(
               fit: StackFit.expand,
               children: [

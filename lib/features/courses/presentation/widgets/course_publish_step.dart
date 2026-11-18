@@ -53,173 +53,184 @@ class CoursePublishStep extends StatelessWidget {
     );
 
     return SingleChildScrollView(
-      padding: const EdgeInsets.fromLTRB(24, 8, 24, 24),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          if (!instructorVerified) ...[
-            const _VerificationCard(),
-            const SizedBox(height: 16),
-          ],
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
+      child: Container(
+        padding: const EdgeInsets.fromLTRB(16, 16, 16, 20),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: builderFieldBorder),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            if (!instructorVerified) ...[
+              const _VerificationCard(),
+              const SizedBox(height: 16),
+            ],
 
-          _label('Pricing'),
-          Row(
-            children: [
-              // **A premium course has no Free option.** There is no free
-              // premium course, so offering the chip would be offering a state
-              // the product cannot publish — the draft forces `isPaid` true for
-              // this kind (see `CourseDraft.copyWith`), so a Free chip here
-              // would look tappable and do nothing.
-              if (!value.kind.isAlwaysPaid) ...[
+            _label('Pricing'),
+            Row(
+              children: [
+                // **A premium course has no Free option.** There is no free
+                // premium course, so offering the chip would be offering a state
+                // the product cannot publish — the draft forces `isPaid` true for
+                // this kind (see `CourseDraft.copyWith`), so a Free chip here
+                // would look tappable and do nothing.
+                if (!value.kind.isAlwaysPaid) ...[
+                  PressableChip(
+                    label: 'Free',
+                    selected: !value.isPaid,
+                    onTap: () {
+                      draft.value = value.copyWith(isPaid: false);
+                      onEdited();
+                    },
+                  ),
+                  const SizedBox(width: 8),
+                ],
                 PressableChip(
-                  label: 'Free',
-                  selected: !value.isPaid,
+                  label: 'Paid',
+                  selected: value.isPaid,
                   onTap: () {
-                    draft.value = value.copyWith(isPaid: false);
+                    draft.value = value.copyWith(isPaid: true);
                     onEdited();
                   },
                 ),
-                const SizedBox(width: 8),
               ],
-              PressableChip(
-                label: 'Paid',
-                selected: value.isPaid,
-                onTap: () {
-                  draft.value = value.copyWith(isPaid: true);
+            ),
+
+            if (value.isPaid) ...[
+              const SizedBox(height: 14),
+              LabeledTextField(
+                label: 'Price',
+                hint: '1,299',
+                controller: priceController,
+                requiredField: true,
+                keyboardType: TextInputType.number,
+                onChanged: (text) {
+                  draft.value = draft.value.copyWith(price: text);
                   onEdited();
                 },
               ),
-            ],
-          ),
-
-          if (value.isPaid) ...[
-            const SizedBox(height: 14),
-            LabeledTextField(
-              label: 'Price',
-              hint: '1,299',
-              controller: priceController,
-              requiredField: true,
-              keyboardType: TextInputType.number,
-              onChanged: (text) {
-                draft.value = draft.value.copyWith(price: text);
-                onEdited();
-              },
-            ),
-            const SizedBox(height: 6),
-            Text(
-              'Students pay once and keep lifetime access.',
-              style: GoogleFonts.figtree(fontSize: 11, color: builderMuted),
-            ),
-            const SizedBox(height: 10),
-            // A paid course is startable now: the student enrols into
-            // `pending_payment`, pays eSewa in the checkout sheet, and the
-            // server flips the enrolment to `active` when the gateway confirms.
-            // Said here because the instructor sets a price and cannot otherwise
-            // see what the student will meet.
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-              decoration: BoxDecoration(
-                color: builderCream,
-                borderRadius: BorderRadius.circular(8),
-                border: Border.all(
-                  color: builderYellow.withValues(alpha: 0.35),
-                ),
+              const SizedBox(height: 6),
+              Text(
+                'Students pay once and keep lifetime access.',
+                style: GoogleFonts.figtree(fontSize: 11, color: builderMuted),
               ),
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Icon(
-                    Icons.info_outline,
-                    size: 14,
-                    color: builderYellow,
+              const SizedBox(height: 10),
+              // A paid course is startable now: the student enrols into
+              // `pending_payment`, pays eSewa in the checkout sheet, and the
+              // server flips the enrolment to `active` when the gateway confirms.
+              // Said here because the instructor sets a price and cannot otherwise
+              // see what the student will meet.
+              Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 8,
+                ),
+                decoration: BoxDecoration(
+                  color: builderCream,
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(
+                    color: builderYellow.withValues(alpha: 0.35),
                   ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Text(
-                      'Students pay with eSewa before they can start. '
-                      'The course unlocks as soon as the payment is confirmed.',
-                      style: GoogleFonts.figtree(
-                        fontSize: 11,
-                        height: 1.4,
-                        color: builderBrown,
+                ),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Icon(
+                      Icons.info_outline,
+                      size: 14,
+                      color: builderYellow,
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        'Students pay with eSewa before they can start. '
+                        'The course unlocks as soon as the payment is confirmed.',
+                        style: GoogleFonts.figtree(
+                          fontSize: 11,
+                          height: 1.4,
+                          color: builderBrown,
+                        ),
                       ),
                     ),
+                  ],
+                ),
+              ),
+            ],
+
+            const SizedBox(height: 18),
+            _sectionHead('Summary', trailing: 'tap to edit'),
+            _SummaryCard(draft: value, onTap: () => onEditStep(0)),
+
+            const SizedBox(height: 16),
+            _sectionHead('Before you publish'),
+            Container(
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: builderBorder),
+              ),
+              clipBehavior: Clip.antiAlias,
+              child: Column(
+                children: [
+                  _CheckRow(
+                    label: 'Course details complete',
+                    passed: readiness.detailsComplete,
+                    onTap: () => onEditStep(0),
+                  ),
+                  _CheckRow(
+                    label: value.kind == CourseKind.academic
+                        ? 'Subject and grade chosen'
+                        : 'Category chosen',
+                    // A published course with no placement is reachable by
+                    // nobody: the Skills tab filters on the category and the
+                    // Courses tab on the grade.
+                    passed: readiness.placementChosen,
+                    onTap: () => onEditStep(0),
+                  ),
+                  _CheckRow(
+                    label: 'At least one lesson',
+                    passed: readiness.hasLesson,
+                    onTap: () => onEditStep(1),
+                  ),
+                  _CheckRow(
+                    label: 'Every lesson has a duration',
+                    passed: readiness.durationsComplete,
+                    onTap: () => onEditStep(1),
+                  ),
+                  _CheckRow(
+                    label: 'Price set',
+                    passed: readiness.priceSet,
+                    onTap: () => onEditStep(2),
+                  ),
+                  _CheckRow(
+                    label: 'Instructor account verified',
+                    passed: readiness.instructorVerified,
+                    // Not fixable in the builder, so it does not pretend to be:
+                    // tapping it does nothing and it carries no chevron.
+                    trailing: readiness.instructorVerified ? null : 'Not yet',
+                    isLast: true,
                   ),
                 ],
               ),
             ),
+
+            // Optional, so it sits below the gate: nothing here blocks Publish.
+            // A course-wide file is the syllabus or starter pack that belongs to
+            // no single lesson, which is why it cannot live in the curriculum.
+            const SizedBox(height: 18),
+            _sectionHead('Course resources', trailing: 'optional'),
+            _ResourceSection(
+              resources: resources,
+              loading: resourcesLoading,
+              uploading: resourcesUploading,
+              onAdd: onAddResources,
+              onRemove: onRemoveResource,
+            ),
           ],
-
-          const SizedBox(height: 18),
-          _sectionHead('Summary', trailing: 'tap to edit'),
-          _SummaryCard(draft: value, onTap: () => onEditStep(0)),
-
-          const SizedBox(height: 16),
-          _sectionHead('Before you publish'),
-          Container(
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(10),
-              border: Border.all(color: builderBorder),
-            ),
-            clipBehavior: Clip.antiAlias,
-            child: Column(
-              children: [
-                _CheckRow(
-                  label: 'Course details complete',
-                  passed: readiness.detailsComplete,
-                  onTap: () => onEditStep(0),
-                ),
-                _CheckRow(
-                  label: value.kind == CourseKind.academic
-                      ? 'Subject and grade chosen'
-                      : 'Category chosen',
-                  // A published course with no placement is reachable by
-                  // nobody: the Skills tab filters on the category and the
-                  // Courses tab on the grade.
-                  passed: readiness.placementChosen,
-                  onTap: () => onEditStep(0),
-                ),
-                _CheckRow(
-                  label: 'At least one lesson',
-                  passed: readiness.hasLesson,
-                  onTap: () => onEditStep(1),
-                ),
-                _CheckRow(
-                  label: 'Every lesson has a duration',
-                  passed: readiness.durationsComplete,
-                  onTap: () => onEditStep(1),
-                ),
-                _CheckRow(
-                  label: 'Price set',
-                  passed: readiness.priceSet,
-                  onTap: () => onEditStep(2),
-                ),
-                _CheckRow(
-                  label: 'Instructor account verified',
-                  passed: readiness.instructorVerified,
-                  // Not fixable in the builder, so it does not pretend to be:
-                  // tapping it does nothing and it carries no chevron.
-                  trailing: readiness.instructorVerified ? null : 'Not yet',
-                  isLast: true,
-                ),
-              ],
-            ),
-          ),
-
-          // Optional, so it sits below the gate: nothing here blocks Publish.
-          // A course-wide file is the syllabus or starter pack that belongs to
-          // no single lesson, which is why it cannot live in the curriculum.
-          const SizedBox(height: 18),
-          _sectionHead('Course resources', trailing: 'optional'),
-          _ResourceSection(
-            resources: resources,
-            loading: resourcesLoading,
-            uploading: resourcesUploading,
-            onAdd: onAddResources,
-            onRemove: onRemoveResource,
-          ),
-        ],
+        ),
       ),
     );
   }

@@ -15,7 +15,6 @@ import 'widgets/course_publish_step.dart';
 import 'widgets/lesson_editor_sheet.dart';
 import 'widgets/prompt_dialog.dart';
 
-const _bg = Color(0xFFFAF9F6);
 const _ink = Color(0xFF111827);
 const _gray = Color(0xFF4B5563);
 const _yellow = Color(0xFFE6B800);
@@ -1130,7 +1129,7 @@ class _CourseBuilderPageState extends State<CourseBuilderPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: _bg,
+      backgroundColor: Colors.white,
       body: PopScope(
         // The builder owns back: inside the wizard it steps back, and on step 1
         // it asks before throwing away a draft. Letting the route pop would skip
@@ -1266,15 +1265,24 @@ class _CourseBuilderPageState extends State<CourseBuilderPage> {
             // the checklist above the button is what explains the state.
             onPressed: _busy || !readiness.canPublish ? null : _publish,
           ),
-          const SizedBox(height: 4),
-          TextButton(
-            onPressed: _busy ? null : _saveAndClose,
-            child: Text(
-              'Save as draft',
-              style: GoogleFonts.manrope(
-                fontSize: 14,
-                fontWeight: FontWeight.w700,
-                color: _gray,
+          const SizedBox(height: 10),
+          SizedBox(
+            width: double.infinity,
+            height: 48,
+            child: OutlinedButton(
+              onPressed: _busy ? null : _saveAndClose,
+              style: OutlinedButton.styleFrom(
+                foregroundColor: _ink,
+                side: const BorderSide(color: Color(0xFFE5E7EB)),
+                shape: const StadiumBorder(),
+              ),
+              child: Text(
+                'Save as draft',
+                style: GoogleFonts.manrope(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w700,
+                  color: _ink,
+                ),
               ),
             ),
           ),
@@ -1301,22 +1309,29 @@ class _Header extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 12),
+    return Container(
+      decoration: const BoxDecoration(
+        color: Colors.white,
+        border: Border(bottom: BorderSide(color: Color(0xFFE5E7EB))),
+      ),
+      padding: const EdgeInsets.fromLTRB(12, 4, 12, 4),
       child: SizedBox(
-        height: 52,
+        height: 56,
         child: Row(
           children: [
             SizedBox(
-              width: 44,
-              height: 44,
+              width: 40,
+              height: 40,
               child: IconButton(
                 onPressed: onBack,
                 padding: EdgeInsets.zero,
                 tooltip: 'Back',
-                icon: const Icon(Icons.arrow_back_ios_new, size: 18),
+                icon: const Icon(Icons.arrow_back_ios_new, size: 16),
                 color: _ink,
-                style: IconButton.styleFrom(shape: const CircleBorder()),
+                style: IconButton.styleFrom(
+                  backgroundColor: const Color(0xFFF3F4F6),
+                  shape: const CircleBorder(),
+                ),
               ),
             ),
             const SizedBox(width: 8),
@@ -1362,8 +1377,11 @@ class _BottomBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Container(
-    padding: const EdgeInsets.fromLTRB(24, 10, 24, 16),
-    color: _bg,
+    padding: const EdgeInsets.fromLTRB(16, 10, 16, 16),
+    decoration: const BoxDecoration(
+      color: Colors.white,
+      border: Border(top: BorderSide(color: Color(0xFFE5E7EB))),
+    ),
     child: child,
   );
 }

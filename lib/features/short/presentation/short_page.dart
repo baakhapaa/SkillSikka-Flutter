@@ -1,41 +1,64 @@
+import 'dart:ui';
+
+import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'dart:async';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:video_player/video_player.dart';
 
-import 'short_video_data.dart';
+import '../../../core/config/app_environment.dart';
+import '../../../core/network/api_error.dart';
+import '../../../core/video/video_playback.dart';
+import '../../courses/data/course_api.dart';
+import '../../courses/presentation/course_details_page.dart';
+import '../data/short.dart';
+import '../data/shorts_api.dart';
 
-enum ShortFeedTab { stem, forYou }
+enum ShortFeedTab { stem, forYou, challenge }
 
 class ShortPage extends StatelessWidget {
-  const ShortPage({super.key});
+  const ShortPage({super.key, this.active = true});
+
+  /// False while another bottom tab is showing. The feed stays mounted, so
+  /// this is what stops the clip from playing under Home or Profile.
+  final bool active;
 
   @override
   Widget build(BuildContext context) {
-    return const ShortFeedPage();
+    return ShortFeedPage(active: active);
   }
 }
 
-class ShortFeedPage extends StatefulWidget {
-  const ShortFeedPage({super.key, this.initialTab = ShortFeedTab.stem});
+class ShortFeedPage extends ConsumerStatefulWidget {
+  const ShortFeedPage({
+    super.key,
+    this.initialTab = ShortFeedTab.stem,
+    this.active = true,
+  });
 
   final ShortFeedTab initialTab;
+  final bool active;
 
   @override
-  State<ShortFeedPage> createState() => _ShortFeedPageState();
+  ConsumerState<ShortFeedPage> createState() => _ShortFeedPageState();
 }
 
-class _ShortFeedPageState extends State<ShortFeedPage>
+class _ShortFeedPageState extends ConsumerState<ShortFeedPage>
     with SingleTickerProviderStateMixin {
   static const brandYellow = Color(0xFFFFD233);
 
   late ShortFeedTab _selectedTab = widget.initialTab;
-  bool _isLiked = false;
-  bool _isSaved = false;
-  late double _progressValue;
-  late int _likeCount;
-  late int _commentCount;
+  List<ShortVideoData> _items = const [];
+  var _index = 0;
+  var _loading = true;
+  String? _error;
+  String? _search;
+  final _seen = <int>{};
+  CancelToken? _loadToken;
+  PageController? _pageController;
   late final AnimationController _doubleTapLikeController;
   late final Animation<double> _doubleTapLikeScale;
   Offset? _doubleTapPosition;
@@ -44,9 +67,6 @@ class _ShortFeedPageState extends State<ShortFeedPage>
   @override
   void initState() {
     super.initState();
-    _progressValue = _videoData.initialProgress;
-    _likeCount = _videoData.likeCount;
-    _commentCount = _videoData.commentCount;
     _doubleTapLikeController = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 420),
@@ -57,34 +77,148 @@ class _ShortFeedPageState extends State<ShortFeedPage>
         curve: Curves.easeOutBack,
       ),
     );
+    _load();
   }
 
   @override
   void dispose() {
+    _loadToken?.cancel();
+    _pageController?.dispose();
     _doubleTapLikeController.dispose();
     super.dispose();
   }
 
-  ShortVideoData get _videoData =>
-      _selectedTab == ShortFeedTab.forYou ? forYouVideo : kStemVideo;
+  ShortVideoData? get _videoData =>
+      _items.isEmpty ? null : _items[_index.clamp(0, _items.length - 1)];
+
+  String get _feedQuery => switch (_selectedTab) {
+    ShortFeedTab.forYou => 'for_you',
+    ShortFeedTab.challenge => 'challenge',
+    ShortFeedTab.stem => 'stem',
+  };
+
+  Future<void> _load() async {
+    if (runningWidgetTests) {
+      setState(() => _loading = false);
+      return;
+    }
+    _loadToken?.cancel();
+    final token = CancelToken();
+    _loadToken = token;
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
+    try {
+      final items = await ref
+          .read(shortsApiProvider)
+          .list(feed: _feedQuery, search: _search, cancelToken: token);
+      if (!mounted || token.isCancelled) return;
+      _pageController?.dispose();
+      _pageController = PageController();
+      setState(() {
+        _items = items;
+        _index = 0;
+        _loading = false;
+      });
+      _recordView();
+    } on ApiException catch (error) {
+      if (!mounted || token.isCancelled) return;
+      setState(() {
+        _loading = false;
+        _error = error.displayMessage;
+        _items = const [];
+      });
+      _pageController?.dispose();
+      _pageController = null;
+    }
+  }
+
+  void _onPageChanged(int index) {
+    if (index == _index) return;
+    setState(() => _index = index);
+    _recordView();
+  }
+
+  void _recordView() {
+    final id = _videoData?.id;
+    if (id == null || !_seen.add(id)) return;
+    ref.read(shortsApiProvider).recordView(id);
+  }
+
+  int _indexOf(ShortVideoData data) {
+    final id = data.id;
+    if (id == null) return -1;
+    return _items.indexWhere((item) => item.id == id);
+  }
 
   void _selectTab(ShortFeedTab tab) {
     if (tab == _selectedTab) return;
-    setState(() {
-      _selectedTab = tab;
-      _isLiked = false;
-      _isSaved = false;
-      _progressValue = _videoData.initialProgress;
-      _likeCount = _videoData.likeCount;
-      _commentCount = _videoData.commentCount;
-    });
+    setState(() => _selectedTab = tab);
+    _load();
   }
 
-  void _toggleLike() {
+  Future<void> _toggleLike([ShortVideoData? target]) async {
+    final data = target ?? _videoData;
+    if (data == null) return;
+    final index = _indexOf(data);
+    if (index < 0) return;
+    final current = _items[index];
+    final id = current.id;
+    final next = !current.isLiked;
+    final nextCount = current.likeCount + (next ? 1 : -1);
+    final optimistic = nextCount < 0 ? 0 : nextCount;
     setState(() {
-      _isLiked = !_isLiked;
-      _likeCount += _isLiked ? 1 : -1;
+      _items[index] = current.copyWith(isLiked: next, likeCount: optimistic);
     });
+    if (id == null) return;
+    try {
+      final result = await ref.read(shortsApiProvider).toggleLike(id);
+      if (!mounted || index >= _items.length || _items[index].id != id) {
+        return;
+      }
+      setState(() {
+        _items[index] = _items[index].copyWith(
+          isLiked: result.isLiked,
+          likeCount: result.likeCount,
+        );
+      });
+    } on ApiException {
+      if (!mounted || index >= _items.length || _items[index].id != id) {
+        return;
+      }
+      setState(() => _items[index] = current);
+    }
+  }
+
+  Future<void> _toggleSave([ShortVideoData? target]) async {
+    final data = target ?? _videoData;
+    if (data == null) return;
+    final index = _indexOf(data);
+    if (index < 0) return;
+    final current = _items[index];
+    final id = current.id;
+    if (id == null) {
+      await _openSaveSheet();
+      return;
+    }
+    final next = !current.isSaved;
+    setState(() {
+      _items[index] = current.copyWith(isSaved: next);
+    });
+    try {
+      final api = ref.read(shortsApiProvider);
+      if (next) {
+        await api.save(id);
+      } else {
+        await api.unsave(id);
+      }
+    } on ApiException {
+      if (!mounted || index >= _items.length || _items[index].id != id) {
+        return;
+      }
+      setState(() => _items[index] = current);
+    }
   }
 
   void _handleDoubleTapDown(TapDownDetails details) {
@@ -92,13 +226,60 @@ class _ShortFeedPageState extends State<ShortFeedPage>
   }
 
   void _handleDoubleTap() {
-    if (!_isLiked) _toggleLike();
+    if (_videoData?.isLiked != true) _toggleLike();
     setState(() => _showDoubleTapLike = true);
     _doubleTapLikeController.forward(from: 0);
     Future<void>.delayed(const Duration(milliseconds: 720), () {
       if (!mounted) return;
       setState(() => _showDoubleTapLike = false);
     });
+  }
+
+  Future<void> _openCourse(int courseId) async {
+    try {
+      final detail = await ref.read(courseApiProvider).detail(courseId);
+      if (!mounted) return;
+      await Navigator.of(context).push(
+        MaterialPageRoute(builder: (_) => CourseDetailPage(course: detail)),
+      );
+    } on ApiException catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(error.displayMessage)));
+    }
+  }
+
+  Future<void> _openSearch() async {
+    final controller = TextEditingController(text: _search ?? '');
+    final query = await showDialog<String>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Search shorts'),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          decoration: const InputDecoration(
+            hintText: 'Title, caption, or name',
+          ),
+          onSubmitted: (value) => Navigator.pop(context, value),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, ''),
+            child: const Text('Clear'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, controller.text),
+            child: const Text('Search'),
+          ),
+        ],
+      ),
+    );
+    controller.dispose();
+    if (query == null || !mounted) return;
+    setState(() => _search = query.trim().isEmpty ? null : query.trim());
+    await _load();
   }
 
   Future<void> _openSaveSheet() async {
@@ -113,7 +294,15 @@ class _ShortFeedPageState extends State<ShortFeedPage>
     );
 
     if (selectedCollection != null && mounted) {
-      setState(() => _isSaved = true);
+      final data = _videoData;
+      if (data != null) {
+        final index = _indexOf(data);
+        if (index >= 0) {
+          setState(() {
+            _items[index] = _items[index].copyWith(isSaved: true);
+          });
+        }
+      }
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text('Saved to $selectedCollection'),
@@ -124,10 +313,20 @@ class _ShortFeedPageState extends State<ShortFeedPage>
   }
 
   void _onCommentAdded() {
-    setState(() => _commentCount++);
+    final data = _videoData;
+    if (data == null) return;
+    final index = _indexOf(data);
+    if (index < 0) return;
+    setState(() {
+      _items[index] = _items[index].copyWith(
+        commentCount: _items[index].commentCount + 1,
+      );
+    });
   }
 
   Future<void> _openShareSheet() async {
+    final video = _videoData;
+    if (video == null) return;
     await showGeneralDialog<void>(
       context: context,
       barrierDismissible: true,
@@ -152,7 +351,7 @@ class _ShortFeedPageState extends State<ShortFeedPage>
                   top: Radius.circular(20),
                 ),
                 clipBehavior: Clip.antiAlias,
-                child: ShareSheet(video: _videoData),
+                child: ShareSheet(video: video),
               ),
             ),
           ),
@@ -171,6 +370,8 @@ class _ShortFeedPageState extends State<ShortFeedPage>
   }
 
   Future<void> _openComments() async {
+    final video = _videoData;
+    if (video == null) return;
     await showModalBottomSheet<void>(
       context: context,
       backgroundColor: const Color(0xFF1C1C1E),
@@ -180,132 +381,116 @@ class _ShortFeedPageState extends State<ShortFeedPage>
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
       builder: (context) =>
-          CommentsSheet(video: _videoData, onCommentAdded: _onCommentAdded),
+          CommentsSheet(video: video, onCommentAdded: _onCommentAdded),
     );
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFF111827),
+      backgroundColor: Colors.black,
       body: Stack(
         fit: StackFit.expand,
         children: [
-          AnimatedSwitcher(
-            duration: const Duration(milliseconds: 280),
-            switchInCurve: Curves.easeOutCubic,
-            switchOutCurve: Curves.easeInCubic,
-            transitionBuilder: (child, animation) {
-              final isEnteringForYou =
-                  (child.key as ValueKey<ShortFeedTab>).value ==
-                  ShortFeedTab.forYou;
-              final begin = Offset(isEnteringForYou ? 1 : -1, 0);
-              return SlideTransition(
-                position: Tween<Offset>(
-                  begin: begin,
-                  end: Offset.zero,
-                ).animate(animation),
-                child: child,
-              );
-            },
-            child: _buildVideo(key: ValueKey(_selectedTab)),
-          ),
+          if (_loading)
+            const Center(
+              child: Text(
+                'Loading shorts…',
+                style: TextStyle(color: Colors.white),
+              ),
+            )
+          else if (_items.isEmpty || _pageController == null)
+            Center(
+              child: Padding(
+                padding: const EdgeInsets.all(32),
+                child: Text(
+                  _error ?? 'No shorts in this feed yet.',
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(color: Colors.white),
+                ),
+              ),
+            )
+          else
+            PageView.builder(
+              controller: _pageController,
+              scrollDirection: Axis.vertical,
+              itemCount: _items.length,
+              onPageChanged: _onPageChanged,
+              itemBuilder: (context, index) => _buildPage(index),
+            ),
           _buildTopNavigation(),
         ],
       ),
     );
   }
 
-  Widget _buildVideo({required Key key}) {
-    final data = _videoData;
-    return KeyedSubtree(
-      key: key,
-      child: Stack(
-        fit: StackFit.expand,
-        clipBehavior: Clip.hardEdge,
-        children: [
-          GestureDetector(
-            behavior: HitTestBehavior.opaque,
-            onDoubleTapDown: _handleDoubleTapDown,
-            onDoubleTap: _handleDoubleTap,
-            child: Image.asset(
-              data.image,
-              fit: data.fit,
-              alignment: Alignment.center,
+  Widget _buildPage(int index) {
+    final data = _items[index];
+    final current = index == _index;
+    return Stack(
+      fit: StackFit.expand,
+      clipBehavior: Clip.hardEdge,
+      children: [
+        _ShortStage(
+          key: ValueKey('${data.id}-${data.videoUrl}'),
+          videoUrl: data.videoUrl.isNotEmpty ? data.videoUrl : data.shareUrl,
+          poster: data.image,
+          posterFit: data.fit,
+          active: widget.active && current,
+          warm: (index - _index).abs() <= 1,
+          onDoubleTapDown: current ? _handleDoubleTapDown : null,
+          onDoubleTap: current ? _handleDoubleTap : null,
+        ),
+        const Positioned(
+          left: 0,
+          right: 0,
+          bottom: 3,
+          height: 260,
+          child: IgnorePointer(
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                  colors: [Color(0x00000000), Color(0xB3000000)],
+                ),
+              ),
             ),
           ),
-          if (_showDoubleTapLike && _doubleTapPosition != null)
-            Positioned(
-              left: _doubleTapPosition!.dx - 42,
-              top: _doubleTapPosition!.dy - 42,
-              child: IgnorePointer(
-                child: AnimatedOpacity(
-                  opacity: _showDoubleTapLike ? 1 : 0,
-                  duration: const Duration(milliseconds: 180),
-                  child: ScaleTransition(
-                    scale: _doubleTapLikeScale,
-                    child: const Icon(
-                      Icons.favorite,
-                      color: Color(0xFFF70303),
-                      size: 84,
-                    ),
+        ),
+        if (current && _showDoubleTapLike && _doubleTapPosition != null)
+          Positioned(
+            left: _doubleTapPosition!.dx - 42,
+            top: _doubleTapPosition!.dy - 42,
+            child: IgnorePointer(
+              child: AnimatedOpacity(
+                opacity: _showDoubleTapLike ? 1 : 0,
+                duration: const Duration(milliseconds: 180),
+                child: ScaleTransition(
+                  scale: _doubleTapLikeScale,
+                  child: const Icon(
+                    Icons.favorite,
+                    color: Color(0xFFF70303),
+                    size: 84,
                   ),
                 ),
               ),
             ),
-          Positioned(
-            left: 16,
-            right: 14,
-            bottom: 16,
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.end,
-              children: [
-                Expanded(child: _buildCreatorDetails(data: data)),
-                const SizedBox(width: 12),
-                _buildActionRail(),
-              ],
-            ),
           ),
-          Positioned(
-            left: 0,
-            right: 0,
-            bottom: 0,
-            child: SizedBox(
-              height: 4,
-              child: LayoutBuilder(
-                builder: (context, constraints) {
-                  return GestureDetector(
-                    behavior: HitTestBehavior.translucent,
-                    onHorizontalDragUpdate: (details) {
-                      setState(() {
-                        _progressValue =
-                            (details.localPosition.dx / constraints.maxWidth)
-                                .clamp(0.0, 1.0);
-                      });
-                    },
-                    onTapDown: (details) {
-                      setState(() {
-                        _progressValue =
-                            (details.localPosition.dx / constraints.maxWidth)
-                                .clamp(0.0, 1.0);
-                      });
-                    },
-                    child: Stack(
-                      children: [
-                        Container(color: Colors.white.withValues(alpha: 0.25)),
-                        FractionallySizedBox(
-                          widthFactor: _progressValue,
-                          child: Container(color: brandYellow),
-                        ),
-                      ],
-                    ),
-                  );
-                },
-              ),
-            ),
+        Positioned(
+          left: 16,
+          right: 10,
+          bottom: 16,
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              Expanded(child: _buildCreatorDetails(data: data)),
+              const SizedBox(width: 8),
+              _buildActionRail(data),
+            ],
           ),
-        ],
-      ),
+        ),
+      ],
     );
   }
 
@@ -317,12 +502,12 @@ class _ShortFeedPageState extends State<ShortFeedPage>
       child: SafeArea(
         bottom: false,
         child: Padding(
-          padding: const EdgeInsets.fromLTRB(16, 28, 12, 0),
+          padding: const EdgeInsets.fromLTRB(12, 8, 16, 0),
           child: Row(
             children: [
               _TopNavItem(
                 label: 'STEM',
-                isSelected: _selectedTab != ShortFeedTab.forYou,
+                isSelected: _selectedTab == ShortFeedTab.stem,
                 onTap: () => _selectTab(ShortFeedTab.stem),
               ),
               _TopNavItem(
@@ -330,10 +515,14 @@ class _ShortFeedPageState extends State<ShortFeedPage>
                 isSelected: _selectedTab == ShortFeedTab.forYou,
                 onTap: () => _selectTab(ShortFeedTab.forYou),
               ),
-              const _TopNavItem(label: 'Challenge'),
+              _TopNavItem(
+                label: 'Challenge',
+                isSelected: _selectedTab == ShortFeedTab.challenge,
+                onTap: () => _selectTab(ShortFeedTab.challenge),
+              ),
               const Spacer(),
               IconButton(
-                onPressed: () {},
+                onPressed: _openSearch,
                 tooltip: 'Search',
                 padding: EdgeInsets.zero,
                 constraints: const BoxConstraints(),
@@ -353,189 +542,626 @@ class _ShortFeedPageState extends State<ShortFeedPage>
       children: [
         Row(
           children: [
-            ClipOval(
-              child: Image.asset(
-                data.avatar,
-                width: 36,
-                height: 36,
-                fit: BoxFit.cover,
+            IgnorePointer(
+              child: ClipOval(
+                child: _shortImage(
+                  data.avatar,
+                  width: 40,
+                  height: 40,
+                  fit: BoxFit.cover,
+                ),
               ),
             ),
-            const SizedBox(width: 8),
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  data.creator,
-                  style: const TextStyle(
-                    fontFamily: 'Manrope',
-                    color: Colors.white,
-                    fontSize: 14,
-                    fontWeight: FontWeight.bold,
-                  ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: IgnorePointer(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      data.creator,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        fontFamily: 'Manrope',
+                        color: Colors.white,
+                        fontSize: 15,
+                        fontWeight: FontWeight.w700,
+                        height: 1.2,
+                      ),
+                    ),
+                    if (data.role.isNotEmpty)
+                      Text(
+                        data.role,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          color: brandYellow,
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                          height: 1.3,
+                        ),
+                      ),
+                  ],
                 ),
-                Text(
-                  data.role,
-                  style: const TextStyle(
-                    color: brandYellow,
-                    fontSize: 10,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-              ],
+              ),
             ),
           ],
         ),
         const SizedBox(height: 12),
-        Text(
-          data.description,
-          maxLines: 3,
-          style: const TextStyle(
-            fontFamily: 'Figtree',
-            color: Colors.white,
-            fontSize: 13,
-            height: 1.4,
+        IgnorePointer(
+          child: Text(
+            data.description,
+            maxLines: 3,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(
+              fontFamily: 'Figtree',
+              color: Colors.white,
+              fontSize: 14,
+              height: 1.35,
+              fontWeight: FontWeight.w500,
+            ),
           ),
         ),
-        const SizedBox(height: 12),
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-          decoration: BoxDecoration(
-            color: const Color.fromRGBO(255, 255, 255, 0.12),
-            borderRadius: BorderRadius.circular(20),
-          ),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Image.asset(
-                'assets/images/book-open.png',
-                width: 14,
-                height: 14,
-                fit: BoxFit.contain,
+        if (data.course.isNotEmpty) ...[
+          const SizedBox(height: 12),
+          GestureDetector(
+            onTap: data.courseId == null
+                ? null
+                : () => _openCourse(data.courseId!),
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+              decoration: BoxDecoration(
+                color: const Color.fromRGBO(0, 0, 0, 0.35),
+                borderRadius: BorderRadius.circular(24),
+                border: Border.all(color: brandYellow, width: 1.2),
               ),
-              const SizedBox(width: 6),
-              Text(
-                data.course,
-                style: const TextStyle(
-                  fontFamily: 'Figtree',
-                  color: Colors.white,
-                  fontSize: 11,
-                  fontWeight: FontWeight.w600,
-                ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Image.asset(
+                    'assets/images/book-open.png',
+                    width: 16,
+                    height: 16,
+                    fit: BoxFit.contain,
+                  ),
+                  const SizedBox(width: 8),
+                  Flexible(
+                    child: Text(
+                      data.course,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        fontFamily: 'Figtree',
+                        color: Colors.white,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                ],
               ),
-            ],
+            ),
           ),
-        ),
+        ],
       ],
     );
   }
 
-  Widget _buildActionRail() {
+  Widget _buildActionRail(ShortVideoData data) {
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
-        _ActionItem(
-          icon: Icons.quiz,
-          label: 'Quiz',
-          onTap: () => Navigator.push(
-            context,
-            MaterialPageRoute(builder: (context) => const QuizScreen()),
+        if (data.quizId != null)
+          _ActionItem(
+            icon: Icons.question_mark_rounded,
+            label: 'Quiz',
+            onTap: () {
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text(data.quizTitle ?? 'Quiz'),
+                  behavior: SnackBarBehavior.floating,
+                ),
+              );
+            },
           ),
-        ),
-        const SizedBox(height: 14),
+        if (data.quizId != null) const SizedBox(height: 16),
         _ActionItem(
-          asset: 'assets/images/hearticon.png',
-          label: '$_likeCount',
-          isActive: _isLiked,
+          icon: data.isLiked ? Icons.favorite : Icons.favorite_border,
+          label: _countLabel(data.likeCount),
+          isActive: data.isLiked,
           activeColor: const Color(0xFFF70303),
-          onTap: _toggleLike,
+          onTap: () => _toggleLike(data),
         ),
-        const SizedBox(height: 18),
+        const SizedBox(height: 16),
         _ActionItem(
-          asset: 'assets/images/commenticon.png',
-          label: '$_commentCount',
+          icon: Icons.chat_bubble_outline,
+          label: _countLabel(data.commentCount),
           onTap: _openComments,
         ),
-        const SizedBox(height: 18),
+        const SizedBox(height: 16),
         _ActionItem(
-          icon: Icons.bookmark,
-          label: _isSaved ? 'Saved' : 'Save',
-          isActive: _isSaved,
+          icon: data.isSaved ? Icons.bookmark : Icons.bookmark_border,
+          label: data.isSaved ? 'Saved' : 'Save',
+          isActive: data.isSaved,
           activeColor: brandYellow,
-          onTap: _openSaveSheet,
+          onTap: () => _toggleSave(data),
         ),
-        const SizedBox(height: 18),
+        const SizedBox(height: 16),
         _ActionItem(icon: Icons.share, label: 'Share', onTap: _openShareSheet),
       ],
     );
   }
 }
 
-class CommentsSheet extends StatefulWidget {
+Widget _shortImage(
+  String source, {
+  double? width,
+  double? height,
+  BoxFit fit = BoxFit.cover,
+}) {
+  final url = _mediaUrl(source);
+  if (url.startsWith('http')) {
+    return Image.network(
+      url,
+      width: width,
+      height: height,
+      fit: fit,
+      errorBuilder: (_, _, _) => ColoredBox(
+        color: const Color(0xFF1F2937),
+        child: SizedBox(width: width, height: height),
+      ),
+    );
+  }
+  if (url.startsWith('assets/')) {
+    return Image.asset(url, width: width, height: height, fit: fit);
+  }
+  return ColoredBox(
+    color: const Color(0xFF1F2937),
+    child: SizedBox(width: width, height: height),
+  );
+}
+
+/// A stored photo is often `profile-photos/...`, not an app asset and not a
+/// full URL. Point it at the API host's media folder.
+String _mediaUrl(String source) {
+  final value = source.trim();
+  if (value.isEmpty ||
+      value.startsWith('http://') ||
+      value.startsWith('https://') ||
+      value.startsWith('assets/')) {
+    return value;
+  }
+  final base = AppConfig.fromDefines().apiBaseUrl;
+  final origin = base.replaceFirst(RegExp(r'/api/v1/?$'), '');
+  final path = value.startsWith('/') ? value : '/media/$value';
+  return '$origin$path';
+}
+
+/// 1,428 stays grouped. 24,500 becomes 24.5K, matching the shorts rail.
+String _countLabel(int value) {
+  final safe = value < 0 ? 0 : value;
+  if (safe >= 1000000) {
+    final scaled = safe / 1000000;
+    final digits = scaled >= 10 ? 0 : 1;
+    return '${scaled.toStringAsFixed(digits)}M'.replaceAll('.0M', 'M');
+  }
+  if (safe >= 10000) {
+    final scaled = safe / 1000;
+    final digits = scaled >= 100 ? 0 : 1;
+    return '${scaled.toStringAsFixed(digits)}K'.replaceAll('.0K', 'K');
+  }
+  final digits = safe.toString();
+  final buffer = StringBuffer();
+  for (var i = 0; i < digits.length; i++) {
+    if (i > 0 && (digits.length - i) % 3 == 0) buffer.write(',');
+    buffer.write(digits[i]);
+  }
+  return buffer.toString();
+}
+
+/// Plays [videoUrl] full-bleed. The poster stays up until the first frame is
+/// ready. Widget tests never build a controller: `video_player` has no
+/// platform implementation there and a live one keeps a frame scheduled.
+class _ShortStage extends StatefulWidget {
+  const _ShortStage({
+    super.key,
+    required this.videoUrl,
+    required this.poster,
+    required this.posterFit,
+    required this.active,
+    this.warm = false,
+    this.onDoubleTapDown,
+    this.onDoubleTap,
+  });
+
+  final String videoUrl;
+  final String poster;
+  final BoxFit posterFit;
+
+  /// This page is the one on screen, so the clip should be playing.
+  final bool active;
+
+  /// A neighbour page. Load it so the next swipe starts immediately.
+  final bool warm;
+  final GestureTapDownCallback? onDoubleTapDown;
+  final GestureTapCallback? onDoubleTap;
+
+  @override
+  State<_ShortStage> createState() => _ShortStageState();
+}
+
+class _ShortStageState extends State<_ShortStage> with WidgetsBindingObserver {
+  VideoPlayerController? _controller;
+  final _progress = ValueNotifier<double>(0);
+  var _generation = 0;
+  var _ready = false;
+  var _failed = false;
+  var _pausedByUser = false;
+  var _backgrounded = false;
+  var _routeCurrent = true;
+
+  bool get _shouldLoad => widget.active || widget.warm;
+
+  bool get _shouldPlay =>
+      widget.active && _routeCurrent && !_pausedByUser && !_backgrounded;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    if (_shouldLoad) _open();
+  }
+
+  @override
+  void didUpdateWidget(_ShortStage old) {
+    super.didUpdateWidget(old);
+    final shouldLoad = widget.active || widget.warm;
+    if (old.videoUrl != widget.videoUrl) {
+      _pausedByUser = false;
+      _failed = false;
+      _progress.value = 0;
+      if (shouldLoad) {
+        _open();
+      } else {
+        _release();
+      }
+      return;
+    }
+    if (shouldLoad && _controller == null && !_failed) {
+      _open();
+      return;
+    }
+    if (!shouldLoad) {
+      _release();
+      return;
+    }
+    _applyPlay();
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final current = ModalRoute.of(context)?.isCurrent ?? true;
+    if (current == _routeCurrent) return;
+    _routeCurrent = current;
+    _applyPlay();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.paused ||
+        state == AppLifecycleState.detached ||
+        state == AppLifecycleState.hidden) {
+      _backgrounded = true;
+      _controller?.pause();
+      return;
+    }
+    _backgrounded = false;
+    _applyPlay();
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _generation++;
+    _release();
+    _progress.dispose();
+    super.dispose();
+  }
+
+  void _release() {
+    final previous = _controller;
+    _controller = null;
+    _ready = false;
+    previous?.removeListener(_onTick);
+    previous?.dispose();
+  }
+
+  void _open() {
+    final generation = ++_generation;
+    _release();
+    final url = _mediaUrl(widget.videoUrl);
+    if (!videoPlaybackSupported || !url.startsWith('http')) return;
+    final player = VideoPlayerController.networkUrl(
+      Uri.parse(url),
+      videoPlayerOptions: VideoPlayerOptions(mixWithOthers: true),
+    );
+    _controller = player;
+    player.initialize().then(
+      (_) {
+        if (!mounted || generation != _generation || _controller != player) {
+          if (_controller == player) {
+            _controller = null;
+            player.dispose();
+          }
+          return;
+        }
+        player
+          ..setLooping(true)
+          ..setVolume(1)
+          ..addListener(_onTick);
+        setState(() {
+          _ready = true;
+          _failed = false;
+        });
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (!mounted || _controller != player) return;
+          _applyPlay();
+        });
+      },
+      onError: (Object error) {
+        debugPrint('short video failed: $error');
+        if (_controller == player) {
+          _controller = null;
+          player.dispose();
+        }
+        if (!mounted || generation != _generation) return;
+        setState(() => _failed = true);
+      },
+    );
+  }
+
+  void _applyPlay() {
+    final player = _controller;
+    if (player == null || !player.value.isInitialized) return;
+    if (_shouldPlay) {
+      if (!player.value.isPlaying) player.play();
+    } else if (player.value.isPlaying) {
+      player.pause();
+    }
+  }
+
+  void _onTick() {
+    final player = _controller;
+    if (player == null || !player.value.isInitialized) return;
+    if (player.value.hasError) {
+      debugPrint('short video: ${player.value.errorDescription}');
+      _generation++;
+      _release();
+      if (mounted) setState(() => _failed = true);
+      return;
+    }
+    final duration = player.value.duration.inMilliseconds;
+    if (duration <= 0) return;
+    final next = (player.value.position.inMilliseconds / duration).clamp(
+      0.0,
+      1.0,
+    );
+    if ((next - _progress.value).abs() < 0.008) return;
+    _progress.value = next;
+  }
+
+  void _seek(double fraction) {
+    final next = fraction.clamp(0.0, 1.0);
+    _progress.value = next;
+    final player = _controller;
+    if (player == null || !player.value.isInitialized) return;
+    final ms = (player.value.duration.inMilliseconds * next).round();
+    player.seekTo(Duration(milliseconds: ms));
+  }
+
+  void _togglePause() {
+    if (_failed || (_controller == null && !_ready)) {
+      setState(() => _failed = false);
+      _open();
+      return;
+    }
+    if (!_ready) return;
+    setState(() => _pausedByUser = !_pausedByUser);
+    _applyPlay();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final player = _controller;
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onTap: _togglePause,
+          onDoubleTapDown: widget.onDoubleTapDown,
+          onDoubleTap: widget.onDoubleTap,
+          child: Stack(
+            fit: StackFit.expand,
+            children: [
+              if (!_ready) _shortImage(widget.poster, fit: widget.posterFit),
+              if (_ready && player != null)
+                Positioned.fill(child: _cover(player)),
+              if (_pausedByUser || _failed)
+                Center(
+                  child: DecoratedBox(
+                    decoration: const BoxDecoration(
+                      color: Color.fromRGBO(0, 0, 0, 0.45),
+                      shape: BoxShape.circle,
+                    ),
+                    child: SizedBox(
+                      width: 72,
+                      height: 72,
+                      child: Icon(
+                        _failed
+                            ? Icons.refresh_rounded
+                            : Icons.play_arrow_rounded,
+                        color: Colors.white,
+                        size: 46,
+                      ),
+                    ),
+                  ),
+                ),
+            ],
+          ),
+        ),
+        Positioned(
+          left: 0,
+          right: 0,
+          bottom: 0,
+          height: 18,
+          child: LayoutBuilder(
+            builder: (context, constraints) {
+              return GestureDetector(
+                behavior: HitTestBehavior.translucent,
+                onTapDown: (details) =>
+                    _seek(details.localPosition.dx / constraints.maxWidth),
+                onHorizontalDragUpdate: (details) =>
+                    _seek(details.localPosition.dx / constraints.maxWidth),
+                child: Align(
+                  alignment: Alignment.bottomCenter,
+                  child: SizedBox(
+                    height: 3,
+                    width: double.infinity,
+                    child: ValueListenableBuilder<double>(
+                      valueListenable: _progress,
+                      builder: (context, progress, _) {
+                        return Stack(
+                          fit: StackFit.expand,
+                          children: [
+                            const ColoredBox(
+                              color: Color.fromRGBO(255, 255, 255, 0.35),
+                            ),
+                            FractionallySizedBox(
+                              widthFactor: progress,
+                              alignment: Alignment.centerLeft,
+                              child: const ColoredBox(color: Color(0xFFFFD233)),
+                            ),
+                          ],
+                        );
+                      },
+                    ),
+                  ),
+                ),
+              );
+            },
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _cover(VideoPlayerController player) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final size = player.value.size;
+        final maxWidth = constraints.maxWidth;
+        final maxHeight = constraints.maxHeight;
+        if (size.isEmpty || maxWidth <= 0 || maxHeight <= 0) {
+          return VideoPlayer(player);
+        }
+        final widthScale = maxWidth / size.width;
+        final heightScale = maxHeight / size.height;
+        final scale = widthScale > heightScale ? widthScale : heightScale;
+        final width = size.width * scale;
+        final height = size.height * scale;
+        return ClipRect(
+          child: OverflowBox(
+            alignment: Alignment.center,
+            minWidth: width,
+            maxWidth: width,
+            minHeight: height,
+            maxHeight: height,
+            child: SizedBox(
+              width: width,
+              height: height,
+              child: VideoPlayer(player),
+            ),
+          ),
+        );
+      },
+    );
+  }
+}
+
+class CommentsSheet extends ConsumerStatefulWidget {
   const CommentsSheet({required this.video, this.onCommentAdded, super.key});
 
   final ShortVideoData video;
   final VoidCallback? onCommentAdded;
 
   @override
-  State<CommentsSheet> createState() => _CommentsSheetState();
+  ConsumerState<CommentsSheet> createState() => _CommentsSheetState();
 }
 
-class _CommentsSheetState extends State<CommentsSheet> {
+class _CommentsSheetState extends ConsumerState<CommentsSheet> {
   final _commentController = TextEditingController();
   final _commentFocusNode = FocusNode();
   final _scrollController = ScrollController();
   String? _replyingTo;
-  late final List<_CommentData> _comments = [
-    const _CommentData(
-      user: 'alex.dev',
-      text: 'This is exactly what I needed. Thank you!',
-      time: '2m',
-      avatar: 'assets/figma/face/faace4.png',
-    ),
-    const _CommentData(
-      user: 'codewithmaya',
-      text: 'The explanation at the end was so helpful.',
-      time: '8m',
-      avatar: 'assets/figma/face/face2.png',
-    ),
-    const _CommentData(
-      user: 'jordan_codes',
-      text: 'Saving this for later 👏',
-      time: '15m',
-      avatar: 'assets/figma/face/face3.png',
-    ),
-    const _CommentData(
-      user: 'nina.learns',
-      text: 'Could you make a follow-up on the next topic?',
-      time: '24m',
-      avatar: 'assets/figma/face/face5.png',
-    ),
-    const _CommentData(
-      user: 'dev_student',
-      text: 'Short, clear, and easy to follow.',
-      time: '31m',
-      avatar: 'assets/figma/face/Rectangle.png',
-    ),
-    const _CommentData(
-      user: 'sam.codes',
-      text: 'Great tip — sharing this with my study group.',
-      time: '42m',
-      avatar: 'assets/figma/face/face2.png',
-    ),
-    const _CommentData(
-      user: 'frontend.fan',
-      text: 'The visual example made this much easier to understand.',
-      time: '49m',
-      avatar: 'assets/figma/face/faace4.png',
-    ),
-    const _CommentData(
-      user: 'ravi.codes',
-      text: 'I tried this right after watching and it works perfectly.',
-      time: '1h',
-      avatar: 'assets/figma/face/face3.png',
-    ),
-  ];
+  int? _replyParentId;
+  final List<_CommentThread> _threads = [];
+  var _loadingComments = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadComments();
+  }
+
+  int get _commentTotal =>
+      _threads.fold<int>(0, (sum, thread) => sum + 1 + thread.replies.length);
+
+  Future<void> _loadComments() async {
+    final id = widget.video.id;
+    if (id == null) return;
+    setState(() => _loadingComments = true);
+    try {
+      final api = ref.read(shortsApiProvider);
+      final top = await api.comments(id);
+      final threads = <_CommentThread>[];
+      for (final comment in top) {
+        final replies = comment.replyCount > 0
+            ? await api.replies(comment.id)
+            : const <ShortComment>[];
+        threads.add(
+          _CommentThread(_fromComment(comment), [
+            for (final reply in replies) _fromComment(reply),
+          ]),
+        );
+      }
+      if (!mounted) return;
+      setState(() {
+        _threads
+          ..clear()
+          ..addAll(threads);
+        _loadingComments = false;
+      });
+    } on ApiException {
+      if (!mounted) return;
+      setState(() => _loadingComments = false);
+    }
+  }
+
+  _CommentData _fromComment(ShortComment comment) {
+    return _CommentData(
+      id: comment.id,
+      parentId: comment.parentId,
+      user: comment.author,
+      text: comment.text,
+      time: _commentAge(comment.createdAt),
+      isCreator: comment.isCreator,
+      isLiked: comment.isLiked,
+      likeCount: comment.likeCount,
+    );
+  }
 
   @override
   void dispose() {
@@ -545,53 +1171,84 @@ class _CommentsSheetState extends State<CommentsSheet> {
     super.dispose();
   }
 
-  void _addComment() {
+  Future<void> _addComment() async {
     final text = _commentController.text.trim();
     if (text.isEmpty) return;
-    final parent = _replyingTo == null
-        ? null
-        : _comments.cast<_CommentData?>().firstWhere(
-            (comment) => comment?.user == _replyingTo,
-            orElse: () => null,
-          );
-    final comment = _CommentData(
-      user: 'you',
-      text: text,
-      time: 'now',
-      avatar: 'assets/figma/face/face5.png',
-      parentUser: parent?.user,
-    );
-    setState(() {
-      if (parent == null) {
-        _comments.add(comment);
-      } else {
-        _comments.insert(_comments.indexOf(parent) + 1, comment);
-      }
+    final shortId = widget.video.id;
+    if (shortId == null) return;
+    try {
+      await ref
+          .read(shortsApiProvider)
+          .postComment(shortId, text: text, parentId: _replyParentId);
+      if (!mounted) return;
       _commentController.clear();
-      _replyingTo = null;
+      setState(() {
+        _replyingTo = null;
+        _replyParentId = null;
+      });
+      widget.onCommentAdded?.call();
+      await _loadComments();
+    } on ApiException catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(error.displayMessage)));
+    }
+  }
+
+  /// A reply always joins the top comment's thread. Replying to a reply
+  /// names that person, and the new row stays under the same comment.
+  void _replyTo(_CommentData root, {String? mention}) {
+    setState(() {
+      _replyingTo = mention ?? root.user;
+      _replyParentId = root.id;
     });
-    widget.onCommentAdded?.call();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (_scrollController.hasClients) {
-        _scrollController.animateTo(
-          _scrollController.position.maxScrollExtent,
-          duration: const Duration(milliseconds: 280),
-          curve: Curves.easeOutCubic,
-        );
-      }
+    _commentFocusNode.requestFocus();
+  }
+
+  void _cancelReply() {
+    setState(() {
+      _replyingTo = null;
+      _replyParentId = null;
     });
   }
 
-  void _replyTo(String user) {
+  Future<void> _toggleCommentLike(_CommentData comment) async {
+    final id = comment.id;
+    if (id == null) return;
+    final liked = comment.isLiked;
+    final count = comment.likeCount;
+    _setLike(id, !liked, count + (liked ? -1 : 1));
+    try {
+      final result = await ref.read(shortsApiProvider).toggleCommentLike(id);
+      if (!mounted) return;
+      _setLike(id, result.isLiked, result.likeCount);
+    } on ApiException {
+      if (!mounted) return;
+      _setLike(id, liked, count);
+    }
+  }
+
+  void _setLike(int id, bool liked, int count) {
     setState(() {
-      _replyingTo = user;
-      _commentController
-        ..text = '@$user '
-        ..selection = TextSelection.collapsed(
-          offset: _commentController.text.length,
-        );
+      for (final thread in _threads) {
+        if (thread.comment.id == id) {
+          thread.comment = thread.comment.copyWith(
+            isLiked: liked,
+            likeCount: count,
+          );
+          return;
+        }
+        final index = thread.replies.indexWhere((reply) => reply.id == id);
+        if (index >= 0) {
+          thread.replies[index] = thread.replies[index].copyWith(
+            isLiked: liked,
+            likeCount: count,
+          );
+          return;
+        }
+      }
     });
-    _commentFocusNode.requestFocus();
   }
 
   @override
@@ -622,7 +1279,7 @@ class _CommentsSheetState extends State<CommentsSheet> {
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
                   Text(
-                    'Comments (${widget.video.commentCount + (_comments.length - 8)})',
+                    'Comments ($_commentTotal)',
                     style: const TextStyle(
                       color: Colors.white,
                       fontFamily: 'Manrope',
@@ -638,87 +1295,94 @@ class _CommentsSheetState extends State<CommentsSheet> {
                 ],
               ),
               const SizedBox(height: 4),
-              Expanded(
-                child: _comments.isEmpty
-                    ? _buildEmptyState()
-                    : ListView.separated(
-                        controller: _scrollController,
-                        keyboardDismissBehavior:
-                            ScrollViewKeyboardDismissBehavior.onDrag,
-                        padding: const EdgeInsets.only(top: 4, bottom: 12),
-                        itemCount: _comments.length,
-                        separatorBuilder: (_, _) =>
-                            const Divider(height: 1, color: Color(0xFF2C2C2E)),
-                        itemBuilder: (context, index) {
-                          final comment = _comments[index];
-                          return SizedBox(
-                            height: 92,
-                            child: _CommentTile(
-                              key: ValueKey(
-                                '${comment.user}-${comment.time}-$index',
-                              ),
-                              comment: comment,
-                              isReply: comment.parentUser != null,
-                              onReply: () => _replyTo(comment.user),
-                            ),
-                          );
-                        },
-                      ),
-              ),
+              Expanded(child: _buildList()),
               SafeArea(
                 top: false,
                 minimum: const EdgeInsets.only(top: 8, bottom: 10),
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.end,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
                   children: [
-                    ClipOval(
-                      child: Image.asset(
-                        widget.video.avatar,
-                        width: 36,
-                        height: 36,
-                        fit: BoxFit.cover,
-                      ),
-                    ),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: TextField(
-                        controller: _commentController,
-                        focusNode: _commentFocusNode,
-                        minLines: 1,
-                        maxLines: 4,
-                        textInputAction: TextInputAction.newline,
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontFamily: 'Figtree',
-                          fontSize: 13,
-                        ),
-                        decoration: InputDecoration(
-                          hintText: _replyingTo == null
-                              ? 'Add a comment...'
-                              : 'Reply to @$_replyingTo...',
-                          hintStyle: const TextStyle(color: Color(0xFF9CA3AF)),
-                          filled: true,
-                          fillColor: const Color(0xFF2C2C2E),
-                          contentPadding: const EdgeInsets.symmetric(
-                            horizontal: 14,
-                            vertical: 10,
-                          ),
-                          border: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(22),
-                            borderSide: BorderSide.none,
-                          ),
+                    if (_replyingTo != null)
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: 8),
+                        child: Row(
+                          children: [
+                            Expanded(
+                              child: Text(
+                                'Replying to $_replyingTo',
+                                style: const TextStyle(
+                                  color: Color(0xFF9CA3AF),
+                                  fontFamily: 'Figtree',
+                                  fontSize: 12,
+                                ),
+                              ),
+                            ),
+                            GestureDetector(
+                              onTap: _cancelReply,
+                              child: const Icon(
+                                Icons.close,
+                                color: Colors.white70,
+                                size: 18,
+                              ),
+                            ),
+                          ],
                         ),
                       ),
-                    ),
-                    const SizedBox(width: 8),
-                    IconButton(
-                      onPressed: _addComment,
-                      tooltip: 'Post comment',
-                      style: IconButton.styleFrom(
-                        backgroundColor: const Color(0xFFFFD233),
-                        foregroundColor: Colors.black,
-                      ),
-                      icon: const Icon(Icons.send_rounded, size: 18),
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.end,
+                      children: [
+                        ClipOval(
+                          child: _shortImage(
+                            widget.video.avatar,
+                            width: 36,
+                            height: 36,
+                            fit: BoxFit.cover,
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: TextField(
+                            controller: _commentController,
+                            focusNode: _commentFocusNode,
+                            minLines: 1,
+                            maxLines: 4,
+                            textInputAction: TextInputAction.newline,
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontFamily: 'Figtree',
+                              fontSize: 13,
+                            ),
+                            decoration: InputDecoration(
+                              hintText: _replyingTo == null
+                                  ? 'Add a comment...'
+                                  : 'Reply to $_replyingTo...',
+                              hintStyle: const TextStyle(
+                                color: Color(0xFF9CA3AF),
+                              ),
+                              filled: true,
+                              fillColor: const Color(0xFF2C2C2E),
+                              contentPadding: const EdgeInsets.symmetric(
+                                horizontal: 14,
+                                vertical: 10,
+                              ),
+                              border: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(22),
+                                borderSide: BorderSide.none,
+                              ),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        IconButton(
+                          onPressed: _addComment,
+                          tooltip: 'Post comment',
+                          style: IconButton.styleFrom(
+                            backgroundColor: const Color(0xFFFFD233),
+                            foregroundColor: Colors.black,
+                          ),
+                          icon: const Icon(Icons.send_rounded, size: 18),
+                        ),
+                      ],
                     ),
                   ],
                 ),
@@ -727,6 +1391,41 @@ class _CommentsSheetState extends State<CommentsSheet> {
           ),
         ),
       ),
+    );
+  }
+
+  Widget _buildList() {
+    if (_loadingComments && _threads.isEmpty) {
+      return const Center(
+        child: CircularProgressIndicator(color: Color(0xFFFFD233)),
+      );
+    }
+    if (_threads.isEmpty) return _buildEmptyState();
+    return ListView.builder(
+      controller: _scrollController,
+      keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
+      padding: const EdgeInsets.only(top: 4, bottom: 12),
+      itemCount: _threads.length,
+      itemBuilder: (context, index) {
+        final thread = _threads[index];
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            _CommentTile(
+              comment: thread.comment,
+              onReply: () => _replyTo(thread.comment),
+              onLike: () => _toggleCommentLike(thread.comment),
+            ),
+            for (final reply in thread.replies)
+              _CommentTile(
+                comment: reply,
+                isReply: true,
+                onReply: () => _replyTo(thread.comment, mention: reply.user),
+                onLike: () => _toggleCommentLike(reply),
+              ),
+          ],
+        );
+      },
     );
   }
 
@@ -760,58 +1459,92 @@ class _CommentsSheetState extends State<CommentsSheet> {
   }
 }
 
+class _CommentThread {
+  _CommentThread(this.comment, List<_CommentData> replies)
+    : replies = List.of(replies);
+
+  _CommentData comment;
+  final List<_CommentData> replies;
+}
+
 class _CommentData {
   const _CommentData({
+    this.id,
+    this.parentId,
     required this.user,
     required this.text,
     required this.time,
-    required this.avatar,
-    this.parentUser,
+    this.isCreator = false,
+    this.isLiked = false,
+    this.likeCount = 0,
   });
 
+  final int? id;
+  final int? parentId;
   final String user;
   final String text;
   final String time;
-  final String avatar;
-  final String? parentUser;
+  final bool isCreator;
+  final bool isLiked;
+  final int likeCount;
+
+  _CommentData copyWith({bool? isLiked, int? likeCount}) {
+    return _CommentData(
+      id: id,
+      parentId: parentId,
+      user: user,
+      text: text,
+      time: time,
+      isCreator: isCreator,
+      isLiked: isLiked ?? this.isLiked,
+      likeCount: likeCount ?? this.likeCount,
+    );
+  }
 }
 
-class _CommentTile extends StatefulWidget {
+String _commentAge(DateTime? when) {
+  if (when == null) return 'now';
+  final delta = DateTime.now().difference(when);
+  if (delta.inMinutes < 1) return 'now';
+  if (delta.inHours < 1) return '${delta.inMinutes}m';
+  if (delta.inDays < 1) return '${delta.inHours}h';
+  return '${delta.inDays}d';
+}
+
+class _CommentTile extends StatelessWidget {
   const _CommentTile({
     required this.comment,
     required this.onReply,
-    required this.isReply,
-    super.key,
+    required this.onLike,
+    this.isReply = false,
   });
 
   final _CommentData comment;
   final VoidCallback onReply;
+  final VoidCallback onLike;
   final bool isReply;
 
   @override
-  State<_CommentTile> createState() => _CommentTileState();
-}
-
-class _CommentTileState extends State<_CommentTile> {
-  bool _isLiked = false;
-
-  @override
   Widget build(BuildContext context) {
+    final size = isReply ? 28.0 : 36.0;
+    final initial = comment.user.trim().isEmpty
+        ? '?'
+        : comment.user.trim()[0].toUpperCase();
     return Padding(
-      padding: EdgeInsets.only(
-        left: widget.isReply ? 28 : 0,
-        top: 8,
-        bottom: 8,
-      ),
+      padding: EdgeInsets.only(left: isReply ? 46 : 0, top: 12, right: 2),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          ClipOval(
-            child: Image.asset(
-              widget.comment.avatar,
-              width: 36,
-              height: 36,
-              fit: BoxFit.cover,
+          CircleAvatar(
+            radius: size / 2,
+            backgroundColor: const Color(0xFF374151),
+            child: Text(
+              initial,
+              style: TextStyle(
+                color: Colors.white,
+                fontSize: isReply ? 11 : 13,
+                fontWeight: FontWeight.w700,
+              ),
             ),
           ),
           const SizedBox(width: 10),
@@ -819,72 +1552,96 @@ class _CommentTileState extends State<_CommentTile> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
+                Text.rich(
+                  TextSpan(
+                    children: [
+                      TextSpan(
+                        text: comment.user,
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontFamily: 'Manrope',
+                          fontSize: 13,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                      if (comment.isCreator)
+                        const TextSpan(
+                          text: '  Creator',
+                          style: TextStyle(
+                            color: Color(0xFFFFD233),
+                            fontFamily: 'Figtree',
+                            fontSize: 11,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      TextSpan(
+                        text: '  ${comment.text}',
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontFamily: 'Figtree',
+                          fontSize: 13,
+                          height: 1.35,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 6),
                 Row(
                   children: [
                     Text(
-                      widget.comment.user,
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontFamily: 'Manrope',
-                        fontSize: 11,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    Text(
-                      widget.comment.time == 'now'
-                          ? 'just now'
-                          : '${widget.comment.time} ago',
+                      comment.time,
                       style: const TextStyle(
                         color: Color(0xFF9CA3AF),
-                        fontSize: 10,
+                        fontSize: 12,
+                      ),
+                    ),
+                    const SizedBox(width: 16),
+                    GestureDetector(
+                      onTap: onReply,
+                      child: const Text(
+                        'Reply',
+                        style: TextStyle(
+                          color: Color(0xFF9CA3AF),
+                          fontFamily: 'Figtree',
+                          fontSize: 12,
+                          fontWeight: FontWeight.w700,
+                        ),
                       ),
                     ),
                   ],
                 ),
-                const SizedBox(height: 4),
-                Text(
-                  widget.comment.text,
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontFamily: 'Figtree',
-                    fontSize: 12,
-                    height: 1.25,
-                  ),
-                ),
-                const SizedBox(height: 4),
-                InkWell(
-                  onTap: widget.onReply,
-                  borderRadius: BorderRadius.circular(4),
-                  child: const Padding(
-                    padding: EdgeInsets.symmetric(vertical: 2),
-                    child: Text(
-                      'Reply',
-                      style: TextStyle(
-                        color: Color(0xFF9CA3AF),
-                        fontFamily: 'Figtree',
-                        fontSize: 10,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                  ),
-                ),
               ],
             ),
           ),
-          IconButton(
-            onPressed: () => setState(() => _isLiked = !_isLiked),
-            padding: EdgeInsets.zero,
-            constraints: const BoxConstraints(minWidth: 28, minHeight: 28),
-            tooltip: 'Like comment',
-            icon: Icon(
-              _isLiked ? Icons.favorite : Icons.favorite_border,
-              color: _isLiked
-                  ? const Color(0xFFFFD233)
-                  : const Color(0xFF9CA3AF),
-              size: 16,
+          const SizedBox(width: 8),
+          GestureDetector(
+            onTap: onLike,
+            behavior: HitTestBehavior.opaque,
+            child: SizedBox(
+              width: 36,
+              child: Column(
+                children: [
+                  Icon(
+                    comment.isLiked ? Icons.favorite : Icons.favorite_border,
+                    size: 18,
+                    color: comment.isLiked
+                        ? const Color(0xFFFF2D55)
+                        : Colors.white,
+                  ),
+                  if (comment.likeCount > 0) ...[
+                    const SizedBox(height: 2),
+                    Text(
+                      _countLabel(comment.likeCount),
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 11,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ],
+                ],
+              ),
             ),
           ),
         ],
@@ -936,7 +1693,7 @@ class _ShareSheetState extends State<ShareSheet> {
                 children: [
                   ClipRRect(
                     borderRadius: BorderRadius.circular(8),
-                    child: Image.asset(
+                    child: _shortImage(
                       widget.video.image,
                       width: 42,
                       height: 42,
@@ -1030,7 +1787,11 @@ class _ShareSheetState extends State<ShareSheet> {
 
   Future<void> _copyLink() async {
     await Clipboard.setData(
-      ClipboardData(text: 'https://${widget.video.shareUrl}'),
+      ClipboardData(
+        text: widget.video.shareUrl.startsWith('http')
+            ? widget.video.shareUrl
+            : 'https://${widget.video.shareUrl}',
+      ),
     );
     if (!mounted) return;
     setState(() => _isCopied = true);
@@ -1314,7 +2075,7 @@ class _TopNavItem extends StatelessWidget {
       onTap: onTap,
       borderRadius: BorderRadius.circular(4),
       child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 4),
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
@@ -1324,17 +2085,20 @@ class _TopNavItem extends StatelessWidget {
                 fontFamily: 'Figtree',
                 color: isSelected
                     ? Colors.white
-                    : Colors.white.withValues(alpha: 0.55),
-                fontSize: 20,
-                fontWeight: isSelected ? FontWeight.w700 : FontWeight.w400,
+                    : Colors.white.withValues(alpha: 0.62),
+                fontSize: 18,
+                fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
+                shadows: const [
+                  Shadow(color: Color(0x99000000), blurRadius: 10),
+                ],
               ),
             ),
-            const SizedBox(height: 4),
+            const SizedBox(height: 6),
             AnimatedContainer(
               duration: const Duration(milliseconds: 220),
               curve: Curves.easeOutCubic,
-              height: 2,
-              width: isSelected ? 28 : 0,
+              height: 3,
+              width: isSelected ? 36 : 0,
               decoration: BoxDecoration(
                 color: const Color(0xFFFFD233),
                 borderRadius: BorderRadius.circular(2),
@@ -1349,17 +2113,14 @@ class _TopNavItem extends StatelessWidget {
 
 class _ActionItem extends StatelessWidget {
   const _ActionItem({
-    this.icon,
-    this.asset,
+    required this.icon,
     required this.label,
     this.isActive = false,
     this.activeColor,
     this.onTap,
-  }) : assert(icon != null || asset != null),
-       assert(icon == null || asset == null);
+  });
 
-  final IconData? icon;
-  final String? asset;
+  final IconData icon;
   final String label;
   final bool isActive;
   final Color? activeColor;
@@ -1368,53 +2129,42 @@ class _ActionItem extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final iconColor = isActive ? (activeColor ?? Colors.white) : Colors.white;
-    final visual = asset != null
-        ? Image.asset(
-            asset!,
-            width: 30,
-            height: 30,
-            fit: BoxFit.contain,
-            color: iconColor,
-            colorBlendMode: BlendMode.srcIn,
-          )
-        : Icon(icon!, color: iconColor, size: 30);
-
-    return Column(
-      children: [
-        SizedBox(
-          width: 44,
-          height: 44,
-          child: Center(
-            child: onTap != null
-                ? InkWell(
-                    onTap: onTap,
-                    customBorder: const CircleBorder(),
-                    child: SizedBox(
-                      width: 44,
-                      height: 44,
-                      child: Center(child: visual),
-                    ),
-                  )
-                : visual,
+    return GestureDetector(
+      onTap: onTap,
+      behavior: HitTestBehavior.opaque,
+      child: Column(
+        children: [
+          ClipOval(
+            child: BackdropFilter(
+              filter: ImageFilter.blur(sigmaX: 16, sigmaY: 16),
+              child: Container(
+                width: 48,
+                height: 48,
+                alignment: Alignment.center,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: const Color.fromRGBO(255, 255, 255, 0.18),
+                  border: Border.all(
+                    color: const Color.fromRGBO(255, 255, 255, 0.45),
+                  ),
+                ),
+                child: Icon(icon, color: iconColor, size: 22),
+              ),
+            ),
           ),
-        ),
-        const SizedBox(height: 4),
-        AnimatedSwitcher(
-          duration: const Duration(milliseconds: 220),
-          transitionBuilder: (child, animation) =>
-              ScaleTransition(scale: animation, child: child),
-          child: Text(
+          const SizedBox(height: 6),
+          Text(
             label,
-            key: ValueKey(label),
             style: const TextStyle(
               fontFamily: 'Figtree',
               color: Colors.white,
-              fontSize: 11,
+              fontSize: 12,
               fontWeight: FontWeight.w600,
+              shadows: [Shadow(color: Color(0x99000000), blurRadius: 8)],
             ),
           ),
-        ),
-      ],
+        ],
+      ),
     );
   }
 }

@@ -124,14 +124,21 @@ void main() {
       // production fallback and printing a Dio dump.
       coursesTestScope(
         api: FakeCourseApi(),
-        child: eventsTestScope(child: const MaterialApp(home: HomePage())),
+        child: eventsTestScope(
+          academic: [coursePool.first],
+          child: const MaterialApp(home: HomePage()),
+        ),
       ),
     );
     await tester.pump();
+    await tester.pump();
+    // The rail slides the cards in. A tap during that slide hits the position
+    // the card is leaving, not the card.
+    await tester.pump(const Duration(milliseconds: 400));
     drainUnrelatedOverflows(tester);
 
-    // The rail samples the same catalogue the Courses tab filters, so `All`
-    // shows the catalogue's first four — and this title leads it.
+    // The rail shows the academic courses it was given. This test supplies the
+    // catalogue's first course, which is what the card must open.
     final card = find.text(coursePool.first.title);
     // **Not `tester.ensureVisible`.** That aligns the target to the viewport's
     // *top edge*, and HomePage's header is a `Stack` overlay rather than part of

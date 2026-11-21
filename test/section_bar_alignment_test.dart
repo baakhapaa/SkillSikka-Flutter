@@ -5,6 +5,7 @@ import 'package:skillsikka/features/home/presentation/home_page.dart';
 
 import 'support/events_test_scope.dart';
 import 'support/home_page_font_harness.dart';
+import 'support/premium_course_rows.dart';
 
 void main() {
   installHomePageFontHarness();
@@ -13,10 +14,15 @@ void main() {
     await tester.binding.setSurfaceSize(Size(width, 800));
     addTearDown(() => tester.binding.setSurfaceSize(null));
     // The events rail is provider-driven; the scope stubs it so this test stays
-    // a layout measurement.
+    // a layout measurement. The enrollment pill only exists once a premium
+    // course is on the rail, so this test supplies one.
     await tester.pumpWidget(
-      eventsTestScope(child: const MaterialApp(home: HomePage())),
+      eventsTestScope(
+        premium: [premiumCourse(price: '2499.00')],
+        child: const MaterialApp(home: HomePage()),
+      ),
     );
+    await tester.pump();
     await tester.pump();
   }
 
@@ -26,7 +32,10 @@ void main() {
     // 360x800 is the phone the enrollment bug was reported on.
     await pumpHome(tester, 360);
 
-    for (final title in ['Explore our Top instructors', 'Get Premium Courses']) {
+    for (final title in [
+      'Explore our Top instructors',
+      'Get Premium Courses',
+    ]) {
       final row = find
           .ancestor(of: find.text(title), matching: find.byType(Row))
           .first;
@@ -46,7 +55,7 @@ void main() {
     }
 
     final label = find.text('ENROLLMENT').first;
-    final price = find.text('Rs.24.99').first;
+    final price = find.text('Rs. 2,499').first;
     final pill = find
         .ancestor(of: label, matching: find.byType(Container))
         .first;
@@ -71,7 +80,7 @@ void main() {
     // the pill rendered "ENROLLM / ENT" and "Rs.24. / 99" and overflowed by 1px.
     for (final (finder, text, lineHeight) in [
       (label, 'ENROLLMENT', 10.0),
-      (price, 'Rs.24.99', 17.0),
+      (price, 'Rs. 2,499', 17.0),
     ]) {
       final rect = tester.getRect(finder);
       expect(

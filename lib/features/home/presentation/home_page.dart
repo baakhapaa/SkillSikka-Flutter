@@ -5,6 +5,7 @@ import 'instructor_carousel.dart';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:skillsikka/core/widgets/course_detail_view.dart';
 import 'package:skillsikka/core/widgets/course_grid_card.dart';
 import 'package:skillsikka/core/widgets/course_image.dart';
 import 'package:skillsikka/core/widgets/section_bar.dart';
@@ -16,13 +17,12 @@ import 'package:skillsikka/features/events/presentation/event_format.dart';
 import 'package:skillsikka/features/events/presentation/events_list_page.dart';
 import 'package:skillsikka/features/instructors/presentation/instructor_page.dart';
 import 'package:skillsikka/features/books/presentation/book_details.dart';
-import 'package:skillsikka/features/courses/data/course.dart';
+import 'package:skillsikka/features/courses/data/course_api.dart';
 import 'package:skillsikka/features/courses/presentation/course_details_page.dart';
 import 'package:skillsikka/features/courses/presentation/courses.dart';
 import 'package:skillsikka/features/premium_courses/presentation/premium_course_details_page.dart';
 import 'package:skillsikka/features/premium_courses/presentation/premium_courses_page.dart';
 import 'package:skillsikka/features/recommendedcourse/presentation/recommended_course.dart';
-import 'package:skillsikka/features/skill_courses/data/skill_course.dart';
 import 'package:skillsikka/features/skill_courses/presentation/skill_courses.dart';
 import 'package:skillsikka/features/search/presentation/search_page.dart';
 import 'package:skillsikka/features/notification/presentation/notification_page.dart';
@@ -55,6 +55,10 @@ class _HomePageState extends State<HomePage>
   double _heroSnapTarget = 0;
   bool _heroAnimating = false;
   int _selectedClassIndex = 0;
+  final List<GlobalKey> _classChipKeys = List<GlobalKey>.generate(
+    6,
+    (_) => GlobalKey(),
+  );
 
   /// Null until the rail's data arrives: the durations come from the camps
   /// themselves, so there is no honest default before then.
@@ -559,11 +563,10 @@ class _HomePageState extends State<HomePage>
     return _HeroCardLayout.lerp(from, to, t);
   }
 
-  /// The four skills the Skill Courses tab is built around, in chip order.
+  /// The four skills the Skill Courses tab opens with, in chip order.
   ///
-  /// The count under each label is **derived from the catalogue** rather than
-  /// authored: the old hardcoded `'32 Courses'` disagreed with the tab, which
-  /// counts the same pool, and `'40 Lessons'` was the odd one out.
+  /// The number under each label is how many published courses carry that
+  /// category, counted from the same list the tab shows.
   static const _skillRail = <(IconData, String)>[
     (Icons.code, 'Coding'),
     (Icons.brush, 'Drawing'),
@@ -593,89 +596,99 @@ class _HomePageState extends State<HomePage>
           ),
         ),
         const SizedBox(height: 12),
-        SizedBox(
-          height: 60,
-          child: ListView.separated(
-            padding: const EdgeInsets.symmetric(horizontal: 16),
-            scrollDirection: Axis.horizontal,
-            itemCount: _skillRail.length,
-            separatorBuilder: (c, i) => const SizedBox(width: 14),
-            itemBuilder: (context, index) {
-              final (icon, skill) = _skillRail[index];
-              final count = skillCoursePool
-                  .where((c) => c.category == skill)
-                  .length;
-
-              return GestureDetector(
-                onTap: () {
-                  Navigator.of(context).push(
-                    MaterialPageRoute(
-                      builder: (_) => SkillCoursesPage(initialSkill: skill),
+        Consumer(
+          builder: (context, ref, _) {
+            return ref
+                .watch(skillCatalogueProvider)
+                .when(
+                  loading: () => const SizedBox(height: 60),
+                  error: (_, _) => Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 16),
+                    child: Text(
+                      'Skill courses could not be loaded.',
+                      style: GoogleFonts.figtree(fontSize: 13, color: _gray),
                     ),
-                  );
-                },
-                child: Container(
-                  constraints: const BoxConstraints(minWidth: 140),
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 12,
-                    vertical: 10,
                   ),
-                  decoration: BoxDecoration(
-                    color: Colors.white,
-                    borderRadius: BorderRadius.circular(14),
-                    border: Border.all(color: const Color(0xFFF3F4F6)),
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.black.withValues(alpha: 0.03),
-                        blurRadius: 8,
-                      ),
-                    ],
-                  ),
-                  child: Row(
-                    children: [
-                      Container(
-                        width: 36,
-                        height: 36,
-                        decoration: const BoxDecoration(
-                          color: Color(0xFFFFFBEB),
-                          shape: BoxShape.circle,
-                        ),
-                        child: Icon(
-                          icon,
-                          color: const Color(0xFFE6BD1E),
-                          size: 18,
-                        ),
-                      ),
-                      const SizedBox(width: 10),
-                      Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Text(
-                            skill,
-                            style: GoogleFonts.inter(
-                              fontSize: 11,
-                              fontWeight: FontWeight.w700,
-                              color: _titleInk,
-                            ),
-                          ),
-                          Text(
-                            '$count Courses',
-                            style: GoogleFonts.figtree(
-                              fontSize: 9,
-                              color: _gray,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ],
-                  ),
+                  data: (courses) => _skillRailCards(courses),
+                );
+          },
+        ),
+      ],
+    );
+  }
+
+  Widget _skillRailCards(List<CourseDetailData> courses) {
+    return SizedBox(
+      height: 60,
+      child: ListView.separated(
+        padding: const EdgeInsets.symmetric(horizontal: 16),
+        scrollDirection: Axis.horizontal,
+        itemCount: _skillRail.length,
+        separatorBuilder: (c, i) => const SizedBox(width: 14),
+        itemBuilder: (context, index) {
+          final (icon, skill) = _skillRail[index];
+          final count = courses
+              .where((course) => course.category.trim() == skill)
+              .length;
+
+          return GestureDetector(
+            onTap: () {
+              Navigator.of(context).push(
+                MaterialPageRoute(
+                  builder: (_) => SkillCoursesPage(initialSkill: skill),
                 ),
               );
             },
-          ),
-        ),
-      ],
+            child: Container(
+              constraints: const BoxConstraints(minWidth: 140),
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(color: const Color(0xFFF3F4F6)),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: 0.03),
+                    blurRadius: 8,
+                  ),
+                ],
+              ),
+              child: Row(
+                children: [
+                  Container(
+                    width: 36,
+                    height: 36,
+                    decoration: const BoxDecoration(
+                      color: Color(0xFFFFFBEB),
+                      shape: BoxShape.circle,
+                    ),
+                    child: Icon(icon, color: const Color(0xFFE6BD1E), size: 18),
+                  ),
+                  const SizedBox(width: 10),
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Text(
+                        skill,
+                        style: GoogleFonts.inter(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w700,
+                          color: _titleInk,
+                        ),
+                      ),
+                      Text(
+                        '$count Courses',
+                        style: GoogleFonts.figtree(fontSize: 9, color: _gray),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          );
+        },
+      ),
     );
   }
 
@@ -1166,6 +1179,19 @@ class _HomePageState extends State<HomePage>
     );
   }
 
+  void _selectClass(int index) {
+    if (index == _selectedClassIndex) return;
+    setState(() => _selectedClassIndex = index);
+    final target = _classChipKeys[index].currentContext;
+    if (target == null) return;
+    Scrollable.ensureVisible(
+      target,
+      alignment: 0.5,
+      duration: const Duration(milliseconds: 320),
+      curve: Curves.easeOutCubic,
+    );
+  }
+
   Widget _buildCoursesSection() {
     const filters = [
       'All',
@@ -1176,15 +1202,8 @@ class _HomePageState extends State<HomePage>
       'Class 10',
     ];
 
-    // The rail samples the **same catalogue** the Courses tab filters, so a Class
-    // chip means the same thing on both screens — and every class has content,
-    // which a rail with its own four-course list could not guarantee. `All` is
-    // the absence of a filter; the rail shows the first four either way.
-    final selected = filters[_selectedClassIndex];
-    final visible = selected == 'All'
-        ? coursePool.take(4).toList()
-        : coursePool.where((c) => c.classLevel == selected).take(4).toList();
-
+    // The same catalogue the Courses tab reads. `All` asks for the first four
+    // academic courses; a class chip asks for that grade's id, not the label.
     return ColoredBox(
       color: Colors.white,
       child: Padding(
@@ -1218,15 +1237,15 @@ class _HomePageState extends State<HomePage>
                 itemCount: filters.length,
                 separatorBuilder: (c, i) => const SizedBox(width: 8),
                 itemBuilder: (context, index) {
-                  final selected = index == _selectedClassIndex;
                   return MouseRegion(
+                    key: _classChipKeys[index],
                     onEnter: (_) => setState(() => _hoveredClassIndex = index),
                     onExit: (_) => setState(() => _hoveredClassIndex = -1),
                     child: GestureDetector(
-                      onTap: () => setState(() => _selectedClassIndex = index),
+                      onTap: () => _selectClass(index),
                       child: _classFilterChip(
                         label: filters[index],
-                        selected: selected,
+                        selected: index == _selectedClassIndex,
                         hovered: _hoveredClassIndex == index,
                       ),
                     ),
@@ -1237,41 +1256,7 @@ class _HomePageState extends State<HomePage>
             const SizedBox(height: 14),
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 16),
-              child: visible.isEmpty
-                  ? Padding(
-                      padding: const EdgeInsets.symmetric(vertical: 24),
-                      child: Text(
-                        'No courses for this class yet.',
-                        style: GoogleFonts.figtree(fontSize: 13, color: _gray),
-                      ),
-                    )
-                  : GridView.builder(
-                      shrinkWrap: true,
-                      physics: const NeverScrollableScrollPhysics(),
-                      itemCount: visible.length,
-                      gridDelegate:
-                          const SliverGridDelegateWithFixedCrossAxisCount(
-                            crossAxisCount: 2,
-                            childAspectRatio: 0.85,
-                            crossAxisSpacing: 12,
-                            mainAxisSpacing: 12,
-                          ),
-                      itemBuilder: (context, index) {
-                        final course = visible[index];
-                        // The same card the Courses tab's "See All" grid draws,
-                        // and the same detail screen it opens. Both screens used
-                        // to carry their own copy and they drifted — the tag and
-                        // the rating sat in different places on each.
-                        return CourseGridCard(
-                          course: course,
-                          onTap: () => Navigator.of(context).push(
-                            MaterialPageRoute(
-                              builder: (_) => CourseDetailPage(course: course),
-                            ),
-                          ),
-                        );
-                      },
-                    ),
+              child: _HomeClassCourses(classIndex: _selectedClassIndex),
             ),
           ],
         ),
@@ -1505,24 +1490,67 @@ class _HomePageState extends State<HomePage>
             ),
           ),
           const SizedBox(height: 12),
-          _buildPremiumCard(
-            image: 'assets/figma/homescreen/premium-course1.png',
-            avatar: 'assets/figma/face/face5.png',
-          ),
-          const SizedBox(height: 21),
-          _buildPremiumCard(
-            image: 'assets/figma/homescreen/premium-course2.png',
-            avatar: 'assets/figma/face/face2.png',
+          Consumer(
+            builder: (context, ref, _) {
+              return ref
+                  .watch(homePremiumCoursesProvider)
+                  .when(
+                    loading: () => const SizedBox(height: 4),
+                    error: (_, _) => Text(
+                      'Premium courses could not be loaded.',
+                      style: GoogleFonts.figtree(fontSize: 13, color: _gray),
+                    ),
+                    data: (courses) {
+                      if (courses.isEmpty) {
+                        return Text(
+                          'No premium courses yet.',
+                          style: GoogleFonts.figtree(
+                            fontSize: 13,
+                            color: _gray,
+                          ),
+                        );
+                      }
+                      return Column(
+                        children: [
+                          for (var i = 0; i < courses.length; i++) ...[
+                            if (i > 0) const SizedBox(height: 21),
+                            _buildPremiumCard(courses[i]),
+                          ],
+                        ],
+                      );
+                    },
+                  );
+            },
           ),
         ],
       ),
     );
   }
 
-  Widget _buildPremiumCard({required String image, required String avatar}) {
+  Widget _buildPremiumCard(CourseDetailData course) {
+    final category = course.category.trim();
+    final instructor = course.instructorName.trim().isEmpty
+        ? 'Instructor'
+        : course.instructorName.trim();
+    final qualification = course.instructors.isEmpty
+        ? ''
+        : course.instructors.first.title.trim();
+    final level = course.level.trim();
+    final rating = course.rating.trim();
+    final reviews = course.ratingsCount
+        .replaceAll(' ratings', '')
+        .replaceAll(' rating', '');
+    void open() {
+      Navigator.of(context).push(
+        MaterialPageRoute(
+          builder: (_) => PremiumCourseDetailsPage(courseId: course.id),
+        ),
+      );
+    }
+
     return GestureDetector(
       behavior: HitTestBehavior.opaque,
-      onTap: _openPremiumCourseDetails,
+      onTap: open,
       child: Container(
         padding: const EdgeInsets.all(16),
         decoration: BoxDecoration(
@@ -1546,50 +1574,43 @@ class _HomePageState extends State<HomePage>
                   borderRadius: const BorderRadius.vertical(
                     top: Radius.circular(18),
                   ),
-                  child: Image.asset(
-                    image,
+                  child: CourseImage(
+                    course.image,
+                    title: course.title,
+                    coverSeed: course.id ?? 0,
                     height: 235,
                     width: double.infinity,
-                    fit: BoxFit.cover,
-                    errorBuilder: (c, e, s) => Container(
-                      height: 235,
-                      color: Colors.grey.shade200,
-                      child: const Icon(
-                        Icons.image,
-                        color: Colors.white,
-                        size: 50,
+                  ),
+                ),
+                if (category.isNotEmpty)
+                  Positioned(
+                    top: 12,
+                    left: 12,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 10,
+                        vertical: 6,
+                      ),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFF9FAFB).withValues(alpha: 0.6),
+                        borderRadius: BorderRadius.circular(100),
+                      ),
+                      child: Text(
+                        category.toUpperCase(),
+                        style: GoogleFonts.inter(
+                          fontSize: 10,
+                          fontWeight: FontWeight.w500,
+                          letterSpacing: 0.4,
+                          color: const Color(0xFF191918),
+                        ),
                       ),
                     ),
                   ),
-                ),
-                Positioned(
-                  top: 12,
-                  left: 12,
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 10,
-                      vertical: 6,
-                    ),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFFF9FAFB).withValues(alpha: 0.6),
-                      borderRadius: BorderRadius.circular(100),
-                    ),
-                    child: Text(
-                      'ART & CRAFT',
-                      style: GoogleFonts.inter(
-                        fontSize: 10,
-                        fontWeight: FontWeight.w500,
-                        letterSpacing: 0.4,
-                        color: const Color(0xFF191918),
-                      ),
-                    ),
-                  ),
-                ),
               ],
             ),
             const SizedBox(height: 16),
             Text(
-              'Learn: the art of problem solving',
+              course.title,
               style: GoogleFonts.inter(
                 fontSize: 18,
                 fontWeight: FontWeight.w700,
@@ -1600,13 +1621,9 @@ class _HomePageState extends State<HomePage>
             const SizedBox(height: 12),
             Row(
               children: [
-                ClipOval(
-                  child: Image.asset(
-                    avatar,
-                    width: 32,
-                    height: 32,
-                    fit: BoxFit.cover,
-                  ),
+                _InstructorFace(
+                  name: instructor,
+                  photo: course.instructorAvatar,
                 ),
                 const SizedBox(width: 10),
                 Expanded(
@@ -1614,7 +1631,7 @@ class _HomePageState extends State<HomePage>
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        'Prof. Shuvanga Karki',
+                        instructor,
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: GoogleFonts.inter(
@@ -1623,79 +1640,91 @@ class _HomePageState extends State<HomePage>
                           color: const Color(0xFF201C15),
                         ),
                       ),
-                      Text(
-                        'Art Educator & Illustrator',
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: GoogleFonts.inter(
-                          fontSize: 11,
-                          color: const Color(0xFF8D887F),
+                      if (qualification.isNotEmpty) ...[
+                        const SizedBox(height: 2),
+                        Text(
+                          qualification,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: GoogleFonts.inter(
+                            fontSize: 11,
+                            color: const Color(0xFF8D887F),
+                          ),
                         ),
-                      ),
+                      ],
                     ],
                   ),
                 ),
-                const Spacer(),
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.end,
-                  children: [
-                    Row(
-                      children: [
-                        const Icon(
-                          Icons.star,
-                          color: Color(0xFFFFB01F),
-                          size: 16,
+                if (rating.isNotEmpty || level.isNotEmpty) ...[
+                  const SizedBox(width: 8),
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.end,
+                    children: [
+                      if (rating.isNotEmpty)
+                        Row(
+                          children: [
+                            const Icon(
+                              Icons.star,
+                              color: Color(0xFFFFB01F),
+                              size: 16,
+                            ),
+                            const SizedBox(width: 4),
+                            Text(
+                              rating,
+                              style: GoogleFonts.inter(
+                                fontSize: 13,
+                                fontWeight: FontWeight.w700,
+                                color: const Color(0xFF8D887F),
+                              ),
+                            ),
+                            Text(
+                              reviews,
+                              style: GoogleFonts.inter(
+                                fontSize: 13,
+                                color: const Color(0xFF8D887F),
+                              ),
+                            ),
+                          ],
                         ),
-                        const SizedBox(width: 4),
-                        Text(
-                          '4.9',
-                          style: GoogleFonts.inter(
-                            fontSize: 13,
-                            fontWeight: FontWeight.w700,
-                            color: const Color(0xFF8D887F),
-                          ),
-                        ),
-                        Text(
-                          '(128)',
-                          style: GoogleFonts.inter(
-                            fontSize: 13,
-                            color: const Color(0xFF8D887F),
-                          ),
+                      if (level.isNotEmpty) ...[
+                        const SizedBox(height: 4),
+                        Row(
+                          children: [
+                            const Icon(
+                              Icons.bar_chart,
+                              size: 12,
+                              color: Color(0xFF8D887F),
+                            ),
+                            const SizedBox(width: 4),
+                            Text(
+                              level,
+                              style: GoogleFonts.inter(
+                                fontSize: 10,
+                                fontWeight: FontWeight.w600,
+                                color: const Color(0xFF8D887F),
+                              ),
+                            ),
+                          ],
                         ),
                       ],
-                    ),
-                    const SizedBox(height: 4),
-                    Row(
-                      children: [
-                        const Icon(
-                          Icons.bar_chart,
-                          size: 12,
-                          color: Color(0xFF8D887F),
-                        ),
-                        const SizedBox(width: 4),
-                        Text(
-                          'Beginner Friendly',
-                          style: GoogleFonts.inter(
-                            fontSize: 10,
-                            fontWeight: FontWeight.w600,
-                            color: const Color(0xFF8D887F),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ],
-                ),
+                    ],
+                  ),
+                ],
               ],
             ),
-            const SizedBox(height: 12),
-            Text(
-              'Master the art of problem solving. Bring brilliant ideas to life with easy, follow-along video steps perfect for young artists.',
-              style: GoogleFonts.inter(
-                fontSize: 13,
-                color: const Color(0xFF8D887F),
-                height: 1.4,
+            if (course.subtitle.trim().isNotEmpty) ...[
+              const SizedBox(height: 12),
+              Text(
+                course.subtitle.trim(),
+                maxLines: 3,
+                overflow: TextOverflow.ellipsis,
+                style: GoogleFonts.inter(
+                  fontSize: 13,
+                  color: const Color(0xFF8D887F),
+                  height: 1.4,
+                ),
               ),
-            ),
+            ],
             const SizedBox(height: 16),
             const Divider(color: Color(0xFFF3F4F6)),
             const SizedBox(height: 12),
@@ -1725,12 +1754,9 @@ class _HomePageState extends State<HomePage>
                               color: const Color(0xFF8D887F),
                             ),
                           ),
-                          // Explicit gap between the label and the price. The
-                          // two 1.0-height line boxes on their own leave only
-                          // ~3pt of air, which reads as a collision.
                           const SizedBox(height: 7),
                           Text(
-                            'Rs.24.99',
+                            course.priceLabel,
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
                             style: GoogleFonts.manrope(
@@ -1744,14 +1770,6 @@ class _HomePageState extends State<HomePage>
                       ),
                     ),
                   ),
-                  // Minimum breathing room only. This used to be a fixed
-                  // `SizedBox(width: 69)`, which is fine on a 393pt-wide canvas
-                  // (where the design was drawn) but starves the label on a
-                  // 360pt phone: 298 - 20 - 69 - 137 - 20 = 52pt for a string
-                  // that needs ~72, so 'ENROLLMENT' broke after "ENROLLM" and
-                  // 'Rs.24.99' after "Rs.24.". Letting `Expanded` absorb the
-                  // slack keeps the button hard right on wide screens and gives
-                  // the label the room it needs on narrow ones.
                   const SizedBox(width: 12),
                   Container(
                     height: 38,
@@ -1778,7 +1796,7 @@ class _HomePageState extends State<HomePage>
                       ],
                     ),
                     child: ElevatedButton(
-                      onPressed: _openPremiumCourseDetails,
+                      onPressed: open,
                       style: ElevatedButton.styleFrom(
                         backgroundColor: Colors.transparent,
                         foregroundColor: const Color(0xFF1B1B1B),
@@ -1792,13 +1810,6 @@ class _HomePageState extends State<HomePage>
                       child: Row(
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
-                          // The button is a fixed 137pt wide (see the Container
-                          // above), so the label has to be able to give ground.
-                          // Without this it overflows as soon as the text is
-                          // wider than the design's metrics — which happens for
-                          // any larger text scale, and in `flutter test`, where
-                          // no Google font can be fetched and the fallback is
-                          // much wider than Inter.
                           Flexible(
                             child: Text(
                               'Start Learning',
@@ -2847,6 +2858,169 @@ class _BootcampRunMenu extends StatelessWidget {
                 ),
               ),
           ],
+        ),
+      ),
+    );
+  }
+}
+
+/// The home course cards for one class chip.
+///
+/// The previous class stays on screen until the next list is ready, then the
+/// new cards slide in from the side the chip was tapped. The height eases so
+/// the banner under the rail does not jump.
+class _InstructorFace extends StatelessWidget {
+  const _InstructorFace({required this.name, required this.photo});
+
+  final String name;
+  final String photo;
+
+  @override
+  Widget build(BuildContext context) {
+    final initial = name.trim().isEmpty ? '?' : name.trim()[0].toUpperCase();
+    return ClipOval(
+      child: SizedBox(
+        width: 32,
+        height: 32,
+        child: photo.trim().isEmpty
+            ? _initial(initial)
+            : CourseImage(
+                photo,
+                width: 32,
+                height: 32,
+                fallback: _initial(initial),
+              ),
+      ),
+    );
+  }
+
+  Widget _initial(String letter) {
+    return ColoredBox(
+      color: const Color(0xFFF3F4F6),
+      child: Center(
+        child: Text(
+          letter,
+          style: GoogleFonts.inter(
+            fontSize: 13,
+            fontWeight: FontWeight.w700,
+            color: const Color(0xFF201C15),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _HomeClassCourses extends ConsumerStatefulWidget {
+  const _HomeClassCourses({required this.classIndex});
+
+  final int classIndex;
+
+  @override
+  ConsumerState<_HomeClassCourses> createState() => _HomeClassCoursesState();
+}
+
+class _HomeClassCoursesState extends ConsumerState<_HomeClassCourses> {
+  static const _lastClass = 5;
+
+  int? _shownIndex;
+  List<CourseDetailData>? _shown;
+  String? _message;
+  bool _forward = true;
+
+  void _show(int index, List<CourseDetailData> courses, {String? message}) {
+    if (_shownIndex != index) {
+      _forward = _shownIndex != null && index > _shownIndex!;
+      _shownIndex = index;
+    }
+    _shown = courses;
+    _message = message;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final index = widget.classIndex;
+    if (index > 0) ref.watch(homeAcademicCoursesProvider(index - 1));
+    if (index < _lastClass) ref.watch(homeAcademicCoursesProvider(index + 1));
+
+    final async = ref.watch(homeAcademicCoursesProvider(index));
+    final incoming = async.asData?.value;
+    if (incoming != null) {
+      _show(index, incoming);
+    } else if (async.hasError && _shownIndex != index) {
+      _show(index, const [], message: 'Courses could not be loaded.');
+    }
+
+    final pending = _shownIndex != index;
+    final courses = _shown;
+
+    final Widget body;
+    if (courses == null) {
+      body = const SizedBox(width: double.infinity, height: 4);
+    } else if (_message != null) {
+      body = SizedBox(
+        width: double.infinity,
+        child: Text(
+          _message!,
+          style: GoogleFonts.figtree(fontSize: 13, color: _gray),
+        ),
+      );
+    } else if (courses.isEmpty) {
+      body = SizedBox(
+        width: double.infinity,
+        child: Text(
+          'No courses for this class yet.',
+          style: GoogleFonts.figtree(fontSize: 13, color: _gray),
+        ),
+      );
+    } else {
+      body = CourseCardGrid(
+        courses: courses,
+        onTap: (course) => Navigator.of(context).push(
+          MaterialPageRoute(builder: (_) => CourseDetailPage(course: course)),
+        ),
+      );
+    }
+
+    return ClipRect(
+      child: AnimatedSize(
+        duration: const Duration(milliseconds: 320),
+        curve: Curves.easeOutCubic,
+        alignment: Alignment.topCenter,
+        child: AnimatedSwitcher(
+          duration: const Duration(milliseconds: 340),
+          switchInCurve: Curves.easeOutCubic,
+          switchOutCurve: Curves.easeInCubic,
+          layoutBuilder: (current, previous) {
+            return Stack(
+              alignment: Alignment.topCenter,
+              children: [...previous, ?current],
+            );
+          },
+          transitionBuilder: (child, animation) {
+            final entering = child.key == ValueKey<Object?>(_shownIndex);
+            final beginX = entering
+                ? (_forward ? 0.18 : -0.18)
+                : (_forward ? -0.18 : 0.18);
+            return FadeTransition(
+              opacity: animation,
+              child: SlideTransition(
+                position: Tween<Offset>(
+                  begin: Offset(beginX, 0),
+                  end: Offset.zero,
+                ).animate(animation),
+                child: child,
+              ),
+            );
+          },
+          child: KeyedSubtree(
+            key: ValueKey<Object?>(_shownIndex ?? 'empty'),
+            child: AnimatedOpacity(
+              duration: const Duration(milliseconds: 160),
+              opacity: pending ? 0.45 : 1,
+              child: body,
+            ),
+          ),
         ),
       ),
     );

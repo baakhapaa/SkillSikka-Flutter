@@ -5,6 +5,7 @@ import 'package:skillsikka/app.dart';
 import 'package:skillsikka/features/learning/data/learning_api.dart';
 import 'package:skillsikka/features/bootcamp/data/bootcamp.dart';
 import 'package:skillsikka/features/bootcamp/data/bootcamp_api.dart';
+import 'package:skillsikka/features/courses/data/course_api.dart';
 import 'package:skillsikka/features/learning/data/my_learning.dart';
 import 'package:skillsikka/core/network/session.dart';
 import 'package:skillsikka/core/network/session_store.dart';
@@ -52,8 +53,14 @@ void main() {
         myLearningProvider.overrideWith((ref) async => const MyLearning()),
         // The home rail fetches `/courses/?course_type=bootcamp` on its first
         // build, for the same reason — and a request left in flight is a timer
-        // that outlives the widget tree.
+        // that outlives the widget tree. The class, premium, and skill rails
+        // do the same.
         bootcampsProvider.overrideWith((ref) async => const <BootcampCard>[]),
+        homeAcademicCoursesProvider.overrideWith(
+          (ref, classIndex) async => const [],
+        ),
+        homePremiumCoursesProvider.overrideWith((ref) async => const []),
+        skillCatalogueProvider.overrideWith((ref) async => const []),
       ],
     );
     addTearDown(container.dispose);

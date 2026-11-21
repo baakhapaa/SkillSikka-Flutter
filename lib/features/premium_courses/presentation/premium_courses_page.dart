@@ -246,15 +246,20 @@ class _PremiumCoursesPageState extends ConsumerState<PremiumCoursesPage> {
   }
 
   Widget _topCourses(List<CourseDetailData> courses) {
-    return SizedBox(
-      height: 286,
-      child: ListView.separated(
-        padding: const EdgeInsets.symmetric(horizontal: 16),
-        scrollDirection: Axis.horizontal,
-        itemCount: courses.length,
-        separatorBuilder: (_, _) => const SizedBox(width: 12),
-        itemBuilder: (context, index) =>
-            _CarouselCourseCard(course: courses[index]),
+    return SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
+      padding: const EdgeInsets.symmetric(horizontal: 16),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          for (var i = 0; i < courses.length; i++) ...[
+            if (i > 0) const SizedBox(width: 12),
+            SizedBox(
+              width: 220,
+              child: _CarouselCourseCard(course: courses[i]),
+            ),
+          ],
+        ],
       ),
     );
   }
@@ -290,7 +295,6 @@ class _CarouselCourseCard extends StatelessWidget {
     behavior: HitTestBehavior.opaque,
     onTap: () => _open(context, course),
     child: Container(
-      width: 220,
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
         color: Colors.white,
@@ -305,6 +309,7 @@ class _CarouselCourseCard extends StatelessWidget {
         ],
       ),
       child: Column(
+        mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           _CourseImage(course: course, height: 120),
@@ -322,7 +327,7 @@ class _CarouselCourseCard extends StatelessWidget {
           ),
           const SizedBox(height: 6),
           _MetaRow(course: course),
-          const Spacer(),
+          const SizedBox(height: 10),
           const Divider(height: 1, color: Color(0xFFF3F4F6)),
           const SizedBox(height: 8),
           Row(

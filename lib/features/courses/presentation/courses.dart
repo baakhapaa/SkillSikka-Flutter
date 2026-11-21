@@ -375,34 +375,16 @@ class _AllCoursesPageState extends ConsumerState<AllCoursesPage> {
     );
   }
 
-  /// The same two-column grid the home rail draws, cell for cell.
+  /// The same two-column grid the home rail draws.
   ///
-  /// It used to be hand-built rows of [Expanded] cards, which meant each row
-  /// sized itself to its own titles — a one-line title and a two-line title
-  /// side by side made ragged rows — and the card inside was a *different*
-  /// card from the home rail's. A `GridView` with the rail's own delegate fixes
-  /// both: uniform cells, and one card widget behind both screens.
+  /// Rows size to the titles in them. A fixed aspect ratio used to leave a
+  /// white band under the title on any phone wider than the narrowest one.
   Widget _buildCoursesGrid(List<CourseDetailData> courses) {
-    return GridView.builder(
-      shrinkWrap: true,
-      physics: const NeverScrollableScrollPhysics(),
-      padding: EdgeInsets.zero,
-      itemCount: courses.length,
-      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-        crossAxisCount: 2,
-        childAspectRatio: 0.85,
-        crossAxisSpacing: 12,
-        mainAxisSpacing: 12,
+    return CourseCardGrid(
+      courses: courses,
+      onTap: (course) => Navigator.of(context).push(
+        MaterialPageRoute(builder: (_) => CourseDetailPage(course: course)),
       ),
-      itemBuilder: (context, index) {
-        final course = courses[index];
-        return CourseGridCard(
-          course: course,
-          onTap: () => Navigator.of(context).push(
-            MaterialPageRoute(builder: (_) => CourseDetailPage(course: course)),
-          ),
-        );
-      },
     );
   }
 }

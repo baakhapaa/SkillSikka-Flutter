@@ -80,13 +80,23 @@ List<Map<String, dynamic>> _nineLessons() => [
 
 void main() {
   group('CourseMapper.summary', () {
-    test('maps the card fields from a list row', () {
-      final course = CourseMapper.summary(_course());
+    test('the line under the instructor name is their qualification', () {
+      final course = CourseMapper.summary({
+        ..._course(),
+        'instructor_qualification': 'MSc Computer Science',
+      });
 
-      expect(course.id, 15);
-      expect(course.title, 'Drawing from Observation');
-      expect(course.category, 'Drawing');
-      expect(course.studentsEnrolled, '1 student enrolled');
+      expect(course.instructors.single.title, 'MSc Computer Science');
+    });
+
+    test('a list row carries the instructor photo', () {
+      const photo = 'http://192.168.1.77:8000/media/profile-photos/test.jpg';
+      final course = CourseMapper.summary({
+        ..._course(),
+        'instructor_photo_url': photo,
+      });
+
+      expect(course.instructorAvatar, photo);
     });
 
     test('an unreviewed course has no rating rather than a zero', () {

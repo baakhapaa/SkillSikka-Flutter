@@ -113,7 +113,9 @@ class CourseMapper {
       ratingsCount: _ratingsCount(reviewCount),
       studentsEnrolled: _studentsEnrolled(_int(course['students_enrolled'])),
       instructorName: _str(course['instructor_name']),
-      instructorAvatar: _str(instructor?['profile_photo_url']),
+      instructorAvatar: _str(instructor?['profile_photo_url']).isNotEmpty
+          ? _str(instructor?['profile_photo_url'])
+          : _str(course['instructor_photo_url']),
       lastUpdated: _lastUpdated(course['updated_at']),
       languages: _str(course['language']),
       learningOutcomes: _stringList(course['learning_outcomes']),
@@ -134,7 +136,17 @@ class CourseMapper {
       descriptionIntro: updates.isEmpty ? '' : 'Course Updates:',
       descriptionBlocks: updates,
       descriptionMoreBlocks: const <CourseDescriptionBlock>[],
-      instructors: [_instructor(course, instructor)],
+      instructors: [
+        _instructor(
+          course,
+          instructor ??
+              {
+                'name': course['instructor_name'],
+                'qualification': course['instructor_qualification'],
+                'profile_photo_url': course['instructor_photo_url'],
+              },
+        ),
+      ],
       courseRating: rating,
       ratingBars: _ratingBars(reviews),
       reviews: _reviews(reviews),

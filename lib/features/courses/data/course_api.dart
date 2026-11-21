@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/network/api_client.dart';
 import '../../../core/network/api_error.dart';
 import '../../../core/widgets/course_detail_view.dart';
+import '../../profile/data/reference_data.dart';
 import 'course_adapter.dart';
 import 'instructor_analytics.dart';
 
@@ -463,3 +464,50 @@ class CourseEnrollment {
 final courseApiProvider = Provider<CourseApi>(
   (ref) => CourseApi(ref.watch(apiClientProvider)),
 );
+
+/// Academic courses for the home rail.
+///
+/// [classIndex] `0` is All. `1` is Class 6, matching the chip row. The grade
+/// filter is the grade's id, the same rule the Courses tab uses: the chip
+/// label is not a query the server understands.
+final homeAcademicCoursesProvider = FutureProvider.autoDispose
+    .family<List<CourseDetailData>, int>((ref, classIndex) async {
+      int? gradeId;
+      if (classIndex > 0) {
+        final grades = await ref.watch(gradesProvider.future);
+        final wanted = 'grade ${classIndex + 5}';
+        for (final grade in grades) {
+          if (grade.name.trim().toLowerCase() == wanted) {
+            gradeId = int.tryParse(grade.id);
+            break;
+          }
+        }
+        if (gradeId == null) return const [];
+      }
+      final page = await ref
+          .watch(courseApiProvider)
+          .list(courseType: 'academic', grade: gradeId, pageSize: 4);
+      return page.courses;
+    });
+
+/// The two premium courses on the home rail. Same list the Premium Courses
+/// page reads, just the first two.
+final homePremiumCoursesProvider =
+    FutureProvider.autoDispose<List<CourseDetailData>>((ref) async {
+      final page = await ref
+          .watch(courseApiProvider)
+          .list(courseType: 'premium', pageSize: 2);
+      return page.courses;
+    });
+
+/// Every published skill course, the same list the Skill Courses tab counts.
+///
+/// The home rail's "12 Courses" used to come from the bundled sample pool, so
+/// the card and the tab could not agree. One request, the same category names.
+final skillCatalogueProvider =
+    FutureProvider.autoDispose<List<CourseDetailData>>((ref) async {
+      final page = await ref
+          .watch(courseApiProvider)
+          .list(courseType: 'skill', pageSize: 50);
+      return page.courses;
+    });

@@ -62,6 +62,7 @@ class CourseGridCard extends StatelessWidget {
           ],
         ),
         child: Column(
+          mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             ClipRRect(
@@ -156,6 +157,54 @@ class CourseGridCard extends StatelessWidget {
           color: _gray,
         ),
       ),
+    );
+  }
+}
+
+/// Two cards per row, as tall as their own text.
+///
+/// A fixed `childAspectRatio` left a white band under every title, because the
+/// cell was sized for the widest phone and the copy never filled it. The row
+/// is only as tall as the taller card in it, so a one-line title beside a
+/// two-line title still lines up, and a row of two-line titles has no empty
+/// strip.
+class CourseCardGrid extends StatelessWidget {
+  const CourseCardGrid({super.key, required this.courses, required this.onTap});
+
+  final List<CourseDetailData> courses;
+  final void Function(CourseDetailData course) onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: [
+        for (var i = 0; i < courses.length; i += 2)
+          Padding(
+            padding: EdgeInsets.only(bottom: i + 2 < courses.length ? 12 : 0),
+            child: IntrinsicHeight(
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Expanded(
+                    child: CourseGridCard(
+                      course: courses[i],
+                      onTap: () => onTap(courses[i]),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: i + 1 < courses.length
+                        ? CourseGridCard(
+                            course: courses[i + 1],
+                            onTap: () => onTap(courses[i + 1]),
+                          )
+                        : const SizedBox.shrink(),
+                  ),
+                ],
+              ),
+            ),
+          ),
+      ],
     );
   }
 }

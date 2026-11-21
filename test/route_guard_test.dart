@@ -5,6 +5,13 @@ import 'package:go_router/go_router.dart';
 import 'package:skillsikka/core/network/session.dart';
 import 'package:skillsikka/core/routing/app_router.dart';
 import 'package:skillsikka/features/auth/data/auth_repository.dart';
+import 'package:skillsikka/features/bootcamp/data/bootcamp.dart';
+import 'package:skillsikka/features/bootcamp/data/bootcamp_api.dart';
+import 'package:skillsikka/features/courses/data/course_api.dart';
+import 'package:skillsikka/features/events/data/event_page.dart';
+import 'package:skillsikka/features/events/data/events_providers.dart';
+import 'package:skillsikka/features/learning/data/learning_api.dart';
+import 'package:skillsikka/features/learning/data/my_learning.dart';
 
 import 'support/home_page_font_harness.dart';
 
@@ -52,7 +59,18 @@ void main() {
         // The screens reachable in these tests never make a request, but
         // installing the fake means a mistake in a route under test cannot turn
         // into real HTTP inside a widget test.
+        //
+        // Landing on `/` mounts the home screen, whose rails each fetch a list.
+        // A request left in flight is a timer that outlives the test.
         authRepositoryProvider.overrideWithValue(FakeAuthRepository()),
+        nearbyEventsProvider.overrideWith((ref) async => EventPage.empty),
+        bootcampsProvider.overrideWith((ref) async => const <BootcampCard>[]),
+        homeAcademicCoursesProvider.overrideWith(
+          (ref, classIndex) async => const [],
+        ),
+        homePremiumCoursesProvider.overrideWith((ref) async => const []),
+        skillCatalogueProvider.overrideWith((ref) async => const []),
+        myLearningProvider.overrideWith((ref) async => const MyLearning()),
       ],
     );
     addTearDown(container.dispose);
@@ -242,6 +260,11 @@ void main() {
           '/',
           reason: 'a signed-in user has nothing to do on $path',
         );
+        // Replacing the tree drops the home screen's auto-dispose listeners.
+        // One more pump runs that dispose, so it is not still pending when the
+        // test ends.
+        await tester.pumpWidget(const SizedBox.shrink());
+        await tester.pump();
       }
     });
 

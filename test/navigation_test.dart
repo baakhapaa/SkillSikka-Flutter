@@ -1,13 +1,17 @@
+import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:skillsikka/core/network/api_client.dart';
 import 'package:skillsikka/features/navigation/presentation/app_shell.dart';
 import 'package:skillsikka/features/profile/data/profile_role.dart';
 import 'package:skillsikka/features/profile/data/user_profile.dart';
 import 'package:skillsikka/features/profile/presentation/profile_page.dart';
 import 'package:skillsikka/features/learning/presentation/my_learning_page.dart';
+import 'package:skillsikka/features/short/data/short.dart';
+import 'package:skillsikka/features/short/data/shorts_api.dart';
 
 import 'support/events_test_scope.dart';
 import 'support/home_page_font_harness.dart';
@@ -113,7 +117,9 @@ void main() {
     // **instructor** profile, so the role has to be set for them to render at
     // all — a student's grid has a course card in that slot instead, because a
     // student cannot author a course (see `_buildCourseGrid`).
-    final container = ProviderContainer();
+    final container = ProviderContainer(
+      overrides: [shortsApiProvider.overrideWithValue(_QuietShortsApi())],
+    );
     addTearDown(container.dispose);
     container
         .read(userProfileProvider.notifier)
@@ -271,4 +277,14 @@ void main() {
       reason: 'and it must start at the body origin, not be centred',
     );
   });
+}
+
+/// Saved Shorts asks the network the moment that tab opens. This test only
+/// checks that the panel switches, so the request answers immediately.
+class _QuietShortsApi extends ShortsApi {
+  _QuietShortsApi() : super(ApiClient(Dio()));
+
+  @override
+  Future<List<ShortVideoData>> saved({CancelToken? cancelToken}) async =>
+      const [];
 }

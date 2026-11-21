@@ -37,7 +37,7 @@ class _AppShellState extends ConsumerState<AppShell> {
       instructor
           ? const MyCoursesPage(showBack: false)
           : const MyLearningPage(),
-      ProfilePage(),
+      ProfilePage(active: _selectedIndex == 4),
     ];
 
     return Scaffold(

@@ -37,10 +37,17 @@ class ShortFeedPage extends ConsumerStatefulWidget {
     super.key,
     this.initialTab = ShortFeedTab.stem,
     this.active = true,
+    this.playlist,
+    this.initialIndex = 0,
   });
 
   final ShortFeedTab initialTab;
   final bool active;
+
+  /// When set, this page plays these shorts instead of a feed. Used by Saved
+  /// Shorts: the tapped clip opens here, and a swipe moves through the rest.
+  final List<ShortVideoData>? playlist;
+  final int initialIndex;
 
   @override
   ConsumerState<ShortFeedPage> createState() => _ShortFeedPageState();
@@ -98,6 +105,24 @@ class _ShortFeedPageState extends ConsumerState<ShortFeedPage>
   };
 
   Future<void> _load() async {
+    final playlist = widget.playlist;
+    if (playlist != null) {
+      final index = playlist.isEmpty
+          ? 0
+          : widget.initialIndex.clamp(0, playlist.length - 1);
+      _pageController?.dispose();
+      _pageController = playlist.isEmpty
+          ? null
+          : PageController(initialPage: index);
+      setState(() {
+        _items = playlist;
+        _index = index;
+        _loading = false;
+        _error = null;
+      });
+      _recordView();
+      return;
+    }
     if (runningWidgetTests) {
       setState(() => _loading = false);
       return;
@@ -210,10 +235,15 @@ class _ShortFeedPageState extends ConsumerState<ShortFeedPage>
       final api = ref.read(shortsApiProvider);
       if (next) {
         await api.save(id);
+        ref.read(savedShortsProvider.notifier).remember(current);
       } else {
+        ref.read(savedShortsProvider.notifier).forget(id);
         await api.unsave(id);
       }
     } on ApiException {
+      if (!next) {
+        ref.read(savedShortsProvider.notifier).remember(current);
+      }
       if (!mounted || index >= _items.length || _items[index].id != id) {
         return;
       }
@@ -418,7 +448,21 @@ class _ShortFeedPageState extends ConsumerState<ShortFeedPage>
               onPageChanged: _onPageChanged,
               itemBuilder: (context, index) => _buildPage(index),
             ),
-          _buildTopNavigation(),
+          if (widget.playlist != null)
+            Positioned(
+              top: 0,
+              left: 8,
+              child: SafeArea(
+                bottom: false,
+                child: IconButton(
+                  onPressed: () => Navigator.of(context).maybePop(),
+                  icon: const Icon(Icons.arrow_back, color: Colors.white),
+                  tooltip: 'Back',
+                ),
+              ),
+            )
+          else
+            _buildTopNavigation(),
         ],
       ),
     );
@@ -1116,10 +1160,14 @@ class _CommentsSheetState extends ConsumerState<CommentsSheet> {
     _loadComments();
   }
 
-  int get _commentTotal =>
-      _threads.fold<int>(0, (sum, thread) => sum + 1 + thread.replies.length);
+  int get _commentTotal => _threads.fold<int>(0, (sum, thread) {
+    final replies = thread.repliesLoaded
+        ? thread.replies.length
+        : thread.replyCount;
+    return sum + 1 + replies;
+  });
 
-  Future<void> _loadComments() async {
+  Future<void> _loadComments({int? keepOpen}) async {
     final id = widget.video.id;
     if (id == null) return;
     setState(() => _loadingComments = true);
@@ -1128,14 +1176,21 @@ class _CommentsSheetState extends ConsumerState<CommentsSheet> {
       final top = await api.comments(id);
       final threads = <_CommentThread>[];
       for (final comment in top) {
-        final replies = comment.replyCount > 0
-            ? await api.replies(comment.id)
-            : const <ShortComment>[];
-        threads.add(
-          _CommentThread(_fromComment(comment), [
-            for (final reply in replies) _fromComment(reply),
-          ]),
+        final thread = _CommentThread(
+          _fromComment(comment),
+          replyCount: comment.replyCount,
         );
+        // A reply the user just sent should be open, the way Instagram leaves
+        // the thread you answered expanded and every other thread closed.
+        if (keepOpen != null &&
+            comment.id == keepOpen &&
+            comment.replyCount > 0) {
+          final replies = await api.replies(comment.id);
+          thread.expanded = true;
+          thread.repliesLoaded = true;
+          thread.replies.addAll(replies.map(_fromComment));
+        }
+        threads.add(thread);
       }
       if (!mounted) return;
       setState(() {
@@ -1176,10 +1231,11 @@ class _CommentsSheetState extends ConsumerState<CommentsSheet> {
     if (text.isEmpty) return;
     final shortId = widget.video.id;
     if (shortId == null) return;
+    final parentId = _replyParentId;
     try {
       await ref
           .read(shortsApiProvider)
-          .postComment(shortId, text: text, parentId: _replyParentId);
+          .postComment(shortId, text: text, parentId: parentId);
       if (!mounted) return;
       _commentController.clear();
       setState(() {
@@ -1187,7 +1243,7 @@ class _CommentsSheetState extends ConsumerState<CommentsSheet> {
         _replyParentId = null;
       });
       widget.onCommentAdded?.call();
-      await _loadComments();
+      await _loadComments(keepOpen: parentId);
     } on ApiException catch (error) {
       if (!mounted) return;
       ScaffoldMessenger.of(
@@ -1226,6 +1282,36 @@ class _CommentsSheetState extends ConsumerState<CommentsSheet> {
     } on ApiException {
       if (!mounted) return;
       _setLike(id, liked, count);
+    }
+  }
+
+  Future<void> _toggleReplies(_CommentThread thread) async {
+    if (thread.expanded) {
+      setState(() => thread.expanded = false);
+      return;
+    }
+    setState(() => thread.expanded = true);
+    if (thread.repliesLoaded) return;
+    final id = thread.comment.id;
+    if (id == null) return;
+    setState(() => thread.loading = true);
+    try {
+      final replies = await ref.read(shortsApiProvider).replies(id);
+      if (!mounted) return;
+      setState(() {
+        thread.replies
+          ..clear()
+          ..addAll(replies.map(_fromComment));
+        thread.repliesLoaded = true;
+        thread.replyCount = thread.replies.length;
+        thread.loading = false;
+      });
+    } on ApiException {
+      if (!mounted) return;
+      setState(() {
+        thread.expanded = false;
+        thread.loading = false;
+      });
     }
   }
 
@@ -1416,16 +1502,70 @@ class _CommentsSheetState extends ConsumerState<CommentsSheet> {
               onReply: () => _replyTo(thread.comment),
               onLike: () => _toggleCommentLike(thread.comment),
             ),
-            for (final reply in thread.replies)
-              _CommentTile(
-                comment: reply,
-                isReply: true,
-                onReply: () => _replyTo(thread.comment, mention: reply.user),
-                onLike: () => _toggleCommentLike(reply),
-              ),
+            if (!thread.expanded && _hiddenReplies(thread) > 0)
+              _replyLink(thread),
+            if (thread.expanded)
+              for (final reply in thread.replies)
+                _CommentTile(
+                  comment: reply,
+                  isReply: true,
+                  onReply: () => _replyTo(thread.comment, mention: reply.user),
+                  onLike: () => _toggleCommentLike(reply),
+                ),
+            if (thread.expanded) _replyLink(thread),
           ],
         );
       },
+    );
+  }
+
+  int _hiddenReplies(_CommentThread thread) {
+    if (thread.repliesLoaded) return thread.replies.length;
+    return thread.replyCount;
+  }
+
+  /// Instagram's reply row: a short rule, then "View 3 more replies".
+  ///
+  /// Replies stay closed until this is tapped. The count is however many are
+  /// still hidden, so a thread of one says "reply" and a thread of three says
+  /// "3 more replies".
+  Widget _replyLink(_CommentThread thread) {
+    final count = _hiddenReplies(thread);
+    final label = thread.expanded
+        ? 'Hide replies'
+        : 'View $count more ${count == 1 ? 'reply' : 'replies'}';
+    return Padding(
+      padding: const EdgeInsets.only(left: 46, top: 10),
+      child: GestureDetector(
+        onTap: thread.loading ? null : () => _toggleReplies(thread),
+        behavior: HitTestBehavior.opaque,
+        child: Row(
+          children: [
+            Container(width: 24, height: 1, color: const Color(0xFF6B7280)),
+            const SizedBox(width: 10),
+            Text(
+              label,
+              style: const TextStyle(
+                color: Color(0xFF9CA3AF),
+                fontFamily: 'Figtree',
+                fontSize: 12,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+            if (thread.loading) ...[
+              const SizedBox(width: 8),
+              const SizedBox(
+                width: 12,
+                height: 12,
+                child: CircularProgressIndicator(
+                  strokeWidth: 1.5,
+                  color: Color(0xFF9CA3AF),
+                ),
+              ),
+            ],
+          ],
+        ),
+      ),
     );
   }
 
@@ -1460,11 +1600,14 @@ class _CommentsSheetState extends ConsumerState<CommentsSheet> {
 }
 
 class _CommentThread {
-  _CommentThread(this.comment, List<_CommentData> replies)
-    : replies = List.of(replies);
+  _CommentThread(this.comment, {this.replyCount = 0});
 
   _CommentData comment;
-  final List<_CommentData> replies;
+  int replyCount;
+  bool expanded = false;
+  bool repliesLoaded = false;
+  bool loading = false;
+  final List<_CommentData> replies = [];
 }
 
 class _CommentData {

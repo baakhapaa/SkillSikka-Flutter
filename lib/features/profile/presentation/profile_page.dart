@@ -8,6 +8,10 @@ import '../../courses/data/course_builder_api.dart';
 import '../../courses/data/course_summary.dart';
 import '../../courses/data/my_courses_api.dart';
 import '../../courses/presentation/course_builder_page.dart';
+import '../../quiz/data/quiz_api.dart';
+import '../../short/data/short.dart';
+import '../../short/data/shorts_api.dart';
+import '../../short/presentation/saved_shorts_page.dart';
 import '../../../core/widgets/course_cover_tile.dart';
 import '../../../core/network/api_error.dart';
 import '../data/profile_role.dart';
@@ -46,20 +50,26 @@ const avatarKey = ValueKey<String>('profile-avatar');
 
 /// Public profile destination used by the app shell and navigation tests.
 class ProfilePage extends StatelessWidget {
-  const ProfilePage({super.key});
+  const ProfilePage({super.key, this.active = true});
+
+  /// False while another bottom tab is showing. The page stays mounted, so this
+  /// is what reloads Saved Shorts when the user comes back to Profile.
+  final bool active;
 
   @override
   Widget build(BuildContext context) {
     return ColoredBox(
       key: const ValueKey('destination-Profile'),
       color: _bg,
-      child: const InstructorProfilePage(),
+      child: InstructorProfilePage(active: active),
     );
   }
 }
 
 class InstructorProfilePage extends StatefulWidget {
-  const InstructorProfilePage({super.key});
+  const InstructorProfilePage({super.key, this.active = true});
+
+  final bool active;
 
   @override
   State<InstructorProfilePage> createState() => _InstructorProfilePageState();
@@ -107,6 +117,8 @@ class _InstructorProfilePageState extends State<InstructorProfilePage> {
   /// the same list. Cleared to force a reload after a course is created or edited.
   String? _coursesForId;
 
+  ProviderSubscription<SavedShortsState>? _savedSubscription;
+
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
@@ -114,7 +126,18 @@ class _InstructorProfilePageState extends State<InstructorProfilePage> {
   }
 
   @override
+  void didUpdateWidget(InstructorProfilePage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.active && !oldWidget.active) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _reloadSavedShorts();
+      });
+    }
+  }
+
+  @override
   void dispose() {
+    _savedSubscription?.close();
     // Ours to close: `container.listen` is not tied to this widget's lifecycle
     // the way `ref.listen` would be.
     _profileSubscription?.close();
@@ -149,6 +172,13 @@ class _InstructorProfilePageState extends State<InstructorProfilePage> {
       // the grid can ask for the instructor's courses.
       _maybeLoadCourses();
     });
+    _savedSubscription?.close();
+    _savedSubscription = container.listen<SavedShortsState>(
+      savedShortsProvider,
+      (_, _) {
+        if (mounted) setState(() {});
+      },
+    );
     _maybeLoadCourses();
   }
 
@@ -185,6 +215,22 @@ class _InstructorProfilePageState extends State<InstructorProfilePage> {
   Future<void> _refreshCourses() async {
     _coursesForId = null;
     await _maybeLoadCourses();
+  }
+
+  SavedShortsState get _savedState {
+    final container = _profileContainer;
+    if (container == null) return const SavedShortsState();
+    return container.read(savedShortsProvider);
+  }
+
+  List<ShortVideoData> get _liveShorts => _savedState.shorts;
+
+  /// Pulls the saved list again. An unsave updates the list at once; this
+  /// confirms it against the server when Profile is opened.
+  void _reloadSavedShorts() {
+    final container = _profileContainer;
+    if (container == null) return;
+    container.read(savedShortsProvider.notifier).refresh();
   }
 
   /// The instructor's own course list, as drawn in the reference: five cards
@@ -237,27 +283,6 @@ class _InstructorProfilePageState extends State<InstructorProfilePage> {
     title: 'Design Systems Fundamentals',
     price: 'Rs.21.99',
   );
-
-  static const _savedShorts = <_SavedShort>[
-    _SavedShort(
-      image: 'assets/figma/instructorprofile/adobe.png',
-      title: 'Quick UI Layout Tips',
-      duration: '4:12',
-      savedAgo: 'Saved • 2h ago',
-    ),
-    _SavedShort(
-      image: 'assets/figma/instructorprofile/art.png',
-      title: 'Figma Auto Layout Tricks',
-      duration: '3:08',
-      savedAgo: 'Saved • 3d ago',
-    ),
-    _SavedShort(
-      image: 'assets/figma/instructorprofile/problem.png',
-      title: 'Typography for Beginners',
-      duration: '2:30',
-      savedAgo: 'Saved • 5d ago',
-    ),
-  ];
 
   static const _savedCourses = <_SavedCourse>[
     _SavedCourse(
@@ -346,7 +371,10 @@ class _InstructorProfilePageState extends State<InstructorProfilePage> {
                 selected: _tabIndex == i,
                 child: GestureDetector(
                   behavior: HitTestBehavior.opaque,
-                  onTap: () => setState(() => _tabIndex = i),
+                  onTap: () {
+                    setState(() => _tabIndex = i);
+                    if (i == 1) _reloadSavedShorts();
+                  },
                   child: Column(
                     children: [
                       Icon(
@@ -903,6 +931,7 @@ class _InstructorProfilePageState extends State<InstructorProfilePage> {
       MaterialPageRoute(
         builder: (_) => CourseBuilderPage(
           api: container.read(courseBuilderApiProvider),
+          quizApi: container.read(quizApiProvider),
           instructorVerified: container.read(userProfileProvider).canPublish,
           courseId: course.id,
         ),
@@ -1007,6 +1036,7 @@ class _InstructorProfilePageState extends State<InstructorProfilePage> {
       MaterialPageRoute(
         builder: (_) => CourseBuilderPage(
           api: container.read(courseBuilderApiProvider),
+          quizApi: container.read(quizApiProvider),
           instructorVerified: container.read(userProfileProvider).canPublish,
         ),
       ),
@@ -1482,11 +1512,12 @@ class _InstructorProfilePageState extends State<InstructorProfilePage> {
   // ─────────────────────────────────────────────────────────────
   // SAVED SHORTS
   // ─────────────────────────────────────────────────────────────
+  List<ShortVideoData> get _previewShorts =>
+      _liveShorts.length <= 4 ? _liveShorts : _liveShorts.sublist(0, 4);
+
   Widget _buildSavedShorts() {
+    final saved = _savedState;
     return Padding(
-      // Symmetric, unlike the carousel this used to be. A horizontal list runs
-      // its last card off the screen edge, so it carried no right padding of its
-      // own and added one to the header instead. A grid has a real right edge.
       padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -1505,137 +1536,51 @@ class _InstructorProfilePageState extends State<InstructorProfilePage> {
                   ),
                 ),
               ),
-              GestureDetector(
-                behavior: HitTestBehavior.opaque,
-                onTap: () {},
-                child: Text(
-                  'See All',
-                  style: GoogleFonts.figtree(
-                    fontSize: 13,
-                    fontWeight: FontWeight.w600,
-                    color: _gray,
+              if (_liveShorts.isNotEmpty)
+                GestureDetector(
+                  behavior: HitTestBehavior.opaque,
+                  onTap: () async {
+                    await Navigator.of(context).push(
+                      MaterialPageRoute<void>(
+                        builder: (_) => const SavedShortsPage(),
+                      ),
+                    );
+                    _reloadSavedShorts();
+                  },
+                  child: Text(
+                    'See All',
+                    style: GoogleFonts.figtree(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
+                      color: _gray,
+                    ),
                   ),
                 ),
-              ),
             ],
           ),
           const SizedBox(height: 12),
-          // **A two-column grid, not the horizontal carousel this used to be.**
-          // The reference draws four cards in two visible rows, which a
-          // horizontally-scrolling list cannot produce — the same finding that
-          // already converted `_buildSavedCourses`, and the same fix.
-          //
-          // The `SizedBox(height: 277)` that used to wrap the list is gone with
-          // it: that box existed to give the carousel a bounded height to flex
-          // its thumbnails into, and a grid row takes its height from its content
-          // instead. See `_buildShortCard` for what replaced the `Expanded`.
-          _buildTwoColumnGrid(<Widget>[
-            for (final short in _savedShorts) _buildShortCard(short),
-          ]),
+          if (saved.loading && _liveShorts.isEmpty)
+            const Padding(
+              padding: EdgeInsets.symmetric(vertical: 24),
+              child: Center(child: CircularProgressIndicator(color: _yellow)),
+            )
+          else if (_liveShorts.isEmpty)
+            Text(
+              'No saved shorts yet.',
+              style: GoogleFonts.figtree(fontSize: 13, color: _gray),
+            )
+          else
+            _buildTwoColumnGrid(<Widget>[
+              for (var i = 0; i < _previewShorts.length; i++)
+                SavedShortCard(
+                  short: _previewShorts[i],
+                  onTap: () async {
+                    await openSavedShort(context, _liveShorts, i);
+                    _reloadSavedShorts();
+                  },
+                ),
+            ]),
         ],
-      ),
-    );
-  }
-
-  Widget _buildShortCard(_SavedShort short) {
-    return GestureDetector(
-      behavior: HitTestBehavior.opaque,
-      onTap: () {},
-      child: Container(
-        width: 163,
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: const Color(0xFFF3F4F6)),
-        ),
-        clipBehavior: Clip.antiAlias,
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // A **fixed 220pt**, not the `Expanded` this used to be.
-            //
-            // `Expanded` was right in the old horizontal carousel, which wrapped
-            // the list in a `SizedBox(height: 277)` and so handed the card a
-            // bounded height to flex into. A two-column grid row is an
-            // `IntrinsicHeight`, which measures its children with an *unbounded*
-            // height, and a flex child on an unbounded main axis is a hard error —
-            // "RenderFlex children have non-zero flex but incoming height
-            // constraints are unbounded". `_buildSavedCourseCard` and
-            // `_buildMyCourseCard` both use a fixed image height for this reason.
-            //
-            // 220 is the design's thumbnail, measured off the reference at 275px
-            // against a 1.256 px/pt scale. Nothing overflows as a result, because
-            // the card now takes its height from its content rather than from a
-            // fixed box — which is what `Expanded` was originally working around.
-            SizedBox(
-              height: 220,
-              width: double.infinity,
-              child: Stack(
-                fit: StackFit.expand,
-                children: [
-                  Image.asset(
-                    short.image,
-                    fit: BoxFit.cover,
-                    errorBuilder: (_, _, _) => Container(
-                      color: const Color(0xFFE5E7EB),
-                      child: const Icon(
-                        Icons.video_library_outlined,
-                        color: Colors.white,
-                        size: 40,
-                      ),
-                    ),
-                  ),
-                  Positioned(
-                    right: 8,
-                    bottom: 8,
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 8,
-                        vertical: 4,
-                      ),
-                      decoration: BoxDecoration(
-                        color: Colors.black.withValues(alpha: 0.4),
-                        borderRadius: BorderRadius.circular(6),
-                      ),
-                      child: Text(
-                        short.duration,
-                        style: GoogleFonts.figtree(
-                          fontSize: 10,
-                          fontWeight: FontWeight.w700,
-                          color: Colors.white,
-                        ),
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            // Content
-            Padding(
-              padding: const EdgeInsets.all(10),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    short.title,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: GoogleFonts.manrope(
-                      fontSize: 13,
-                      fontWeight: FontWeight.w700,
-                      color: _ink,
-                    ),
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    short.savedAgo,
-                    style: GoogleFonts.figtree(fontSize: 11, color: _gray),
-                  ),
-                ],
-              ),
-            ),
-          ],
-        ),
       ),
     );
   }
@@ -1896,20 +1841,6 @@ class _InstructorProfilePageState extends State<InstructorProfilePage> {
 // ─────────────────────────────────────────────────────────────
 // MODELS
 // ─────────────────────────────────────────────────────────────
-
-class _SavedShort {
-  const _SavedShort({
-    required this.image,
-    required this.title,
-    required this.duration,
-    required this.savedAgo,
-  });
-
-  final String image;
-  final String title;
-  final String duration;
-  final String savedAgo;
-}
 
 class _SavedCourse {
   const _SavedCourse({

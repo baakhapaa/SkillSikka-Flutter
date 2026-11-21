@@ -21,6 +21,7 @@ class ShortVideoData {
     this.videoUrl = '',
     this.isLiked = false,
     this.isSaved = false,
+    this.savedAt,
     this.initialProgress = 0.0,
   });
 
@@ -42,6 +43,9 @@ class ShortVideoData {
   final String videoUrl;
   final bool isLiked;
   final bool isSaved;
+
+  /// When this account bookmarked the short. Null on the feed.
+  final DateTime? savedAt;
   final double initialProgress;
 
   bool get hasNetworkImage => image.startsWith('http');
@@ -72,6 +76,7 @@ class ShortVideoData {
       videoUrl: videoUrl,
       isLiked: isLiked ?? this.isLiked,
       isSaved: isSaved ?? this.isSaved,
+      savedAt: savedAt,
       initialProgress: initialProgress,
     );
   }
@@ -103,6 +108,7 @@ class ShortVideoData {
       videoUrl: _str(row['video_url']),
       isLiked: row['is_liked'] == true,
       isSaved: row['is_saved'] == true,
+      savedAt: _when(row['saved_at']),
     );
   }
 }
@@ -163,4 +169,9 @@ String _str(Object? value) => value is String ? value.trim() : '';
 String? _nullable(Object? value) {
   final text = _str(value);
   return text.isEmpty ? null : text;
+}
+
+DateTime? _when(Object? value) {
+  if (value is! String || value.isEmpty) return null;
+  return DateTime.tryParse(value);
 }

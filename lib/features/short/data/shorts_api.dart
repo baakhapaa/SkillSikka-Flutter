@@ -2,6 +2,8 @@ import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/network/api_client.dart';
+import '../../../core/network/api_error.dart';
+import '../../../core/video/video_playback.dart';
 import 'short.dart';
 
 /// Reads and writes the Shorts feed.
@@ -24,6 +26,10 @@ class ShortsApi {
       query: {'feed': ?feed, 'search': ?_query(search)},
       cancelToken: cancelToken,
     );
+    return _shorts(body);
+  }
+
+  static List<ShortVideoData> _shorts(Object? body) {
     final rows = body is List
         ? body
         : body is Map && body['results'] is List
@@ -54,6 +60,18 @@ class ShortsApi {
 
   Future<void> unsave(int shortId) async {
     await _client.delete('/student/shorts/$shortId/save/');
+  }
+
+  /// Shorts this account has saved, newest save first.
+  ///
+  /// `GET /student/shorts/saved/`. The same row shape as the feed, so a saved
+  /// short can be drawn with the same fields.
+  Future<List<ShortVideoData>> saved({CancelToken? cancelToken}) async {
+    final body = await _client.get<Object>(
+      '/student/shorts/saved/',
+      cancelToken: cancelToken,
+    );
+    return _shorts(body);
   }
 
   /// Best effort. Instructors are not allowed to record a view.
@@ -124,3 +142,80 @@ class ShortsApi {
 final shortsApiProvider = Provider<ShortsApi>(
   (ref) => ShortsApi(ref.watch(apiClientProvider)),
 );
+
+/// The saved-shorts shelf.
+///
+/// One list for the profile and for See All. Saving or unsaving a short updates
+/// it immediately, so the shelf does not wait for the next app launch.
+class SavedShortsState {
+  const SavedShortsState({
+    this.shorts = const [],
+    this.loading = false,
+    this.loaded = false,
+  });
+
+  final List<ShortVideoData> shorts;
+  final bool loading;
+  final bool loaded;
+
+  SavedShortsState copyWith({
+    List<ShortVideoData>? shorts,
+    bool? loading,
+    bool? loaded,
+  }) {
+    return SavedShortsState(
+      shorts: shorts ?? this.shorts,
+      loading: loading ?? this.loading,
+      loaded: loaded ?? this.loaded,
+    );
+  }
+}
+
+class SavedShortsController extends Notifier<SavedShortsState> {
+  /// Bumped by a save or an unsave so a refresh that started earlier cannot
+  /// put a short back after the user just removed it.
+  int _ticket = 0;
+
+  @override
+  SavedShortsState build() => const SavedShortsState();
+
+  Future<void> refresh() async {
+    if (runningWidgetTests) return;
+    final ticket = ++_ticket;
+    state = state.copyWith(loading: true);
+    try {
+      final shorts = await ref.read(shortsApiProvider).saved();
+      if (ticket != _ticket) return;
+      state = SavedShortsState(shorts: shorts, loaded: true);
+    } on ApiException {
+      if (ticket != _ticket) return;
+      state = state.copyWith(loading: false, loaded: true);
+    }
+  }
+
+  void remember(ShortVideoData short) {
+    _ticket++;
+    if (state.shorts.any((item) => item.id == short.id)) return;
+    state = state.copyWith(
+      shorts: [short.copyWith(isSaved: true), ...state.shorts],
+      loaded: true,
+    );
+  }
+
+  void forget(int id) {
+    _ticket++;
+    state = state.copyWith(
+      shorts: [
+        for (final short in state.shorts)
+          if (short.id != id) short,
+      ],
+      loaded: true,
+      loading: false,
+    );
+  }
+}
+
+final savedShortsProvider =
+    NotifierProvider<SavedShortsController, SavedShortsState>(
+      SavedShortsController.new,
+    );

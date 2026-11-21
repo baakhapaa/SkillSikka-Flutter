@@ -17,6 +17,9 @@ import '../../../core/widgets/course_detail_view.dart';
 import '../data/enrollment.dart';
 import '../data/lesson_watch_reporter.dart';
 import '../data/learning_api.dart';
+import '../../quiz/data/module_quiz.dart';
+import '../../quiz/data/quiz_api.dart';
+import '../../quiz/presentation/module_quiz_page.dart';
 import '../../../core/widgets/video_transport_controls.dart';
 
 const _ink = Color(0xFF111827);
@@ -169,6 +172,15 @@ class _CoursePlayerPageState extends ConsumerState<CoursePlayerPage> {
   /// — a poster and a play glyph, forever (2026-10-28).
   String? _videoError;
 
+  /// Published quizzes for this course, placed under the module whose title
+  /// matches [ModuleQuiz.section]. Empty until the list returns, and empty
+  /// for good when the course has none — a module without a row simply has
+  /// no quiz.
+  List<ModuleQuiz> _moduleQuizzes = const [];
+
+  /// Quiz ids whose "take the quiz" prompt the student closed.
+  final Set<int> _dismissedQuizPrompts = {};
+
   CourseDetailData get _course => widget.course;
 
   @override
@@ -184,6 +196,7 @@ class _CoursePlayerPageState extends ConsumerState<CoursePlayerPage> {
     _syncVideo();
     _syncWatch();
     _loadServerProgress();
+    _loadModuleQuizzes();
   }
 
   Future<void> _reportWatch(
@@ -906,6 +919,154 @@ class _CoursePlayerPageState extends ConsumerState<CoursePlayerPage> {
   // LESSONS
   // ─────────────────────────────────────────────────────────────
 
+  Future<void> _loadModuleQuizzes() async {
+    final id = _course.id;
+    if (id == null) return;
+    try {
+      final quizzes = await ref.read(quizApiProvider).courseQuizzes(id);
+      if (!mounted) return;
+      setState(() => _moduleQuizzes = quizzes);
+    } on ApiException {
+      // The lectures still play. A missing quiz list is the same as no quizzes.
+    }
+  }
+
+  /// The quiz whose section is this module's title.
+  ///
+  /// A blank title matches a quiz with no section, which is how lessons that
+  /// were saved without a module name are grouped.
+  ModuleQuiz? _quizForModule(CourseModule module) {
+    final section = module.title.trim().isEmpty ? null : module.title.trim();
+    for (final quiz in _moduleQuizzes) {
+      if (quiz.section == section) return quiz;
+    }
+    return null;
+  }
+
+  /// A quiz the student can still take, once that module's last lesson is done.
+  ///
+  /// It does not block the next module. Closing it only hides the prompt.
+  ModuleQuiz? _quizPrompt() {
+    final enrollment = _enrollment;
+    if (enrollment == null) return null;
+    var flat = 0;
+    for (final module in _course.modules) {
+      if (module.lessons.isEmpty) continue;
+      final lastIndex = flat + module.lessons.length - 1;
+      final lesson = module.lessons.last;
+      final done = enrollment.completed.contains(
+        lessonProgressKey(lesson, lastIndex),
+      );
+      flat += module.lessons.length;
+      if (!done) continue;
+      final quiz = _quizForModule(module);
+      final quizId = quiz?.id;
+      if (quiz == null || quizId == null) continue;
+      if (_dismissedQuizPrompts.contains(quizId)) continue;
+      if (!quiz.isPassed && quiz.canRetry) return quiz;
+    }
+    return null;
+  }
+
+  void _openQuiz(ModuleQuiz quiz) {
+    Navigator.of(context)
+        .push<void>(
+          MaterialPageRoute<void>(
+            builder: (_) =>
+                ModuleQuizPage(api: ref.read(quizApiProvider), summary: quiz),
+          ),
+        )
+        .then((_) {
+          if (mounted) _loadModuleQuizzes();
+        });
+  }
+
+  Widget _buildQuizPrompt(ModuleQuiz quiz) {
+    return Container(
+      margin: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+      padding: const EdgeInsets.fromLTRB(12, 10, 8, 10),
+      decoration: BoxDecoration(
+        color: const Color(0xFFFFFBF0),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: const Color(0xFFF1E4B8)),
+      ),
+      child: Row(
+        children: [
+          const Icon(Icons.quiz_outlined, size: 18, color: _gold),
+          const SizedBox(width: 8),
+          Expanded(
+            child: GestureDetector(
+              onTap: () => _openQuiz(quiz),
+              behavior: HitTestBehavior.opaque,
+              child: Text(
+                'Test yourself: take the module quiz',
+                style: GoogleFonts.manrope(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w700,
+                  color: _ink,
+                ),
+              ),
+            ),
+          ),
+          IconButton(
+            onPressed: () {
+              final id = quiz.id;
+              if (id == null) return;
+              setState(() => _dismissedQuizPrompts.add(id));
+            },
+            visualDensity: VisualDensity.compact,
+            icon: const Icon(Icons.close, size: 16, color: _softGray),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildModuleQuizRow(ModuleQuiz quiz) {
+    final count = quiz.count;
+    final questions = count == 1 ? '1 question' : '$count questions';
+    return GestureDetector(
+      onTap: () => _openQuiz(quiz),
+      behavior: HitTestBehavior.opaque,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(16, 4, 16, 10),
+        child: Row(
+          children: [
+            const Icon(Icons.quiz_outlined, size: 18, color: _gold),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    quiz.title.trim().isEmpty
+                        ? 'Module quiz'
+                        : quiz.title.trim(),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: GoogleFonts.figtree(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w700,
+                      color: _ink,
+                    ),
+                  ),
+                  Text(
+                    'Module quiz · $questions',
+                    style: GoogleFonts.inter(fontSize: 11, color: _softGray),
+                  ),
+                ],
+              ),
+            ),
+            Text(
+              quiz.statusLabel,
+              style: GoogleFonts.inter(fontSize: 11, color: _gray),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   Widget _buildLessonsTab() {
     if (_lessons.isEmpty) {
       return _EmptyState(
@@ -917,12 +1078,16 @@ class _CoursePlayerPageState extends ConsumerState<CoursePlayerPage> {
 
     var flatIndex = 0;
     final rows = <Widget>[];
+    final prompt = _quizPrompt();
+    if (prompt != null) rows.add(_buildQuizPrompt(prompt));
     for (final module in _course.modules) {
       rows.add(_buildSectionHeader(module));
       for (final lesson in module.lessons) {
         rows.add(_buildLessonRow(lesson, flatIndex));
         flatIndex++;
       }
+      final quiz = _quizForModule(module);
+      if (quiz != null) rows.add(_buildModuleQuizRow(quiz));
     }
     if (_isCourseComplete) rows.add(_buildCourseCompletedCard());
 

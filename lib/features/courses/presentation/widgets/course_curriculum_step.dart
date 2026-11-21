@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 
+import '../../../quiz/data/module_quiz.dart';
 import '../../data/course_draft.dart';
 import 'builder_tokens.dart';
 import 'prompt_dialog.dart';
@@ -21,6 +22,9 @@ class CourseCurriculumStep extends StatelessWidget {
     required this.onAddLesson,
     required this.onEditLesson,
     required this.onDeleteLesson,
+    required this.onAddQuiz,
+    required this.onEditQuiz,
+    required this.quizFor,
     required this.onReorderModules,
     required this.onReorderLessons,
   });
@@ -32,6 +36,9 @@ class CourseCurriculumStep extends StatelessWidget {
   final void Function(String moduleKey) onAddLesson;
   final void Function(String moduleKey, CourseLesson lesson) onEditLesson;
   final void Function(String moduleKey, CourseLesson lesson) onDeleteLesson;
+  final void Function(String moduleKey) onAddQuiz;
+  final void Function(String moduleKey, ModuleQuiz quiz) onEditQuiz;
+  final ModuleQuiz? Function(String moduleKey) quizFor;
   final void Function(int oldIndex, int newIndex) onReorderModules;
   final void Function(String moduleKey, int oldIndex, int newIndex)
   onReorderLessons;
@@ -91,6 +98,12 @@ class CourseCurriculumStep extends StatelessWidget {
                   onEditLesson: (lesson) => onEditLesson(module.key, lesson),
                   onDeleteLesson: (lesson) =>
                       onDeleteLesson(module.key, lesson),
+                  quiz: quizFor(module.key),
+                  onAddQuiz: () => onAddQuiz(module.key),
+                  onEditQuiz: () {
+                    final quiz = quizFor(module.key);
+                    if (quiz != null) onEditQuiz(module.key, quiz);
+                  },
                   onReorderLessons: (oldIndex, newIndex) =>
                       onReorderLessons(module.key, oldIndex, newIndex),
                 );
@@ -131,7 +144,8 @@ class CourseCurriculumStep extends StatelessWidget {
     BuildContext context,
     CourseModule module,
   ) async {
-    if (module.lessons.isEmpty) {
+    final quiz = quizFor(module.key);
+    if (module.lessons.isEmpty && quiz == null) {
       onDeleteModule(module.key);
       return;
     }
@@ -145,9 +159,7 @@ class CourseCurriculumStep extends StatelessWidget {
           style: GoogleFonts.manrope(fontSize: 18, fontWeight: FontWeight.w800),
         ),
         content: Text(
-          'Its ${module.lessons.length} '
-          '${module.lessons.length == 1 ? 'lesson' : 'lessons'} will be deleted '
-          'too.',
+          _deleteCopy(module, quiz),
           style: GoogleFonts.manrope(
             fontSize: 13,
             color: builderGray,
@@ -182,6 +194,14 @@ class CourseCurriculumStep extends StatelessWidget {
     );
     if (confirmed == true) onDeleteModule(module.key);
   }
+
+  String _deleteCopy(CourseModule module, ModuleQuiz? quiz) {
+    final lessons = module.lessons.length;
+    final lessonWord = lessons == 1 ? 'lesson' : 'lessons';
+    if (lessons == 0) return 'Its quiz will be deleted too.';
+    if (quiz == null) return 'Its $lessons $lessonWord will be deleted too.';
+    return 'Its $lessons $lessonWord and its quiz will be deleted too.';
+  }
 }
 
 class _ModuleCard extends StatelessWidget {
@@ -195,6 +215,9 @@ class _ModuleCard extends StatelessWidget {
     required this.onEditLesson,
     required this.onDeleteLesson,
     required this.onReorderLessons,
+    required this.quiz,
+    required this.onAddQuiz,
+    required this.onEditQuiz,
   });
 
   final CourseModule module;
@@ -205,6 +228,9 @@ class _ModuleCard extends StatelessWidget {
   final void Function(CourseLesson lesson) onEditLesson;
   final void Function(CourseLesson lesson) onDeleteLesson;
   final void Function(int oldIndex, int newIndex) onReorderLessons;
+  final ModuleQuiz? quiz;
+  final VoidCallback onAddQuiz;
+  final VoidCallback onEditQuiz;
 
   @override
   Widget build(BuildContext context) {
@@ -310,27 +336,11 @@ class _ModuleCard extends StatelessWidget {
                 );
               },
             ),
-          InkWell(
-            onTap: onAddLesson,
-            child: SizedBox(
-              height: 36,
-              child: Row(
-                children: [
-                  const SizedBox(width: 12),
-                  const Icon(Icons.add, size: 15, color: builderYellow),
-                  const SizedBox(width: 6),
-                  Text(
-                    'Add lesson',
-                    style: GoogleFonts.manrope(
-                      fontSize: 11,
-                      fontWeight: FontWeight.w600,
-                      color: builderYellow,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
+          _AddRow(label: 'Add lesson', onTap: onAddLesson),
+          if (quiz == null)
+            _AddRow(label: 'Add quiz (optional)', onTap: onAddQuiz)
+          else
+            _QuizTile(quiz: quiz!, onTap: onEditQuiz),
         ],
       ),
     );
@@ -434,6 +444,112 @@ class _LessonRow extends StatelessWidget {
               ),
             ],
           ),
+        ),
+      ),
+    );
+  }
+}
+
+class _AddRow extends StatelessWidget {
+  const _AddRow({required this.label, required this.onTap});
+
+  final String label;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: onTap,
+      child: SizedBox(
+        height: 36,
+        child: Row(
+          children: [
+            const SizedBox(width: 12),
+            const Icon(Icons.add, size: 15, color: builderYellow),
+            const SizedBox(width: 6),
+            Text(
+              label,
+              style: GoogleFonts.manrope(
+                fontSize: 11,
+                fontWeight: FontWeight.w600,
+                color: builderYellow,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _QuizTile extends StatelessWidget {
+  const _QuizTile({required this.quiz, required this.onTap});
+
+  final ModuleQuiz quiz;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final questions = quiz.count == 1
+        ? '1 question'
+        : '${quiz.count} questions';
+    return InkWell(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.fromLTRB(12, 8, 8, 8),
+        decoration: const BoxDecoration(
+          border: Border(top: BorderSide(color: Color(0xFFF7F6F2))),
+        ),
+        child: Row(
+          children: [
+            const Icon(Icons.quiz_outlined, size: 16, color: builderYellow),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    quiz.title.trim().isEmpty
+                        ? 'Module quiz'
+                        : quiz.title.trim(),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: GoogleFonts.manrope(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w700,
+                      color: builderInk,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    '$questions · Pass ${quiz.passPercentage}%',
+                    style: GoogleFonts.figtree(
+                      fontSize: 10,
+                      color: builderMuted,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+              decoration: BoxDecoration(
+                color: quiz.isPublished
+                    ? const Color(0xFFF0FDF4)
+                    : builderPillFill,
+                borderRadius: BorderRadius.circular(100),
+              ),
+              child: Text(
+                quiz.isPublished ? 'Published' : 'Draft',
+                style: GoogleFonts.manrope(
+                  fontSize: 10,
+                  fontWeight: FontWeight.w700,
+                  color: quiz.isPublished ? builderSuccess : builderBrown,
+                ),
+              ),
+            ),
+            const Icon(Icons.chevron_right, size: 16, color: builderMuted),
+          ],
         ),
       ),
     );

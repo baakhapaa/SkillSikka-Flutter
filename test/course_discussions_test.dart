@@ -11,6 +11,7 @@ import 'package:skillsikka/features/courses/data/course_api.dart';
 import 'package:skillsikka/features/courses/data/course_discussions_api.dart';
 import 'package:skillsikka/features/learning/data/enrollment.dart';
 import 'package:skillsikka/features/learning/presentation/course_player_page.dart';
+import 'package:skillsikka/features/quiz/data/quiz_api.dart';
 
 import 'support/courses_test_scope.dart';
 import 'support/home_page_font_harness.dart';
@@ -265,6 +266,7 @@ void main() {
         overrides: [
           courseApiProvider.overrideWithValue(FakeCourseApi()),
           courseDiscussionsApiProvider.overrideWithValue(discussions),
+          quizApiProvider.overrideWithValue(EmptyQuizApi()),
         ],
       );
       addTearDown(container.dispose);

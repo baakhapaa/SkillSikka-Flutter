@@ -8,6 +8,7 @@ import '../../courses/data/course_builder_api.dart';
 import '../../courses/data/course_summary.dart';
 import '../../courses/data/my_courses_api.dart';
 import '../../courses/presentation/course_builder_page.dart';
+import '../../quiz/data/quiz_api.dart';
 import 'instructor_course_insights.dart';
 import '../data/user_profile.dart';
 
@@ -105,6 +106,7 @@ class _MyCoursesPageState extends ConsumerState<MyCoursesPage> {
       MaterialPageRoute(
         builder: (_) => CourseBuilderPage(
           api: ref.read(courseBuilderApiProvider),
+          quizApi: ref.read(quizApiProvider),
           instructorVerified: ref.read(userProfileProvider).canPublish,
         ),
       ),
@@ -680,55 +682,52 @@ class _CourseCard extends StatelessWidget {
                 ),
               ),
             ),
-            AspectRatio(
-              aspectRatio: 5 / 3,
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(10, 8, 10, 8),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        _StatusChip(isPublished: course.isPublished),
-                        const Spacer(),
-                        if (videos.isNotEmpty)
-                          Text(
-                            videos,
-                            style: GoogleFonts.figtree(
-                              fontSize: 11,
-                              fontWeight: FontWeight.w500,
-                              color: const Color(0xFF9CA3AF),
-                            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(12, 10, 12, 12),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      _StatusChip(isPublished: course.isPublished),
+                      const Spacer(),
+                      if (videos.isNotEmpty)
+                        Text(
+                          videos,
+                          style: GoogleFonts.figtree(
+                            fontSize: 11,
+                            fontWeight: FontWeight.w500,
+                            color: const Color(0xFF9CA3AF),
                           ),
-                      ],
+                        ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    course.title,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: GoogleFonts.manrope(
+                      fontSize: 15,
+                      fontWeight: FontWeight.w800,
+                      height: 1.15,
+                      color: const Color(0xFF1B1C1E),
                     ),
-                    const SizedBox(height: 8),
-                    Text(
-                      course.title,
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                      style: GoogleFonts.manrope(
-                        fontSize: 15,
-                        fontWeight: FontWeight.w800,
-                        height: 1.15,
-                        color: const Color(0xFF1B1C1E),
-                      ),
+                  ),
+                  const SizedBox(height: 6),
+                  Text(
+                    course.durationLabel.isEmpty
+                        ? 'Manage →'
+                        : '${course.durationLabel} · Manage →',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: GoogleFonts.figtree(
+                      fontSize: 11,
+                      height: 1.1,
+                      color: const Color(0xFF9CA3AF),
                     ),
-                    const Spacer(),
-                    Text(
-                      course.durationLabel.isEmpty
-                          ? 'Manage →'
-                          : '${course.durationLabel} · Manage →',
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: GoogleFonts.figtree(
-                        fontSize: 11,
-                        height: 1.1,
-                        color: const Color(0xFF9CA3AF),
-                      ),
-                    ),
-                  ],
-                ),
+                  ),
+                ],
               ),
             ),
           ],

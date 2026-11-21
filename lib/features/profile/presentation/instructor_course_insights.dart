@@ -10,6 +10,7 @@ import '../../courses/data/course_summary.dart';
 import '../../courses/data/instructor_analytics.dart';
 import '../../courses/presentation/course_builder_page.dart';
 import '../../courses/presentation/course_details_page.dart';
+import '../../quiz/data/quiz_api.dart';
 import '../data/user_profile.dart';
 
 const _ink = Color(0xFF1B1C1E);
@@ -150,6 +151,7 @@ class InstructorCourseDetailsPage extends ConsumerWidget {
       MaterialPageRoute(
         builder: (_) => CourseBuilderPage(
           api: ref.read(courseBuilderApiProvider),
+          quizApi: ref.read(quizApiProvider),
           instructorVerified: ref.read(userProfileProvider).canPublish,
           courseId: course.id,
         ),

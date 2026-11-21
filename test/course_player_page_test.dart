@@ -10,6 +10,7 @@ import 'package:skillsikka/features/courses/data/course_resources_api.dart';
 import 'package:skillsikka/features/courses/presentation/course_details_page.dart';
 import 'package:skillsikka/features/learning/data/enrollment.dart';
 import 'package:skillsikka/features/learning/presentation/course_player_page.dart';
+import 'package:skillsikka/features/quiz/data/quiz_api.dart';
 import 'package:skillsikka/core/widgets/video_transport_controls.dart';
 import 'package:skillsikka/features/skill_courses/data/skill_course.dart';
 
@@ -80,6 +81,7 @@ void main() {
         courseResourcesApiProvider.overrideWithValue(
           resources ?? FakeCourseResourcesApi(),
         ),
+        quizApiProvider.overrideWithValue(EmptyQuizApi()),
       ],
     );
     addTearDown(container.dispose);

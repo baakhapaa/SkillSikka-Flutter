@@ -9,11 +9,14 @@ import '../../../core/widgets/course_detail_view.dart'
     show CourseResource, CourseResourceType;
 import '../data/course_builder_api.dart';
 import '../data/course_draft.dart';
+import '../../quiz/data/module_quiz.dart';
+import '../../quiz/data/quiz_api.dart';
 import 'widgets/course_basics_step.dart';
 import 'widgets/course_curriculum_step.dart';
 import 'widgets/course_publish_step.dart';
 import 'widgets/lesson_editor_sheet.dart';
 import 'widgets/prompt_dialog.dart';
+import 'widgets/quiz_editor_sheet.dart';
 
 const _ink = Color(0xFF111827);
 const _gray = Color(0xFF4B5563);
@@ -39,6 +42,7 @@ class CourseBuilderPage extends StatefulWidget {
     required this.api,
     required this.instructorVerified,
     this.courseId,
+    this.quizApi,
     this.categoryOptions = const <(int, String)>[],
     this.pickCover,
     this.pickResources,
@@ -52,6 +56,11 @@ class CourseBuilderPage extends StatefulWidget {
 
   /// When set, the builder resumes that draft instead of starting a new course.
   final int? courseId;
+
+  /// Module quizzes. Null in tests that never open one: the curriculum still
+  /// offers "Add quiz", and saving it explains that the API is not wired,
+  /// rather than the page refusing to build.
+  final QuizApi? quizApi;
 
   /// Overrides the fetched category list. A test passes a fixed one; in the app
   /// this stays empty and [_categories] is used.
@@ -101,6 +110,13 @@ class _CourseBuilderPageState extends State<CourseBuilderPage> {
   /// "Getting Started" to "Foundations" would leave every lesson still pointing
   /// at the old name and the modules would split on the next reload.
   final Map<String, String?> _syncedSection = {};
+
+  /// One quiz per module, keyed the same way [CourseModule.key] is.
+  ///
+  /// Kept off the draft because a quiz is not a lesson. The server stores it
+  /// on `Quiz.section`, which is the module title, so this map is rebuilt from
+  /// that string whenever a course is loaded.
+  final Map<String, ModuleQuiz> _quizzes = {};
 
   /// Bumped whenever the user edits anything, so the exit guard can tell a
   /// deliberate empty form from one they typed into.
@@ -244,7 +260,14 @@ class _CourseBuilderPageState extends State<CourseBuilderPage> {
         return;
       }
       _adopt(loaded);
-      setState(() => _loading = false);
+      final quizzes = await _fetchQuizzes(courseId);
+      if (!mounted) return;
+      setState(() {
+        _quizzes
+          ..clear()
+          ..addAll(quizzes);
+        _loading = false;
+      });
       // After the draft, not before: the resources request is the one that can
       // fail without the course being unusable, and a slow one must not hold up
       // the form the instructor came here to edit.
@@ -412,6 +435,168 @@ class _CourseBuilderPageState extends State<CourseBuilderPage> {
       if (module.key == moduleKey) return _sectionTitle(module);
     }
     return null;
+  }
+
+  CourseModule? _moduleByKey(String moduleKey) {
+    for (final module in _draft.value.modules) {
+      if (module.key == moduleKey) return module;
+    }
+    return null;
+  }
+
+  Future<Map<String, ModuleQuiz>> _fetchQuizzes(int courseId) async {
+    final api = widget.quizApi;
+    if (api == null) return const {};
+    try {
+      final quizzes = await api.listForCourse(courseId);
+      final placed = <String, ModuleQuiz>{};
+      for (final quiz in quizzes) {
+        for (final module in _draft.value.modules) {
+          if (placed.containsKey(module.key)) continue;
+          if (_sectionTitle(module) != quiz.section) continue;
+          placed[module.key] = quiz;
+          break;
+        }
+      }
+      return placed;
+    } on ApiException catch (error) {
+      if (mounted) showApiErrorSnack(context, error);
+      return const {};
+    }
+  }
+
+  /// Rewrites `Quiz.section` when a module was renamed.
+  ///
+  /// The quiz is found by that string, the same way lessons are. A rename that
+  /// only updates the lessons would leave the quiz on the old name, and the
+  /// next load would not know which module it belongs to.
+  Future<void> _syncQuizSections() async {
+    for (final module in _draft.value.modules) {
+      final quiz = _quizzes[module.key];
+      if (quiz == null) continue;
+      final section = _sectionTitle(module);
+      if (quiz.section == section) continue;
+      await _patchQuizSection(module.key, quiz, section);
+    }
+  }
+
+  Future<void> _patchQuizSection(
+    String moduleKey,
+    ModuleQuiz quiz,
+    String? section,
+  ) async {
+    final api = widget.quizApi;
+    if (api == null || quiz.id == null) {
+      if (!mounted) return;
+      setState(() => _quizzes[moduleKey] = quiz.copyWith(section: section));
+      return;
+    }
+    try {
+      final saved = await api.updateSection(quiz, section);
+      if (!mounted) return;
+      setState(() => _quizzes[moduleKey] = saved);
+    } on ApiException catch (error) {
+      if (mounted) showApiErrorSnack(context, error);
+    }
+  }
+
+  Future<void> _addQuiz(String moduleKey) async {
+    if (_draft.value.id == null) {
+      _snack('Save the course details first.');
+      return;
+    }
+    final module = _moduleByKey(moduleKey);
+    if (module == null || !mounted) return;
+    final result = await QuizEditorSheet.show(
+      context,
+      moduleTitle: module.title,
+    );
+    if (result is! QuizSaved || !mounted) return;
+    await _storeQuiz(moduleKey, result.quiz);
+  }
+
+  Future<void> _editQuiz(String moduleKey, ModuleQuiz quiz) async {
+    final module = _moduleByKey(moduleKey);
+    final result = await QuizEditorSheet.show(
+      context,
+      moduleTitle: module?.title ?? quiz.section ?? '',
+      quiz: quiz,
+    );
+    if (!mounted) return;
+    if (result is QuizDeleted) {
+      setState(() => _quizzes.remove(moduleKey));
+      await _deleteQuizRemotely(quiz);
+      return;
+    }
+    if (result is QuizSaved) await _storeQuiz(moduleKey, result.quiz);
+  }
+
+  Future<void> _storeQuiz(String moduleKey, ModuleQuiz quiz) async {
+    final api = widget.quizApi;
+    final courseId = _draft.value.id;
+    if (api == null || courseId == null) {
+      _snack('Saving a quiz needs the course API.');
+      return;
+    }
+    setState(() => _busy = true);
+    try {
+      var saved = await api.persist(
+        quiz.copyWith(section: _sectionOf(moduleKey)),
+        courseId: courseId,
+        previous: _quizzes[moduleKey],
+      );
+      if (_draft.value.isPublished && saved.id != null && !saved.isPublished) {
+        try {
+          saved = await api.publish(saved.id!);
+        } on ApiException catch (error) {
+          if (mounted) {
+            _snack('The quiz is saved as a draft. ${error.displayMessage}');
+          }
+        }
+      }
+      if (!mounted) return;
+      setState(() => _quizzes[moduleKey] = saved);
+    } on ApiException catch (error) {
+      if (mounted) showApiErrorSnack(context, error);
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  Future<void> _deleteQuizRemotely(ModuleQuiz quiz) async {
+    final id = quiz.id;
+    final api = widget.quizApi;
+    if (id == null || api == null) return;
+    try {
+      await api.deleteQuiz(id);
+    } on ApiException catch (error) {
+      if (mounted) showApiErrorSnack(context, error);
+    }
+  }
+
+  /// Publishes every saved quiz after the course itself is live.
+  ///
+  /// A quiz that fails this stays a draft. The course publish is not rolled
+  /// back: the instructor can open the quiz and publish it once the reason
+  /// (usually an unverified account, or a question with no correct option)
+  /// is fixed.
+  Future<void> _publishQuizzes() async {
+    final api = widget.quizApi;
+    if (api == null) return;
+    for (final entry in _quizzes.entries.toList()) {
+      final quiz = entry.value;
+      final id = quiz.id;
+      if (id == null || quiz.isPublished) continue;
+      if (quizIssues(quiz).isNotEmpty) continue;
+      try {
+        final published = await api.publish(id);
+        if (!mounted) return;
+        setState(() => _quizzes[entry.key] = published);
+      } on ApiException catch (error) {
+        if (!mounted) return;
+        _snack('“${quiz.title}” stayed a draft. ${error.displayMessage}');
+      }
+    }
   }
 
   // ── navigation ────────────────────────────────────────────────────────────
@@ -750,6 +935,7 @@ class _CourseBuilderPageState extends State<CourseBuilderPage> {
       if (!await _persist(_draft.value)) return;
       await _syncOrders();
       await widget.api.publishCourse(id);
+      await _publishQuizzes();
       if (!mounted) return;
       Navigator.of(context).pop(true);
     } on ApiException catch (error) {
@@ -797,24 +983,25 @@ class _CourseBuilderPageState extends State<CourseBuilderPage> {
         pending.add((lesson, order, section));
       }
     }
-    if (pending.isEmpty) return;
-
-    for (final (lesson, position, section) in pending) {
-      try {
-        await widget.api.updateLesson(
-          lesson: lesson,
-          order: position,
-          section: section,
-        );
-        _syncedOrder[lesson.key] = position;
-        _syncedSection[lesson.key] = section;
-      } on ApiException catch (error) {
-        // One failure stops the sweep: the remaining orders are relative to this
-        // one, so continuing would leave the sequence half-written.
-        if (mounted) showApiErrorSnack(context, error);
-        return;
+    if (pending.isNotEmpty) {
+      for (final (lesson, position, section) in pending) {
+        try {
+          await widget.api.updateLesson(
+            lesson: lesson,
+            order: position,
+            section: section,
+          );
+          _syncedOrder[lesson.key] = position;
+          _syncedSection[lesson.key] = section;
+        } on ApiException catch (error) {
+          // One failure stops the sweep: the remaining orders are relative to this
+          // one, so continuing would leave the sequence half-written.
+          if (mounted) showApiErrorSnack(context, error);
+          return;
+        }
       }
     }
+    await _syncQuizSections();
   }
 
   // ── curriculum mutations ──────────────────────────────────────────────────
@@ -881,16 +1068,23 @@ class _CourseBuilderPageState extends State<CourseBuilderPage> {
         module.key == moduleKey ? module.copyWith(title: title) : module,
     ];
     _write(_draft.value.copyWith(modules: modules));
+    final quiz = _quizzes[moduleKey];
+    if (quiz == null) return;
+    final section = title.trim().isEmpty ? null : title.trim();
+    unawaited(_patchQuizSection(moduleKey, quiz, section));
   }
 
   void _deleteModule(String moduleKey) {
     // The lessons inside it are real rows on the server, so dropping the module
     // locally would orphan them: they would keep their `order` and reappear in
-    // the flat list the next time the course is loaded.
+    // the flat list the next time the course is loaded. The quiz is the same
+    // kind of row: it is keyed by the module name, so leaving it behind would
+    // pin a quiz to a module the instructor just removed.
     CourseModule? doomed;
     for (final module in _draft.value.modules) {
       if (module.key == moduleKey) doomed = module;
     }
+    final quiz = _quizzes.remove(moduleKey);
     final modules = [
       for (final module in _draft.value.modules)
         if (module.key != moduleKey) module,
@@ -899,6 +1093,7 @@ class _CourseBuilderPageState extends State<CourseBuilderPage> {
     for (final lesson in doomed?.lessons ?? const <CourseLesson>[]) {
       _deleteLessonRemotely(lesson);
     }
+    if (quiz != null) unawaited(_deleteQuizRemotely(quiz));
   }
 
   Future<void> _deleteLessonRemotely(CourseLesson lesson) async {
@@ -1206,6 +1401,9 @@ class _CourseBuilderPageState extends State<CourseBuilderPage> {
           onAddLesson: _addLesson,
           onEditLesson: _editLesson,
           onDeleteLesson: _deleteLesson,
+          onAddQuiz: _addQuiz,
+          onEditQuiz: _editQuiz,
+          quizFor: (key) => _quizzes[key],
           onReorderModules: _reorderModules,
           onReorderLessons: _reorderLessons,
         );
@@ -1221,6 +1419,7 @@ class _CourseBuilderPageState extends State<CourseBuilderPage> {
           resourcesUploading: _resourcesUploading,
           onAddResources: _addCourseResources,
           onRemoveResource: _removeCourseResource,
+          quizCount: _quizzes.length,
         );
       default:
         return CourseBasicsStep(

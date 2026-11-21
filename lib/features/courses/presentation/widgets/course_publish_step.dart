@@ -28,6 +28,7 @@ class CoursePublishStep extends StatelessWidget {
     this.resourcesUploading = false,
     this.onAddResources,
     this.onRemoveResource,
+    this.quizCount = 0,
   });
 
   final ValueNotifier<CourseDraft> draft;
@@ -43,6 +44,10 @@ class CoursePublishStep extends StatelessWidget {
   final bool resourcesUploading;
   final Future<void> Function()? onAddResources;
   final Future<void> Function(CourseResource resource)? onRemoveResource;
+
+  /// How many modules already have a quiz. Optional, so it is reported here
+  /// and never added to the publish gate.
+  final int quizCount;
 
   @override
   Widget build(BuildContext context) {
@@ -163,6 +168,12 @@ class CoursePublishStep extends StatelessWidget {
             const SizedBox(height: 18),
             _sectionHead('Summary', trailing: 'tap to edit'),
             _SummaryCard(draft: value, onTap: () => onEditStep(0)),
+            const SizedBox(height: 8),
+            Text(
+              'Quizzes: $quizCount of ${value.modules.length} '
+              '${value.modules.length == 1 ? 'module' : 'modules'}',
+              style: GoogleFonts.figtree(fontSize: 12, color: builderGray),
+            ),
 
             const SizedBox(height: 16),
             _sectionHead('Before you publish'),

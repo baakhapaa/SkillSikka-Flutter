@@ -590,16 +590,16 @@ class _IctBootcampPageState extends ConsumerState<IctBootcampPage> {
       backgroundColor: _bg,
       body: Column(
         children: [
+          _buildHero(detail),
+          _buildVideoProgress(),
+          _buildNowPlaying(),
+          _buildPlayerControls(),
           Expanded(
             child: SingleChildScrollView(
               padding: EdgeInsets.zero,
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  _buildHero(detail),
-                  _buildVideoProgress(),
-                  _buildNowPlaying(),
-                  _buildPlayerControls(),
                   _buildCourseInfoSection(detail),
                   _buildCourseNavigationTabs(),
                   if (_selectedTab == 0) ...[

@@ -1,38 +1,41 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:skillsikka/core/network/api_error.dart';
+import 'package:skillsikka/features/books/data/book_api.dart';
 import 'package:skillsikka/features/books/data/book_library.dart';
+import 'package:skillsikka/features/books/data/catalogue_book.dart';
+import 'package:skillsikka/features/books/presentation/book_chrome.dart';
 import 'package:skillsikka/features/books/presentation/book_place_page.dart';
 
-/// Opens the place screen when [title] is already bought, otherwise the buy page.
-void openRecommendedBook(
-  BuildContext context, {
-  required String image,
-  required String title,
-  required String category,
-  required List<String> tags,
-  required String description,
-  required String author,
-  required String rating,
-}) {
-  if (BookLibrary.instance.owns(title)) {
+/// Opens the place screen when the reader already has the book, otherwise
+/// the details page. The widgets on both screens stay the ones already designed.
+Future<void> openCatalogueBook(BuildContext context, CatalogueBook book) async {
+  if (!book.hasReadingAccess &&
+      book.action != 'read_now' &&
+      book.action != 'continue_reading') {
     Navigator.of(
       context,
-    ).push(MaterialPageRoute(builder: (_) => BookPlacePage(title: title)));
+    ).push(MaterialPageRoute(builder: (_) => BookDetailsPage.fromBook(book)));
     return;
   }
-  Navigator.of(context).push(
-    MaterialPageRoute(
-      builder: (_) => BookDetailsPage(
-        image: image,
-        title: title,
-        category: category,
-        tags: tags,
-        description: description,
-        author: author,
-        rating: rating,
-      ),
-    ),
-  );
+  await _openShelf(context, book);
+}
+
+Future<void> _openShelf(BuildContext context, CatalogueBook book) async {
+  final api = ProviderScope.containerOf(context).read(bookApiProvider);
+  try {
+    await api.openShelf(book);
+    if (!context.mounted) return;
+    await Navigator.of(
+      context,
+    ).push(MaterialPageRoute(builder: (_) => BookPlacePage(bookId: book.id)));
+  } on ApiException catch (error) {
+    if (!context.mounted) return;
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(error.displayMessage)));
+  }
 }
 
 const _bg = Color(0xFFFFFFFF);
@@ -46,6 +49,7 @@ const _gold = Color(0xFFE6B800);
 class BookDetailsPage extends StatefulWidget {
   const BookDetailsPage({
     super.key,
+    this.bookId,
     this.image = 'assets/figma/book-cover.png',
     this.title = 'The Art of Problem Solving (Intro)',
     this.category = 'Math',
@@ -56,8 +60,36 @@ class BookDetailsPage extends StatefulWidget {
         'mental-model exercises.',
     this.author = 'R. L. Smith',
     this.rating = '4.7',
+    this.priceLabel = '\$14.99',
+    this.highlights = const [
+      'Over 200 interactive mental exercises',
+      'Step-by-step visual proofs and diagrams',
+      'Access to supplementary digital practice tools',
+    ],
+    this.initiallySaved = false,
+    this.action = 'buy',
+    this.catalogue,
   });
 
+  factory BookDetailsPage.fromBook(CatalogueBook book) {
+    return BookDetailsPage(
+      bookId: book.id,
+      image: book.coverUrl,
+      title: book.title,
+      category: book.categoryLabel,
+      tags: book.tags,
+      description: book.description,
+      author: book.author,
+      rating: book.ratingLabel,
+      priceLabel: book.priceLabel,
+      highlights: book.highlights,
+      initiallySaved: book.isSaved,
+      action: book.action,
+      catalogue: book,
+    );
+  }
+
+  final int? bookId;
   final String image;
   final String title;
   final String category;
@@ -65,13 +97,81 @@ class BookDetailsPage extends StatefulWidget {
   final String description;
   final String author;
   final String rating;
+  final String priceLabel;
+  final List<String> highlights;
+  final bool initiallySaved;
+  final String action;
+  final CatalogueBook? catalogue;
 
   @override
   State<BookDetailsPage> createState() => _BookDetailsPageState();
 }
 
 class _BookDetailsPageState extends State<BookDetailsPage> {
-  bool _isFavorite = false;
+  late bool _isFavorite = widget.initiallySaved;
+  bool _busy = false;
+
+  BookApi get _api => ProviderScope.containerOf(context).read(bookApiProvider);
+
+  Future<void> _toggleSaved() async {
+    final id = widget.bookId;
+    final next = !_isFavorite;
+    setState(() => _isFavorite = next);
+    if (id == null) return;
+    try {
+      if (next) {
+        await _api.save(id);
+      } else {
+        await _api.unsave(id);
+      }
+    } on ApiException {
+      if (mounted) setState(() => _isFavorite = !next);
+    }
+  }
+
+  Future<void> _acquire() async {
+    final book = widget.catalogue;
+    final id = widget.bookId;
+    if (book == null || id == null) {
+      BookLibrary.instance.buy(
+        title: widget.title,
+        author: widget.author,
+        image: widget.image,
+        description: widget.description,
+      );
+      if (!mounted) return;
+      await Navigator.of(context).push(
+        MaterialPageRoute(builder: (_) => BookPlacePage(title: widget.title)),
+      );
+      return;
+    }
+    setState(() => _busy = true);
+    try {
+      if (book.action == 'get_free') {
+        await _api.getFree(id);
+      } else if (book.action == 'buy_now') {
+        await _api.buy(id);
+      } else if (book.action != 'read_now' &&
+          book.action != 'continue_reading') {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('This book is not available to buy yet.'),
+          ),
+        );
+        return;
+      }
+      if (!mounted) return;
+      await _openShelf(context, book);
+    } on ApiException catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(error.displayMessage)));
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -141,7 +241,7 @@ class _BookDetailsPageState extends State<BookDetailsPage> {
           ),
           // Favorite (heart) button
           GestureDetector(
-            onTap: () => setState(() => _isFavorite = !_isFavorite),
+            onTap: _toggleSaved,
             child: Container(
               padding: const EdgeInsets.all(8),
               decoration: BoxDecoration(
@@ -183,20 +283,7 @@ class _BookDetailsPageState extends State<BookDetailsPage> {
           ),
           child: ClipRRect(
             borderRadius: BorderRadius.circular(8),
-            child: Image.asset(
-              widget.image,
-              width: 140,
-              height: 200,
-              fit: BoxFit.cover,
-              errorBuilder: (_, _, _) => Container(
-                color: Colors.grey.shade300,
-                child: const Icon(
-                  Icons.menu_book,
-                  color: Colors.white,
-                  size: 40,
-                ),
-              ),
-            ),
+            child: BookCoverImage(image: widget.image, width: 140, height: 200),
           ),
         ),
       ),
@@ -280,23 +367,22 @@ class _BookDetailsPageState extends State<BookDetailsPage> {
             widget.description,
             style: GoogleFonts.figtree(fontSize: 13, height: 1.5, color: _gray),
           ),
-          const SizedBox(height: 16),
-
-          // ── Key Highlights ─────────────────────────────────────
-          Text(
-            'Key Highlights',
-            style: GoogleFonts.manrope(
-              fontSize: 14,
-              fontWeight: FontWeight.w700,
-              color: _ink,
+          if (widget.highlights.isNotEmpty) ...[
+            const SizedBox(height: 16),
+            Text(
+              'Key Highlights',
+              style: GoogleFonts.manrope(
+                fontSize: 14,
+                fontWeight: FontWeight.w700,
+                color: _ink,
+              ),
             ),
-          ),
-          const SizedBox(height: 8),
-          _buildHighlight('Over 200 interactive mental exercises'),
-          const SizedBox(height: 8),
-          _buildHighlight('Step-by-step visual proofs and diagrams'),
-          const SizedBox(height: 8),
-          _buildHighlight('Access to supplementary digital practice tools'),
+            const SizedBox(height: 8),
+            for (var i = 0; i < widget.highlights.length; i++) ...[
+              if (i > 0) const SizedBox(height: 8),
+              _buildHighlight(widget.highlights[i]),
+            ],
+          ],
         ],
       ),
     );
@@ -368,7 +454,7 @@ class _BookDetailsPageState extends State<BookDetailsPage> {
                 ),
               ),
               Text(
-                '\$14.99',
+                widget.priceLabel,
                 style: GoogleFonts.manrope(
                   fontSize: 20,
                   fontWeight: FontWeight.w800,
@@ -380,19 +466,7 @@ class _BookDetailsPageState extends State<BookDetailsPage> {
           ),
           const Spacer(),
           GestureDetector(
-            onTap: () {
-              BookLibrary.instance.buy(
-                title: widget.title,
-                author: widget.author,
-                image: widget.image,
-                description: widget.description,
-              );
-              Navigator.of(context).push(
-                MaterialPageRoute(
-                  builder: (_) => BookPlacePage(title: widget.title),
-                ),
-              );
-            },
+            onTap: _busy ? null : _acquire,
             child: Container(
               padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 10),
               decoration: BoxDecoration(

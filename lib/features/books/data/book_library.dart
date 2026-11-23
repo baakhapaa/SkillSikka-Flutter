@@ -9,8 +9,28 @@ class BookLibrary {
   static final BookLibrary instance = BookLibrary._();
 
   final Map<String, OwnedBook> _owned = {};
+  final Map<int, OwnedBook> _byId = {};
 
   bool owns(String title) => _owned.containsKey(title);
+
+  bool ownsId(int id) => _byId.containsKey(id);
+
+  /// Keeps a shelf loaded from the server so the place and reader screens,
+  /// which read synchronously, open on the same layout they always have.
+  void adopt(OwnedBook book) {
+    _owned[book.title] = book;
+    final id = book.id;
+    if (id != null) _byId[id] = book;
+  }
+
+  OwnedBook byId(int id) {
+    final owned = _byId[id];
+    if (owned == null) {
+      throw StateError('Book $id has not been opened.');
+    }
+    if (owned.reading.brightness == 0.7) owned.reading.brightness = 1;
+    return owned;
+  }
 
   OwnedBook book(String title) {
     final owned = _owned[title];
@@ -61,6 +81,7 @@ class BookLibrary {
 
 class OwnedBook {
   OwnedBook({
+    this.id,
     required this.title,
     required this.author,
     required this.image,
@@ -73,8 +94,13 @@ class OwnedBook {
     required this.minutesLeft,
     required this.completed,
     required this.bookmarks,
+    Map<int, int>? bookmarkIds,
     ReadingSettings? reading,
-  }) : reading = reading ?? ReadingSettings();
+  }) : bookmarkIds = bookmarkIds ?? <int, int>{},
+       reading = reading ?? ReadingSettings();
+
+  /// Server id. Null only for a book bought from the offline details preview.
+  final int? id;
 
   final String title;
   final String author;
@@ -89,6 +115,10 @@ class OwnedBook {
   int minutesLeft;
   final Set<int> completed;
   final Set<int> bookmarks;
+
+  /// Chapter index to the bookmark id the server returned for it.
+  final Map<int, int> bookmarkIds;
+
   final ReadingSettings reading;
 
   BookChapter get chapter => chapters[currentChapter];
@@ -129,10 +159,69 @@ class ReadingSettings {
   void increaseTextSize() {
     if (textSize < maxTextSize) textSize += 2;
   }
+
+  /// The sheet only offers Lora and Figtree. The server stores a generic family.
+  factory ReadingSettings.fromServer(Map<String, dynamic> row) {
+    final family = row['font_family']?.toString() ?? 'system';
+    final font = family == 'sans-serif' || family == 'monospace'
+        ? ReadingFont.figtree
+        : ReadingFont.lora;
+    final rawSize = _asInt(row['font_size']) ?? 18;
+    var size = rawSize.clamp(minTextSize, maxTextSize);
+    if (size.isOdd) size -= 1;
+    final spacing = _asDouble(row['line_spacing']) ?? 1.6;
+    var line = lineHeights.first;
+    var best = (spacing - line).abs();
+    for (final candidate in lineHeights) {
+      final gap = (spacing - candidate).abs();
+      if (gap < best) {
+        best = gap;
+        line = candidate;
+      }
+    }
+    final appearance = switch (row['theme']?.toString()) {
+      'sepia' => ReadingAppearance.sepia,
+      'dark' => ReadingAppearance.dark,
+      _ => ReadingAppearance.light,
+    };
+    return ReadingSettings(
+      font: font,
+      textSize: size,
+      lineHeight: line,
+      appearance: appearance,
+    );
+  }
+
+  Map<String, Object> toServer() {
+    return {
+      'font_family': font == ReadingFont.lora ? 'serif' : 'sans-serif',
+      'font_size': textSize,
+      'line_spacing': lineHeight.toStringAsFixed(1),
+      'theme': switch (appearance) {
+        ReadingAppearance.light => 'light',
+        ReadingAppearance.sepia => 'sepia',
+        ReadingAppearance.dark => 'dark',
+      },
+    };
+  }
+}
+
+int? _asInt(Object? value) {
+  if (value is int) return value;
+  if (value is num) return value.toInt();
+  if (value is String) return int.tryParse(value);
+  return null;
+}
+
+double? _asDouble(Object? value) {
+  if (value is num) return value.toDouble();
+  if (value is String) return double.tryParse(value);
+  return null;
 }
 
 class BookChapter {
   const BookChapter({
+    this.id,
     required this.title,
     required this.subtitle,
     required this.startPage,
@@ -143,6 +232,9 @@ class BookChapter {
     required this.pausePrompt,
   });
 
+  /// Server chapter id. Null on the offline preview chapters.
+  final int? id;
+
   final String title;
   final String subtitle;
   final int startPage;
@@ -151,6 +243,20 @@ class BookChapter {
   final String lead;
   final List<String> paragraphs;
   final String pausePrompt;
+
+  BookChapter copyWith({String? lead, List<String>? paragraphs}) {
+    return BookChapter(
+      id: id,
+      title: title,
+      subtitle: subtitle,
+      startPage: startPage,
+      pageCount: pageCount,
+      minutes: minutes,
+      lead: lead ?? this.lead,
+      paragraphs: paragraphs ?? this.paragraphs,
+      pausePrompt: pausePrompt,
+    );
+  }
 }
 
 OwnedBook _seed(String title, String author, String image, String description) {

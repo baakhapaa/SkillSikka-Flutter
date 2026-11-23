@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:skillsikka/features/books/data/book_api.dart';
+import 'package:skillsikka/features/books/data/catalogue_book.dart';
 import 'package:skillsikka/features/bootcamp/data/bootcamp.dart';
 import 'package:skillsikka/features/bootcamp/data/bootcamp_api.dart';
 import 'package:skillsikka/core/widgets/course_detail_view.dart';
@@ -54,6 +56,12 @@ Widget eventsTestScope({
         (ref, classIndex) async => academic,
       ),
       homePremiumCoursesProvider.overrideWith((ref) async => premium),
+      homeRecommendedBooksProvider.overrideWith(
+        (ref) async => const <CatalogueBook>[],
+      ),
+      bookCatalogueProvider.overrideWith(
+        (ref, search) async => const <CatalogueBook>[],
+      ),
       skillCatalogueProvider.overrideWith((ref) async => skills),
       myLearningProvider.overrideWith(
         (ref) async => learning ?? const MyLearning(),

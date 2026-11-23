@@ -10,6 +10,8 @@ import 'package:skillsikka/features/learning/data/my_learning.dart';
 import 'package:skillsikka/core/network/session.dart';
 import 'package:skillsikka/core/network/session_store.dart';
 import 'package:skillsikka/features/auth/data/auth_repository.dart';
+import 'package:skillsikka/features/books/data/book_api.dart';
+import 'package:skillsikka/features/books/data/catalogue_book.dart';
 
 import 'support/home_page_font_harness.dart';
 
@@ -60,6 +62,9 @@ void main() {
           (ref, classIndex) async => const [],
         ),
         homePremiumCoursesProvider.overrideWith((ref) async => const []),
+        homeRecommendedBooksProvider.overrideWith(
+          (ref) async => const <CatalogueBook>[],
+        ),
         skillCatalogueProvider.overrideWith((ref) async => const []),
       ],
     );

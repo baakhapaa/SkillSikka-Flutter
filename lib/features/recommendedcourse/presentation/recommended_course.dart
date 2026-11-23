@@ -1,6 +1,12 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:skillsikka/core/widgets/section_bar.dart';
+import 'package:skillsikka/features/books/data/book_api.dart';
+import 'package:skillsikka/features/books/data/catalogue_book.dart';
+import 'package:skillsikka/features/books/presentation/book_chrome.dart';
 import 'package:skillsikka/features/books/presentation/book_details.dart';
 
 const _bg = Color(0xFFFAF9F6);
@@ -21,16 +27,27 @@ const _authorAvatars = <String>[
   'assets/figma/instructors/instructor7.png',
 ];
 
-class BrowseCategoriesPage extends StatefulWidget {
+class BrowseCategoriesPage extends ConsumerStatefulWidget {
   const BrowseCategoriesPage({super.key});
 
   @override
-  State<BrowseCategoriesPage> createState() => _BrowseCategoriesPageState();
+  ConsumerState<BrowseCategoriesPage> createState() =>
+      _BrowseCategoriesPageState();
 }
 
-class _BrowseCategoriesPageState extends State<BrowseCategoriesPage> {
+class _BrowseCategoriesPageState extends ConsumerState<BrowseCategoriesPage> {
   int _hoveredCategory = -1;
+  int _selectedCategory = 0;
+  String _query = '';
+  Timer? _searchDebounce;
   final _searchController = TextEditingController();
+
+  @override
+  void dispose() {
+    _searchDebounce?.cancel();
+    _searchController.dispose();
+    super.dispose();
+  }
 
   static const _categories = <_CategoryChip>[
     _CategoryChip(label: 'All', icon: null),
@@ -45,124 +62,6 @@ class _BrowseCategoriesPageState extends State<BrowseCategoriesPage> {
     _CategoryChip(label: 'Philosophy', icon: Icons.format_quote_outlined),
     _CategoryChip(label: 'Engineering', icon: Icons.settings_outlined),
   ];
-
-  static const _books = <_Book>[
-    _Book(
-      image: 'assets/figma/premiumcourse/premcourse.png',
-      title: 'The Art of Problem Solving (Intro)',
-      category: 'Math',
-      tags: ['Beginner', 'Practice-heavy'],
-      description:
-          'Strengthen logic, visualization, and critical thinking with step-by-step math problem solving guides and real world mental-model exercises.',
-      author: 'R. L. Smith',
-      rating: '4.7',
-    ),
-    _Book(
-      image: 'assets/figma/premiumcourse/premcourse1.png',
-      title: 'Clean Code for Learners',
-      category: 'Programming',
-      tags: ['Best Practices', 'Projects'],
-      description: 'Write readable programs with real examples.',
-      author: 'M. Johnson',
-      rating: '4.7',
-    ),
-    _Book(
-      image: 'assets/figma/premiumcourse/premcourse2.png',
-      title: 'Physics: Concepts & Questions',
-      category: 'Science',
-      tags: ['Visual learning', 'Exam prep'],
-      description: 'Concept-first approach with step-by-step solutions.',
-      author: 'K. Patel',
-      rating: '4.7',
-    ),
-    _Book(
-      image: 'assets/figma/premiumcourse/premcourse3.png',
-      title: 'Advanced Calculus Made Easy',
-      category: 'Math',
-      tags: ['Advanced', 'Theory'],
-      description: 'Deep dive into multivariable calculus with proofs.',
-      author: 'Dr. S. Verma',
-      rating: '4.8',
-    ),
-    _Book(
-      image: 'assets/figma/premiumcourse/premcourse4.png',
-      title: 'Python for Data Science',
-      category: 'Programming',
-      tags: ['Hands-on', 'Projects'],
-      description: 'Learn pandas, numpy, and visualization.',
-      author: 'A. Rivera',
-      rating: '4.9',
-    ),
-    _Book(
-      image: 'assets/figma/premiumcourse/premcourse5.png',
-      title: 'Modern World History',
-      category: 'History',
-      tags: ['Survey', 'Exam prep'],
-      description: 'From the Industrial Revolution to today.',
-      author: 'J. Okafor',
-      rating: '4.6',
-    ),
-    _Book(
-      image: 'assets/figma/premiumcourse/premcourse6.png',
-      title: 'Cognitive Psychology Basics',
-      category: 'Psychology',
-      tags: ['Intro', 'Research'],
-      description: 'How memory, attention, and perception work.',
-      author: 'Dr. L. Chen',
-      rating: '4.8',
-    ),
-    _Book(
-      image: 'assets/figma/premiumcourse/premcourse7.png',
-      title: 'Startup Finance 101',
-      category: 'Business',
-      tags: ['Beginner', 'Practical'],
-      description: 'Understand runway, burn, and unit economics.',
-      author: 'N. Singh',
-      rating: '4.7',
-    ),
-    _Book(
-      image: 'assets/figma/premiumcourse/premcourse8.png',
-      title: 'Design Systems Handbook',
-      category: 'Art & Design',
-      tags: ['Reference', 'Systems'],
-      description: 'Build scalable UI systems with tokens.',
-      author: 'E. Matsumoto',
-      rating: '4.9',
-    ),
-    _Book(
-      image: 'assets/figma/premiumcourse/premcourse9.png',
-      title: 'Philosophy of Mind',
-      category: 'Philosophy',
-      tags: ['Advanced', 'Theory'],
-      description: 'Consciousness, identity, and the self.',
-      author: 'Dr. R. Patel',
-      rating: '4.6',
-    ),
-    _Book(
-      image: 'assets/figma/premiumcourse/premcourse10.png',
-      title: 'Engineering Mechanics',
-      category: 'Engineering',
-      tags: ['Core', 'Exam prep'],
-      description: 'Statics, dynamics, and materials.',
-      author: 'H. Yamamoto',
-      rating: '4.7',
-    ),
-    _Book(
-      image: 'assets/figma/premiumcourse/premcourse11.png',
-      title: 'Linear Algebra Done Right',
-      category: 'Math',
-      tags: ['Advanced', 'Proofs'],
-      description: 'A modern, proof-first approach to linear algebra.',
-      author: 'S. Axler',
-      rating: '4.9',
-    ),
-  ];
-
-  @override
-  void dispose() {
-    _searchController.dispose();
-    super.dispose();
-  }
 
   @override
   Widget build(BuildContext context) {
@@ -256,6 +155,12 @@ class _BrowseCategoriesPageState extends State<BrowseCategoriesPage> {
           Expanded(
             child: TextField(
               controller: _searchController,
+              onChanged: (value) {
+                _searchDebounce?.cancel();
+                _searchDebounce = Timer(const Duration(milliseconds: 300), () {
+                  if (mounted) setState(() => _query = value.trim());
+                });
+              },
               style: GoogleFonts.figtree(fontSize: 14, color: _ink),
               decoration: InputDecoration(
                 isDense: true,
@@ -297,11 +202,14 @@ class _BrowseCategoriesPageState extends State<BrowseCategoriesPage> {
                 onEnter: (_) => setState(() => _hoveredCategory = index),
                 onExit: (_) => setState(() => _hoveredCategory = -1),
                 child: GestureDetector(
+                  onTap: () => setState(() {
+                    _selectedCategory = _selectedCategory == index ? 0 : index;
+                  }),
                   child: Center(
                     child: _glassChip(
                       label: _categories[index].label,
                       icon: _categories[index].icon,
-                      hovered: hovered,
+                      hovered: hovered || index == _selectedCategory,
                     ),
                   ),
                 ),
@@ -416,7 +324,9 @@ class _BrowseCategoriesPageState extends State<BrowseCategoriesPage> {
             const SectionBar(color: Color(0x1F111827)),
             const SizedBox(width: 7),
             Text(
-              'All Books',
+              _categories[_selectedCategory].label == 'All'
+                  ? 'All Books'
+                  : _categories[_selectedCategory].label,
               style: GoogleFonts.manrope(
                 fontSize: 16,
                 fontWeight: FontWeight.w300,
@@ -426,36 +336,53 @@ class _BrowseCategoriesPageState extends State<BrowseCategoriesPage> {
           ],
         ),
         const SizedBox(height: 16),
-        Column(
-          children: [
-            for (var i = 0; i < _books.length; i++) ...[
-              _buildBookRow(_books[i], i),
-              // Only add spacing BETWEEN rows, not after the last one
-              if (i != _books.length - 1) const SizedBox(height: 8),
-            ],
-          ],
-        ),
+        ref
+            .watch(bookCatalogueProvider(_query))
+            .when(
+              loading: () => const SizedBox(height: 8),
+              error: (_, _) => Text(
+                'Books could not be loaded.',
+                style: GoogleFonts.figtree(fontSize: 13, color: _gray),
+              ),
+              data: (rows) {
+                final label = _categories[_selectedCategory].label;
+                final books = [
+                  for (final book in rows)
+                    if (_matchesCategory(book, label)) book,
+                ];
+                return Column(
+                  children: [
+                    for (var i = 0; i < books.length; i++) ...[
+                      _buildBookRow(books[i], i),
+                      if (i != books.length - 1) const SizedBox(height: 8),
+                    ],
+                  ],
+                );
+              },
+            ),
       ],
     );
   }
 
-  Widget _buildBookRow(_Book book, int index) {
-    // Cycle through the 8 instructor avatars
+  bool _matchesCategory(CatalogueBook book, String label) {
+    if (label == 'All') return true;
+    final hay = '${book.category} ${book.subjectName} ${book.difficulty}'
+        .toLowerCase();
+    final needle = label.toLowerCase();
+    if (needle == 'mathematics') return hay.contains('math');
+    if (needle == 'art & design') {
+      return hay.contains('art') || hay.contains('design');
+    }
+    return hay.contains(needle);
+  }
+
+  Widget _buildBookRow(CatalogueBook book, int index) {
     final avatar = _authorAvatars[index % _authorAvatars.length];
 
     return GestureDetector(
       behavior: HitTestBehavior.opaque,
       onTap: () {
-        openRecommendedBook(
-          context,
-          image: book.image,
-          title: book.title,
-          category: book.category,
-          tags: book.tags,
-          description: book.description,
-          author: book.author,
-          rating: book.rating,
-        );
+        openCatalogueBook(context, book);
       },
       child: Padding(
         padding: const EdgeInsets.symmetric(vertical: 8),
@@ -468,13 +395,10 @@ class _BrowseCategoriesPageState extends State<BrowseCategoriesPage> {
               child: SizedBox(
                 width: 80,
                 height: 114,
-                child: Image.asset(
-                  book.image,
-                  fit: BoxFit.cover,
-                  errorBuilder: (_, _, _) => Container(
-                    color: Colors.grey.shade300,
-                    child: const Icon(Icons.menu_book, color: Colors.white),
-                  ),
+                child: BookCoverImage(
+                  image: book.coverUrl,
+                  width: 80,
+                  height: 114,
                 ),
               ),
             ),
@@ -497,7 +421,7 @@ class _BrowseCategoriesPageState extends State<BrowseCategoriesPage> {
                   ),
                   const SizedBox(height: 2),
                   Text(
-                    book.category,
+                    book.categoryLabel,
                     style: GoogleFonts.manrope(
                       fontSize: 12,
                       color: Colors.black54,
@@ -562,7 +486,7 @@ class _BrowseCategoriesPageState extends State<BrowseCategoriesPage> {
                       ),
                       const SizedBox(width: 4),
                       Text(
-                        book.rating,
+                        book.ratingLabel,
                         style: GoogleFonts.figtree(
                           fontSize: 10,
                           fontWeight: FontWeight.w700,
@@ -597,26 +521,6 @@ class _BrowseCategoriesPageState extends State<BrowseCategoriesPage> {
       ),
     );
   }
-}
-
-class _Book {
-  const _Book({
-    required this.image,
-    required this.title,
-    required this.category,
-    required this.tags,
-    required this.description,
-    required this.author,
-    required this.rating,
-  });
-
-  final String image;
-  final String title;
-  final String category;
-  final List<String> tags;
-  final String description;
-  final String author;
-  final String rating;
 }
 
 class _CategoryChip {

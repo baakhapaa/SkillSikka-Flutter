@@ -159,6 +159,52 @@ class ReadingBrightness extends StatelessWidget {
   }
 }
 
+/// The same cover frame the screens already use. A remote URL loads from the
+/// network. Anything else stays an asset.
+class BookCoverImage extends StatelessWidget {
+  const BookCoverImage({
+    super.key,
+    required this.image,
+    required this.width,
+    required this.height,
+    this.fallback,
+  });
+
+  final String image;
+  final double width;
+  final double height;
+  final Widget? fallback;
+
+  @override
+  Widget build(BuildContext context) {
+    final broken =
+        fallback ??
+        Container(
+          width: width,
+          height: height,
+          color: Colors.grey.shade300,
+          child: const Icon(Icons.menu_book, color: Colors.white),
+        );
+    if (image.startsWith('http://') || image.startsWith('https://')) {
+      return Image.network(
+        image,
+        width: width,
+        height: height,
+        fit: BoxFit.cover,
+        errorBuilder: (_, _, _) => broken,
+      );
+    }
+    if (image.isEmpty) return broken;
+    return Image.asset(
+      image,
+      width: width,
+      height: height,
+      fit: BoxFit.cover,
+      errorBuilder: (_, _, _) => broken,
+    );
+  }
+}
+
 class _RoundAction extends StatelessWidget {
   const _RoundAction({
     required this.onTap,

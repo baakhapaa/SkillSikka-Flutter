@@ -11,6 +11,8 @@ import 'package:skillsikka/core/network/session.dart';
 import 'package:skillsikka/core/network/session_store.dart';
 import 'package:skillsikka/core/routing/app_router.dart';
 import 'package:skillsikka/features/auth/data/auth_repository.dart';
+import 'package:skillsikka/features/books/data/book_api.dart';
+import 'package:skillsikka/features/books/data/catalogue_book.dart';
 import 'package:skillsikka/features/bootcamp/data/bootcamp.dart';
 import 'package:skillsikka/features/bootcamp/data/bootcamp_api.dart';
 import 'package:skillsikka/features/courses/data/course_api.dart';
@@ -146,13 +148,18 @@ void main() {
             profile: ref.read(userProfileProvider.notifier),
           ),
         ),
-        sessionStoreProvider.overrideWithValue(FakeSessionStore(stored: stored)),
+        sessionStoreProvider.overrideWithValue(
+          FakeSessionStore(stored: stored),
+        ),
         myLearningProvider.overrideWith((ref) async => const MyLearning()),
         bootcampsProvider.overrideWith((ref) async => const <BootcampCard>[]),
         homeAcademicCoursesProvider.overrideWith(
           (ref, classIndex) async => const [],
         ),
         homePremiumCoursesProvider.overrideWith((ref) async => const []),
+        homeRecommendedBooksProvider.overrideWith(
+          (ref) async => const <CatalogueBook>[],
+        ),
         skillCatalogueProvider.overrideWith((ref) async => const []),
         myCoursesProvider.overrideWith((ref, id) async => const []),
         nearbyEventsProvider.overrideWith((ref) async => EventPage.empty),
@@ -174,108 +181,109 @@ void main() {
     expect(find.byType(MyLearningPage), findsNothing);
   });
 
-  testWidgets('signup lets a student and an instructor each create an account', (
-    tester,
-  ) async {
-    await tester.binding.setSurfaceSize(const Size(360, 900));
-    addTearDown(() => tester.binding.setSurfaceSize(null));
+  testWidgets(
+    'signup lets a student and an instructor each create an account',
+    (tester) async {
+      await tester.binding.setSurfaceSize(const Size(360, 900));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
 
-    final container = ProviderContainer(
-      overrides: [
-        authRepositoryProvider.overrideWith((ref) {
-          return FakeAuthRepository(
-            session: ref.read(sessionProvider.notifier),
-            profile: ref.read(userProfileProvider.notifier),
-          );
-        }),
-      ],
-    );
-    addTearDown(container.dispose);
-    final liveAuth =
-        container.read(authRepositoryProvider) as FakeAuthRepository;
+      final container = ProviderContainer(
+        overrides: [
+          authRepositoryProvider.overrideWith((ref) {
+            return FakeAuthRepository(
+              session: ref.read(sessionProvider.notifier),
+              profile: ref.read(userProfileProvider.notifier),
+            );
+          }),
+        ],
+      );
+      addTearDown(container.dispose);
+      final liveAuth =
+          container.read(authRepositoryProvider) as FakeAuthRepository;
 
-    final router = GoRouter(
-      initialLocation: '/signup/role',
-      routes: [
-        GoRoute(
-          path: '/signup/role',
-          builder: (_, _) => const SignupRolePage(),
-        ),
-        GoRoute(
-          path: '/signup/student',
-          builder: (_, _) => const SignupStudentFormPage(
-            locationService: _StubLocationService(),
+      final router = GoRouter(
+        initialLocation: '/signup/role',
+        routes: [
+          GoRoute(
+            path: '/signup/role',
+            builder: (_, _) => const SignupRolePage(),
           ),
-        ),
-        GoRoute(
-          path: '/signup/instructor',
-          builder: (_, _) => const SignupInstructorFormPage(
-            locationService: _StubLocationService(),
+          GoRoute(
+            path: '/signup/student',
+            builder: (_, _) => const SignupStudentFormPage(
+              locationService: _StubLocationService(),
+            ),
           ),
+          GoRoute(
+            path: '/signup/instructor',
+            builder: (_, _) => const SignupInstructorFormPage(
+              locationService: _StubLocationService(),
+            ),
+          ),
+          GoRoute(
+            path: '/signup/verify',
+            builder: (_, _) => const SignupVerificationPage(),
+          ),
+        ],
+      );
+
+      await tester.pumpWidget(
+        UncontrolledProviderScope(
+          container: container,
+          child: MaterialApp.router(routerConfig: router),
         ),
-        GoRoute(
-          path: '/signup/verify',
-          builder: (_, _) => const SignupVerificationPage(),
-        ),
-      ],
-    );
+      );
+      await tester.pumpAndSettle();
 
-    await tester.pumpWidget(
-      UncontrolledProviderScope(
-        container: container,
-        child: MaterialApp.router(routerConfig: router),
-      ),
-    );
-    await tester.pumpAndSettle();
+      expect(find.text('I am a Student'), findsOneWidget);
+      expect(find.text('I am an Instructor'), findsOneWidget);
 
-    expect(find.text('I am a Student'), findsOneWidget);
-    expect(find.text('I am an Instructor'), findsOneWidget);
+      await tester.ensureVisible(find.widgetWithText(FilledButton, 'Continue'));
+      await tester.tap(find.widgetWithText(FilledButton, 'Continue'));
+      await tester.pumpAndSettle();
+      expect(find.byType(SignupStudentFormPage), findsOneWidget);
+      await tester.tapAt(const Offset(8, 8));
+      await tester.pumpAndSettle();
 
-    await tester.ensureVisible(find.widgetWithText(FilledButton, 'Continue'));
-    await tester.tap(find.widgetWithText(FilledButton, 'Continue'));
-    await tester.pumpAndSettle();
-    expect(find.byType(SignupStudentFormPage), findsOneWidget);
-    await tester.tapAt(const Offset(8, 8));
-    await tester.pumpAndSettle();
+      container
+          .read(userProfileProvider.notifier)
+          .setPhoto(_onePixelPng, 'avatar.png');
+      await tester.pump();
+      await _fillAccountForm(tester);
+      await tester.ensureVisible(find.text('Create Account'));
+      await tester.tap(find.text('Create Account'));
+      await tester.pumpAndSettle();
 
-    container
-        .read(userProfileProvider.notifier)
-        .setPhoto(_onePixelPng, 'avatar.png');
-    await tester.pump();
-    await _fillAccountForm(tester);
-    await tester.ensureVisible(find.text('Create Account'));
-    await tester.tap(find.text('Create Account'));
-    await tester.pumpAndSettle();
+      expect(liveAuth.registrations.single.role, ProfileRole.student);
+      expect(find.text('Verify Your Account'), findsOneWidget);
+      expect(
+        container.read(sessionProvider),
+        isNull,
+        reason: 'signup does not sign the student in before the code',
+      );
 
-    expect(liveAuth.registrations.single.role, ProfileRole.student);
-    expect(find.text('Verify Your Account'), findsOneWidget);
-    expect(
-      container.read(sessionProvider),
-      isNull,
-      reason: 'signup does not sign the student in before the code',
-    );
+      router.go('/signup/role');
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('I am an Instructor'));
+      await tester.pump();
+      await tester.ensureVisible(find.widgetWithText(FilledButton, 'Continue'));
+      await tester.tap(find.widgetWithText(FilledButton, 'Continue'));
+      await tester.pumpAndSettle();
+      expect(find.byType(SignupInstructorFormPage), findsOneWidget);
+      await tester.tapAt(const Offset(8, 8));
+      await tester.pumpAndSettle();
 
-    router.go('/signup/role');
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('I am an Instructor'));
-    await tester.pump();
-    await tester.ensureVisible(find.widgetWithText(FilledButton, 'Continue'));
-    await tester.tap(find.widgetWithText(FilledButton, 'Continue'));
-    await tester.pumpAndSettle();
-    expect(find.byType(SignupInstructorFormPage), findsOneWidget);
-    await tester.tapAt(const Offset(8, 8));
-    await tester.pumpAndSettle();
+      await _fillAccountForm(tester, email: 'teach@example.com');
+      await tester.ensureVisible(find.text('Create Account'));
+      await tester.tap(find.text('Create Account'));
+      await tester.pumpAndSettle();
 
-    await _fillAccountForm(tester, email: 'teach@example.com');
-    await tester.ensureVisible(find.text('Create Account'));
-    await tester.tap(find.text('Create Account'));
-    await tester.pumpAndSettle();
-
-    expect(liveAuth.registrations.last.role, ProfileRole.instructor);
-    expect(container.read(userProfileProvider).role, ProfileRole.instructor);
-    expect(container.read(sessionProvider), isNull);
-    expect(find.text('Verify Your Account'), findsOneWidget);
-  });
+      expect(liveAuth.registrations.last.role, ProfileRole.instructor);
+      expect(container.read(userProfileProvider).role, ProfileRole.instructor);
+      expect(container.read(sessionProvider), isNull);
+      expect(find.text('Verify Your Account'), findsOneWidget);
+    },
+  );
 }
 
 class _Harness {
@@ -305,6 +313,9 @@ class _Harness {
           (ref, classIndex) async => const [],
         ),
         homePremiumCoursesProvider.overrideWith((ref) async => const []),
+        homeRecommendedBooksProvider.overrideWith(
+          (ref) async => const <CatalogueBook>[],
+        ),
         skillCatalogueProvider.overrideWith((ref) async => const []),
         myLearningProvider.overrideWith((ref) async => const MyLearning()),
         myCoursesProvider.overrideWith((ref, id) async => const []),

@@ -1,21 +1,58 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:skillsikka/core/network/api_error.dart';
+import 'package:skillsikka/features/books/data/book_api.dart';
 import 'package:skillsikka/features/books/data/book_library.dart';
 import 'package:skillsikka/features/books/presentation/book_chrome.dart';
 import 'package:skillsikka/features/books/presentation/book_settings_sheet.dart';
 
 /// One chapter, with the place-in-book footer and a chapter switcher.
 class BookReaderPage extends StatefulWidget {
-  const BookReaderPage({super.key, required this.title});
+  const BookReaderPage({super.key, this.bookId, this.title});
 
-  final String title;
+  final int? bookId;
+  final String? title;
 
   @override
   State<BookReaderPage> createState() => _BookReaderPageState();
 }
 
 class _BookReaderPageState extends State<BookReaderPage> {
-  OwnedBook get _book => BookLibrary.instance.book(widget.title);
+  BookApi? _apiCache;
+
+  OwnedBook get _book => widget.bookId != null
+      ? BookLibrary.instance.byId(widget.bookId!)
+      : BookLibrary.instance.book(widget.title!);
+
+  BookApi get _api => _apiCache!;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _apiCache ??= ProviderScope.containerOf(context).read(bookApiProvider);
+  }
+
+  @override
+  void dispose() {
+    final api = _apiCache;
+    final book = _bookOrNull;
+    if (api != null &&
+        book != null &&
+        book.id != null &&
+        book.chapters.isNotEmpty) {
+      api.saveProgress(book, completed: true);
+    }
+    super.dispose();
+  }
+
+  OwnedBook? get _bookOrNull {
+    try {
+      return _book;
+    } catch (_) {
+      return null;
+    }
+  }
 
   Future<void> _openSettings() {
     return showReadingSettings(
@@ -23,6 +60,8 @@ class _BookReaderPageState extends State<BookReaderPage> {
       book: _book,
       onChanged: () {
         if (mounted) setState(() {});
+        if (_book.id == null) return;
+        _api.saveSettings(_book.reading);
       },
     );
   }
@@ -63,8 +102,21 @@ class _BookReaderPageState extends State<BookReaderPage> {
       },
     );
     if (selected == null || !mounted) return;
-    BookLibrary.instance.goToChapter(widget.title, selected);
-    setState(() {});
+    if (book.id == null) {
+      BookLibrary.instance.goToChapter(widget.title!, selected);
+    } else if (selected != book.currentChapter) {
+      book.currentChapter = selected;
+      book.pageInChapter = 1;
+      book.overallPage = book.chapters[selected].startPage;
+      book.minutesLeft = book.chapters[selected].minutes;
+      try {
+        await _api.loadChapterText(book, selected);
+        await _api.saveProgress(book, completed: false);
+      } on ApiException {
+        // The chapter title is already on screen.
+      }
+    }
+    if (mounted) setState(() {});
   }
 
   @override
@@ -88,9 +140,13 @@ class _BookReaderPageState extends State<BookReaderPage> {
                 foreground: palette.ink,
                 actionFill: palette.chip,
                 onBack: () => Navigator.maybePop(context),
-                onBookmark: () {
-                  BookLibrary.instance.toggleCurrentBookmark(widget.title);
-                  setState(() {});
+                onBookmark: () async {
+                  try {
+                    await _api.toggleBookmark(_book);
+                  } on ApiException {
+                    // The icon stays as it was.
+                  }
+                  if (mounted) setState(() {});
                 },
                 onFont: _openSettings,
               ),
@@ -156,12 +212,14 @@ class _BookReaderPageState extends State<BookReaderPage> {
                       ),
                       const SizedBox(height: 16),
                     ],
-                    const SizedBox(height: 8),
-                    _PauseAndThink(
-                      prompt: chapter.pausePrompt,
-                      settings: settings,
-                      ink: palette.ink,
-                    ),
+                    if (chapter.pausePrompt.trim().isNotEmpty) ...[
+                      const SizedBox(height: 8),
+                      _PauseAndThink(
+                        prompt: chapter.pausePrompt,
+                        settings: settings,
+                        ink: palette.ink,
+                      ),
+                    ],
                   ],
                 ),
               ),

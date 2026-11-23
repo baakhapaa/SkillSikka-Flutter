@@ -5,6 +5,8 @@ import 'package:go_router/go_router.dart';
 import 'package:skillsikka/core/network/session.dart';
 import 'package:skillsikka/core/routing/app_router.dart';
 import 'package:skillsikka/features/auth/data/auth_repository.dart';
+import 'package:skillsikka/features/books/data/book_api.dart';
+import 'package:skillsikka/features/books/data/catalogue_book.dart';
 import 'package:skillsikka/features/bootcamp/data/bootcamp.dart';
 import 'package:skillsikka/features/bootcamp/data/bootcamp_api.dart';
 import 'package:skillsikka/features/courses/data/course_api.dart';
@@ -71,6 +73,9 @@ void main() {
           (ref, classIndex) async => const [],
         ),
         homePremiumCoursesProvider.overrideWith((ref) async => const []),
+        homeRecommendedBooksProvider.overrideWith(
+          (ref) async => const <CatalogueBook>[],
+        ),
         skillCatalogueProvider.overrideWith((ref) async => const []),
         myLearningProvider.overrideWith((ref) async => const MyLearning()),
       ],

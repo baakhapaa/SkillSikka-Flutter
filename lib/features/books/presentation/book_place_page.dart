@@ -1,5 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:skillsikka/core/network/api_error.dart';
+import 'package:skillsikka/features/books/data/book_api.dart';
 import 'package:skillsikka/features/books/data/book_library.dart';
 import 'package:skillsikka/features/books/presentation/book_chrome.dart';
 import 'package:skillsikka/features/books/presentation/book_reader_page.dart';
@@ -7,9 +10,10 @@ import 'package:skillsikka/features/books/presentation/book_settings_sheet.dart'
 
 /// "Your place in the book": progress, contents, bookmarks, and continue.
 class BookPlacePage extends StatefulWidget {
-  const BookPlacePage({super.key, required this.title});
+  const BookPlacePage({super.key, this.bookId, this.title});
 
-  final String title;
+  final int? bookId;
+  final String? title;
 
   @override
   State<BookPlacePage> createState() => _BookPlacePageState();
@@ -18,7 +22,11 @@ class BookPlacePage extends StatefulWidget {
 class _BookPlacePageState extends State<BookPlacePage> {
   var _showBookmarks = false;
 
-  OwnedBook get _book => BookLibrary.instance.book(widget.title);
+  OwnedBook get _book => widget.bookId != null
+      ? BookLibrary.instance.byId(widget.bookId!)
+      : BookLibrary.instance.book(widget.title!);
+
+  BookApi get _api => ProviderScope.containerOf(context).read(bookApiProvider);
 
   Future<void> _openSettings() {
     return showReadingSettings(
@@ -26,24 +34,44 @@ class _BookPlacePageState extends State<BookPlacePage> {
       book: _book,
       onChanged: () {
         if (mounted) setState(() {});
+        final id = _book.id;
+        if (id == null) return;
+        _api.saveSettings(_book.reading);
       },
     );
   }
 
-  void _openReader() {
-    Navigator.of(context)
-        .push(
-          MaterialPageRoute(
-            builder: (_) => BookReaderPage(title: widget.title),
-          ),
-        )
-        .then((_) {
-          if (mounted) setState(() {});
-        });
+  Future<void> _openReader() async {
+    final book = _book;
+    if (book.chapters.isEmpty) return;
+    if (book.id != null) {
+      try {
+        await _api.loadChapterText(book, book.currentChapter);
+        await _api.saveProgress(book, completed: false);
+      } on ApiException {
+        // The chapter title still opens.
+      }
+    }
+    if (!mounted) return;
+    await Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) =>
+            BookReaderPage(bookId: widget.bookId, title: widget.title),
+      ),
+    );
+    if (mounted) setState(() {});
   }
 
   void _openChapter(int index) {
-    BookLibrary.instance.goToChapter(widget.title, index);
+    final book = _book;
+    if (book.id == null) {
+      BookLibrary.instance.goToChapter(widget.title!, index);
+    } else if (index != book.currentChapter) {
+      book.currentChapter = index;
+      book.pageInChapter = 1;
+      book.overallPage = book.chapters[index].startPage;
+      book.minutesLeft = book.chapters[index].minutes;
+    }
     setState(() {});
     _openReader();
   }
@@ -75,9 +103,13 @@ class _BookPlacePageState extends State<BookPlacePage> {
                 foreground: palette.ink,
                 actionFill: palette.chip,
                 onBack: () => Navigator.maybePop(context),
-                onBookmark: () {
-                  BookLibrary.instance.toggleCurrentBookmark(widget.title);
-                  setState(() {});
+                onBookmark: () async {
+                  try {
+                    await _api.toggleBookmark(_book);
+                  } on ApiException {
+                    // The icon stays as it was.
+                  }
+                  if (mounted) setState(() {});
                 },
                 onFont: _openSettings,
               ),
@@ -175,7 +207,9 @@ class _BookPlacePageState extends State<BookPlacePage> {
               Padding(
                 padding: const EdgeInsets.fromLTRB(20, 8, 20, 12),
                 child: GestureDetector(
-                  onTap: _openReader,
+                  onTap: () {
+                    _openReader();
+                  },
                   child: Container(
                     height: 48,
                     alignment: Alignment.center,
@@ -219,12 +253,11 @@ class _BookIdentity extends StatelessWidget {
       children: [
         ClipRRect(
           borderRadius: BorderRadius.circular(4),
-          child: Image.asset(
-            book.image,
+          child: BookCoverImage(
+            image: book.image,
             width: 44,
             height: 62,
-            fit: BoxFit.cover,
-            errorBuilder: (_, _, _) => Container(
+            fallback: Container(
               width: 44,
               height: 62,
               color: palette.chip,

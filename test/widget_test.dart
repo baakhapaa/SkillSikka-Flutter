@@ -10,6 +10,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:skillsikka/app.dart';
+import 'package:skillsikka/features/books/data/book_api.dart';
+import 'package:skillsikka/features/books/data/catalogue_book.dart';
 import 'package:skillsikka/features/learning/data/learning_api.dart';
 import 'package:skillsikka/features/bootcamp/data/bootcamp.dart';
 import 'package:skillsikka/features/bootcamp/data/bootcamp_api.dart';
@@ -79,6 +81,9 @@ void main() {
           (ref, classIndex) async => const [],
         ),
         homePremiumCoursesProvider.overrideWith((ref) async => const []),
+        homeRecommendedBooksProvider.overrideWith(
+          (ref) async => const <CatalogueBook>[],
+        ),
         skillCatalogueProvider.overrideWith((ref) async => const []),
       ],
     );

@@ -17,6 +17,9 @@ import 'package:skillsikka/features/events/presentation/event_details.dart';
 import 'package:skillsikka/features/events/presentation/event_format.dart';
 import 'package:skillsikka/features/events/presentation/events_list_page.dart';
 import 'package:skillsikka/features/instructors/presentation/instructor_page.dart';
+import 'package:skillsikka/features/books/data/book_api.dart';
+import 'package:skillsikka/features/books/data/catalogue_book.dart';
+import 'package:skillsikka/features/books/presentation/book_chrome.dart';
 import 'package:skillsikka/features/books/presentation/book_details.dart';
 import 'package:skillsikka/features/courses/data/course_api.dart';
 import 'package:skillsikka/features/courses/presentation/course_details_page.dart';
@@ -1840,190 +1843,164 @@ class _HomePageState extends State<HomePage>
   }
 
   Widget _buildRecommendedBooks() {
-    const books = [
-      (
-        'assets/figma/homescreen/Rectangle 3352.png',
-        'The Art of Problem Solving (Intro)',
-        'Math',
-        'Beginner',
-        'Practice-heavy',
-        'Strengthen problem-solving with guided practice.',
-        'R. L. Smith',
-        '4.7',
-        'assets/figma/face/faace4.png',
-      ),
-      (
-        'assets/figma/homescreen/Rectangle 3351.png',
-        'Clean Code for Learners',
-        'Programming',
-        'Best Practices',
-        'Projects',
-        'Write readable programs with real examples.',
-        'M. Johnson',
-        '4.7',
-        'assets/figma/face/face2.png',
-      ),
-      (
-        'assets/figma/homescreen/Rectangle 3350.png',
-        'Physics: Concepts & Questions',
-        'Science',
-        'Visual learning',
-        'Exam prep',
-        'Concept-first approach with step-by-step solutions.',
-        'K. Patel',
-        '4.7',
-        'assets/figma/face/face3.png',
-      ),
-    ];
-
-    return Container(
-      color: const Color(0xFFF2F1F7),
-      padding: const EdgeInsets.fromLTRB(12, 16, 12, 16),
-      child: Column(
-        children: [
-          _buildSectionHeader(
-            'Recommended Books',
-            padding: EdgeInsets.zero,
-            trailing: GestureDetector(
-              onTap: () {
-                Navigator.of(context).push(
-                  MaterialPageRoute(
-                    builder: (_) => const BrowseCategoriesPage(),
+    return Consumer(
+      builder: (context, ref, _) {
+        final books = ref.watch(homeRecommendedBooksProvider);
+        return Container(
+          color: const Color(0xFFF2F1F7),
+          padding: const EdgeInsets.fromLTRB(12, 16, 12, 16),
+          child: Column(
+            children: [
+              _buildSectionHeader(
+                'Recommended Books',
+                padding: EdgeInsets.zero,
+                trailing: GestureDetector(
+                  onTap: () {
+                    Navigator.of(context).push(
+                      MaterialPageRoute(
+                        builder: (_) => const BrowseCategoriesPage(),
+                      ),
+                    );
+                  },
+                  child: Text(
+                    'See All',
+                    style: GoogleFonts.figtree(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
+                      color: _gray,
+                    ),
                   ),
-                );
-              },
-              child: Text(
-                'See All',
-                style: GoogleFonts.figtree(
-                  fontSize: 13,
-                  fontWeight: FontWeight.w600,
-                  color: _gray,
                 ),
               ),
-            ),
-          ),
-          const SizedBox(height: 16),
-          for (var i = 0; i < books.length; i++) ...[
-            Padding(
-              padding: const EdgeInsets.symmetric(vertical: 8),
-              child: GestureDetector(
-                behavior: HitTestBehavior.opaque,
-                onTap: () {
-                  openRecommendedBook(
-                    context,
-                    image: books[i].$1,
-                    title: books[i].$2,
-                    category: books[i].$3,
-                    tags: [books[i].$4, books[i].$5],
-                    description: books[i].$6,
-                    author: books[i].$7,
-                    rating: books[i].$8,
-                  );
-                },
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
+              const SizedBox(height: 16),
+              books.when(
+                loading: () => const SizedBox(height: 8),
+                error: (_, _) => Text(
+                  'Books could not be loaded.',
+                  style: GoogleFonts.figtree(fontSize: 13, color: _gray),
+                ),
+                data: (rows) => Column(
                   children: [
-                    ClipRRect(
-                      borderRadius: BorderRadius.circular(4),
-                      child: Image.asset(
-                        books[i].$1,
-                        width: 80,
-                        height: 114,
-                        fit: BoxFit.cover,
-                        errorBuilder: (c, e, s) => Container(
-                          width: 80,
-                          height: 114,
-                          color: Colors.grey.shade300,
-                          child: const Icon(
-                            Icons.menu_book,
-                            color: Colors.white,
-                          ),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            books[i].$2,
-                            style: GoogleFonts.inter(
-                              fontSize: 14,
-                              fontWeight: FontWeight.w700,
-                              color: Colors.black,
-                            ),
-                          ),
-                          Text(
-                            books[i].$3,
-                            style: GoogleFonts.inter(
-                              fontSize: 12,
-                              color: Colors.black54,
-                            ),
-                          ),
-                          const SizedBox(height: 4),
-                          Row(
-                            children: [
-                              _buildTag(books[i].$4),
-                              const SizedBox(width: 6),
-                              _buildTag(books[i].$5),
-                            ],
-                          ),
-                          const SizedBox(height: 4),
-                          Text(
-                            books[i].$6,
-                            style: GoogleFonts.inter(
-                              fontSize: 12,
-                              color: Colors.black54,
-                            ),
-                          ),
-                          const SizedBox(height: 8),
-                          Row(
-                            children: [
-                              ClipOval(
-                                child: Image.asset(
-                                  books[i].$9,
-                                  width: 20,
-                                  height: 20,
-                                  fit: BoxFit.cover,
-                                ),
-                              ),
-                              const SizedBox(width: 8),
-                              Text(
-                                books[i].$7,
-                                style: GoogleFonts.inter(
-                                  fontSize: 12,
-                                  fontWeight: FontWeight.w500,
-                                  color: Colors.black,
-                                ),
-                              ),
-                              const Spacer(),
-                              const Icon(
-                                Icons.star,
-                                color: Color(0xFFFBBF24),
-                                size: 12,
-                              ),
-                              const SizedBox(width: 4),
-                              Text(
-                                books[i].$8,
-                                style: GoogleFonts.figtree(
-                                  fontSize: 10,
-                                  fontWeight: FontWeight.w700,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ],
-                      ),
-                    ),
+                    for (var i = 0; i < rows.length; i++) ...[
+                      _recommendedBookRow(rows[i], i),
+                      if (i != rows.length - 1)
+                        const Divider(height: 1, color: Color(0x1A000000)),
+                    ],
                   ],
                 ),
               ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  static const _bookFaces = <String>[
+    'assets/figma/face/faace4.png',
+    'assets/figma/face/face2.png',
+    'assets/figma/face/face3.png',
+  ];
+
+  Widget _recommendedBookRow(CatalogueBook book, int index) {
+    final tags = book.tags;
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 8),
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: () {
+          openCatalogueBook(context, book);
+        },
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            ClipRRect(
+              borderRadius: BorderRadius.circular(4),
+              child: BookCoverImage(
+                image: book.coverUrl,
+                width: 80,
+                height: 114,
+              ),
             ),
-            if (i != books.length - 1)
-              const Divider(height: 1, color: Color(0x1A000000)),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    book.title,
+                    style: GoogleFonts.inter(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w700,
+                      color: Colors.black,
+                    ),
+                  ),
+                  Text(
+                    book.categoryLabel,
+                    style: GoogleFonts.inter(
+                      fontSize: 12,
+                      color: Colors.black54,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Row(
+                    children: [
+                      if (tags.isNotEmpty) _buildTag(tags.first),
+                      if (tags.length > 1) ...[
+                        const SizedBox(width: 6),
+                        _buildTag(tags[1]),
+                      ],
+                    ],
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    book.description,
+                    style: GoogleFonts.inter(
+                      fontSize: 12,
+                      color: Colors.black54,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Row(
+                    children: [
+                      ClipOval(
+                        child: Image.asset(
+                          _bookFaces[index % _bookFaces.length],
+                          width: 20,
+                          height: 20,
+                          fit: BoxFit.cover,
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Text(
+                        book.author,
+                        style: GoogleFonts.inter(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w500,
+                          color: Colors.black,
+                        ),
+                      ),
+                      const Spacer(),
+                      const Icon(
+                        Icons.star,
+                        color: Color(0xFFFBBF24),
+                        size: 12,
+                      ),
+                      const SizedBox(width: 4),
+                      Text(
+                        book.ratingLabel,
+                        style: GoogleFonts.figtree(
+                          fontSize: 10,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
           ],
-        ],
+        ),
       ),
     );
   }

@@ -4,11 +4,14 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:skillsikka/core/network/api_client.dart';
 import 'package:skillsikka/core/network/api_error.dart';
+import 'package:skillsikka/core/widgets/course_detail_view.dart';
 import 'package:skillsikka/features/bootcamp/data/bootcamp.dart';
 import 'package:skillsikka/features/bootcamp/data/bootcamp_api.dart';
 import 'package:skillsikka/features/bootcamp/presentation/bootcamp_page.dart';
 import 'package:skillsikka/features/courses/data/course_api.dart';
 import 'package:skillsikka/features/courses/data/course_discussions_api.dart';
+import 'package:skillsikka/features/quiz/data/module_quiz.dart';
+import 'package:skillsikka/features/quiz/data/quiz_api.dart';
 
 import 'support/bootcamp_fixtures.dart';
 import 'support/courses_test_scope.dart';
@@ -61,12 +64,22 @@ class _FakeDiscussions extends CourseDiscussionsApi {
       CourseLike(threadId: threadId, isLiked: liked, likesCount: liked ? 1 : 0);
 }
 
+class _QuizList extends EmptyQuizApi {
+  _QuizList(this.quizzes);
+
+  final List<ModuleQuiz> quizzes;
+
+  @override
+  Future<List<ModuleQuiz>> courseQuizzes(int courseId) async => quizzes;
+}
+
 void main() {
   Widget app({
     BootcampDetail? detail,
     ApiException? failure,
     FakeCourseApi? courses,
     _FakeDiscussions? discussions,
+    List<ModuleQuiz> quizzes = const [],
   }) => ProviderScope(
     overrides: [
       bootcampApiProvider.overrideWithValue(
@@ -76,6 +89,7 @@ void main() {
       courseDiscussionsApiProvider.overrideWithValue(
         discussions ?? _FakeDiscussions(),
       ),
+      quizApiProvider.overrideWithValue(_QuizList(quizzes)),
     ],
     child: const MaterialApp(home: IctBootcampPage(courseId: 7)),
   );
@@ -296,5 +310,93 @@ void main() {
       find.text('The curriculum for this camp has not been published yet.'),
       findsOneWidget,
     );
+  });
+
+  testWidgets('a quiz sits under its own section and nowhere else', (
+    tester,
+  ) async {
+    await tester.binding.setSurfaceSize(const Size(360, 900));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    await tester.pumpWidget(
+      app(
+        quizzes: const [
+          ModuleQuiz(
+            id: 4,
+            title: 'Strategy check',
+            section: 'Section 1: Research & Strategy Foundations',
+            questionCount: 3,
+            isPublished: true,
+          ),
+          ModuleQuiz(
+            id: 5,
+            title: 'Some other module',
+            section: 'Not in this camp',
+            questionCount: 1,
+            isPublished: true,
+          ),
+        ],
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Strategy check'), findsOneWidget);
+    expect(find.text('3 questions · 3 min · Pass 60%'), findsOneWidget);
+    expect(find.text('Some other module'), findsNothing);
+
+    await tester.tap(find.text('Day 2'));
+    await tester.pump();
+
+    expect(find.text('Strategy check'), findsNothing);
+  });
+
+  testWidgets('finishing a section offers its quiz without blocking the next '
+      'lesson', (tester) async {
+    await tester.binding.setSurfaceSize(const Size(360, 900));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    await tester.pumpWidget(
+      app(
+        detail: camp(
+          days: const [
+            BootcampDay(1, [
+              BootcampSection('Section 1: Research & Strategy Foundations', [
+                BootcampLesson(
+                  number: 1,
+                  id: 11,
+                  title: 'Defining the Product Strategy Grid',
+                  duration: '18:45',
+                  dayNumber: 1,
+                  section: 'Section 1: Research & Strategy Foundations',
+                  kind: CourseLessonKind.video,
+                  isPreview: false,
+                  isCompleted: true,
+                  contentUrl: 'https://cdn.example.com/one.mp4',
+                ),
+              ]),
+            ]),
+          ],
+        ),
+        quizzes: const [
+          ModuleQuiz(
+            id: 4,
+            title: 'Strategy check',
+            section: 'Section 1: Research & Strategy Foundations',
+            questionCount: 3,
+            isPublished: true,
+          ),
+        ],
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Test yourself: take the module quiz'), findsOneWidget);
+    expect(find.text('Defining the Product Strategy Grid'), findsOneWidget);
+
+    await tester.tap(find.byIcon(Icons.close));
+    await tester.pump();
+
+    expect(find.text('Test yourself: take the module quiz'), findsNothing);
+    expect(find.text('Strategy check'), findsOneWidget);
   });
 }

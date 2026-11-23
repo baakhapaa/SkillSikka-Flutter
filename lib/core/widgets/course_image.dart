@@ -1,5 +1,7 @@
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 
+import '../video/video_playback.dart';
 import 'course_cover_tile.dart';
 
 /// An image whose source may be a bundled asset **or** a server URL.
@@ -50,6 +52,9 @@ class CourseImage extends StatelessWidget {
   /// The course id the generated tile tints from. Ignored without [title].
   final int coverSeed;
 
+  static double? _finitePositive(double? value) =>
+      value != null && value.isFinite && value > 0 ? value : null;
+
   bool get _isRemote {
     final value = path.trim().toLowerCase();
     return value.startsWith('http://') || value.startsWith('https://');
@@ -61,16 +66,38 @@ class CourseImage extends StatelessWidget {
     if (source.isEmpty) return _placeholder();
 
     if (_isRemote) {
-      return Image.network(
-        source,
-        fit: fit,
-        width: width,
-        height: height,
-        // A broken URL and a missing asset both land here, which is the point:
-        // the screen degrades to the same placeholder either way.
-        errorBuilder: (_, _, _) => _placeholder(),
-        loadingBuilder: (context, child, progress) =>
-            progress == null ? child : _placeholder(),
+      if (runningWidgetTests) {
+        return Image.network(
+          source,
+          fit: fit,
+          width: width,
+          height: height,
+          errorBuilder: (_, _, _) => _placeholder(),
+          loadingBuilder: (context, child, progress) =>
+              progress == null ? child : _placeholder(),
+        );
+      }
+      return LayoutBuilder(
+        builder: (context, constraints) {
+          // Callers pass `double.infinity` to fill a card. That is not a
+          // decode size — rounding it throws and paints the red error box.
+          final logical = _finitePositive(width) ??
+              _finitePositive(constraints.maxWidth);
+          final ratio = View.of(context).devicePixelRatio;
+          final pixels = logical == null ? null : logical * ratio;
+          final cacheWidth = pixels != null && pixels.isFinite && pixels > 0
+              ? pixels.round()
+              : null;
+          return CachedNetworkImage(
+            imageUrl: source,
+            fit: fit,
+            width: width,
+            height: height,
+            memCacheWidth: cacheWidth,
+            placeholder: (_, _) => _placeholder(),
+            errorWidget: (_, _, _) => _placeholder(),
+          );
+        },
       );
     }
 

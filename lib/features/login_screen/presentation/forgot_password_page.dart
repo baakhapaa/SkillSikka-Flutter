@@ -81,8 +81,8 @@ class _ForgotPasswordPageState extends ConsumerState<ForgotPasswordPage> {
   bool _obscurePassword = true;
 
   /// Seconds left before a new code can be requested. Zero means the action is
-  /// live.
-  int _secondsLeft = 0;
+  /// live. Only the resend label listens, so a tick does not rebuild the page.
+  final _secondsLeft = ValueNotifier<int>(0);
 
   /// Drives [_secondsLeft]. Held so [dispose] can cancel it.
   Timer? _cooldown;
@@ -99,6 +99,7 @@ class _ForgotPasswordPageState extends ConsumerState<ForgotPasswordPage> {
     // Not optional: a live periodic timer that calls setState on a disposed State
     // throws once the user leaves.
     _cooldown?.cancel();
+    _secondsLeft.dispose();
     _emailController.dispose();
     _passwordController.dispose();
     _confirmController.dispose();
@@ -117,26 +118,20 @@ class _ForgotPasswordPageState extends ConsumerState<ForgotPasswordPage> {
   /// Assigns rather than calling setState, so it is safe from a setState callback.
   void _startCooldown() {
     _cooldown?.cancel();
-    _secondsLeft = _resendCooldownSeconds;
+    _secondsLeft.value = _resendCooldownSeconds;
     _cooldown = Timer.periodic(const Duration(seconds: 1), (timer) {
       if (!mounted) {
         timer.cancel();
         return;
       }
-      if (_secondsLeft <= 1) {
+      final left = _secondsLeft.value;
+      if (left <= 1) {
         timer.cancel();
-        setState(() => _secondsLeft = 0);
+        _secondsLeft.value = 0;
         return;
       }
-      setState(() => _secondsLeft--);
+      _secondsLeft.value = left - 1;
     });
-  }
-
-  /// `mm:ss`, so the label reads correctly if the constant passes a minute.
-  String get _countdownLabel {
-    final minutes = (_secondsLeft ~/ 60).toString().padLeft(2, '0');
-    final seconds = (_secondsLeft % 60).toString().padLeft(2, '0');
-    return '$minutes:$seconds';
   }
 
   /// Back one step, or out of the flow.
@@ -496,7 +491,7 @@ class _ForgotPasswordPageState extends ConsumerState<ForgotPasswordPage> {
             _BottomBar(
               step: _step,
               isSubmitting: _isSubmitting,
-              countdown: _secondsLeft > 0 ? _countdownLabel : null,
+              secondsLeft: _secondsLeft,
               onPrimary: _onPrimary,
               onResend: _sendCode,
             ),
@@ -621,7 +616,7 @@ class _BottomBar extends StatelessWidget {
   const _BottomBar({
     required this.step,
     required this.isSubmitting,
-    required this.countdown,
+    required this.secondsLeft,
     required this.onPrimary,
     required this.onResend,
   });
@@ -629,8 +624,8 @@ class _BottomBar extends StatelessWidget {
   final _Step step;
   final bool isSubmitting;
 
-  /// `mm:ss` while the resend is locked, or null when it is available.
-  final String? countdown;
+  /// Seconds left on the resend lock. Zero means the action is live.
+  final ValueNotifier<int> secondsLeft;
 
   final VoidCallback onPrimary;
   final VoidCallback onResend;
@@ -649,37 +644,44 @@ class _BottomBar extends StatelessWidget {
         children: [
           // Only the code step has anything to resend.
           if (step == _Step.code) ...[
-            if (countdown case final String remaining)
-              Text.rich(
-                TextSpan(
-                  style: GoogleFonts.manrope(
-                    color: const Color(0xFF4B5563),
-                    fontSize: 14,
-                  ),
-                  children: [
-                    const TextSpan(text: 'Send a new code in '),
-                    TextSpan(
-                      text: remaining,
-                      style: const TextStyle(
-                        color: Color(0xFFB59100),
+            ValueListenableBuilder<int>(
+              valueListenable: secondsLeft,
+              builder: (context, seconds, _) {
+                if (seconds <= 0) {
+                  return TextButton(
+                    onPressed: isSubmitting ? null : onResend,
+                    child: Text(
+                      'Send a new code',
+                      style: GoogleFonts.manrope(
+                        color: const Color(0xFFB59100),
+                        fontSize: 14,
                         fontWeight: FontWeight.w700,
                       ),
                     ),
-                  ],
-                ),
-              )
-            else
-              TextButton(
-                onPressed: isSubmitting ? null : onResend,
-                child: Text(
-                  'Send a new code',
-                  style: GoogleFonts.manrope(
-                    color: const Color(0xFFB59100),
-                    fontSize: 14,
-                    fontWeight: FontWeight.w700,
+                  );
+                }
+                final minutes = (seconds ~/ 60).toString().padLeft(2, '0');
+                final remainder = (seconds % 60).toString().padLeft(2, '0');
+                return Text.rich(
+                  TextSpan(
+                    style: GoogleFonts.manrope(
+                      color: const Color(0xFF4B5563),
+                      fontSize: 14,
+                    ),
+                    children: [
+                      const TextSpan(text: 'Send a new code in '),
+                      TextSpan(
+                        text: '$minutes:$remainder',
+                        style: const TextStyle(
+                          color: Color(0xFFB59100),
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ],
                   ),
-                ),
-              ),
+                );
+              },
+            ),
             const SizedBox(height: 8),
           ],
           SizedBox(

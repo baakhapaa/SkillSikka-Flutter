@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
 
+import '../../../core/routing/instructor_route.dart';
 import '../../../core/widgets/course_detail_view.dart';
 import '../../../core/widgets/course_image.dart';
 import '../../courses/data/course_api.dart';
@@ -147,14 +148,14 @@ class InstructorCourseDetailsPage extends ConsumerWidget {
   }
 
   Future<void> _edit(BuildContext context, WidgetRef ref) async {
-    await Navigator.of(context).push<bool>(
-      MaterialPageRoute(
-        builder: (_) => CourseBuilderPage(
-          api: ref.read(courseBuilderApiProvider),
-          quizApi: ref.read(quizApiProvider),
-          instructorVerified: ref.read(userProfileProvider).canPublish,
-          courseId: course.id,
-        ),
+    await openInstructorRoute<bool>(
+      context,
+      '/instructor/courses/${course.id}/edit',
+      fallback: (_) => CourseBuilderPage(
+        api: ref.read(courseBuilderApiProvider),
+        quizApi: ref.read(quizApiProvider),
+        instructorVerified: ref.read(userProfileProvider).canPublish,
+        courseId: course.id,
       ),
     );
   }

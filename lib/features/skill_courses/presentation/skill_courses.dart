@@ -4,6 +4,7 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:skillsikka/core/network/api_error.dart';
 import 'package:skillsikka/core/widgets/course_detail_view.dart';
 import 'package:skillsikka/core/widgets/course_image.dart';
+import 'package:skillsikka/core/widgets/loading_skeleton.dart';
 import 'package:skillsikka/core/widgets/section_bar.dart';
 import 'package:skillsikka/features/courses/data/course_api.dart';
 import 'package:skillsikka/features/search/presentation/search_page.dart';
@@ -37,7 +38,9 @@ class SkillCoursesPage extends ConsumerStatefulWidget {
 }
 
 class _SkillCoursesPageState extends ConsumerState<SkillCoursesPage> {
-  int _hoveredSkillIndex = -1;
+  /// Hover lives here, not in `setState`, so hovering a chip repaints the chip
+  /// row instead of rebuilding the page.
+  final ValueNotifier<int> _hoveredSkill = ValueNotifier<int>(-1);
 
   /// Drives the chip row, so a preselected skill can be scrolled into view.
   final ScrollController _chipScrollController = ScrollController();
@@ -73,10 +76,17 @@ class _SkillCoursesPageState extends ConsumerState<SkillCoursesPage> {
   /// is what keeps the selection stable while the chip list is still empty.
   String? _selectedSkill;
 
-  /// Every published skill course, fetched once — see the class doc.
+  /// Every published skill course, from the shared `skillCatalogueProvider`.
+  /// Assigned at the top of `build`.
   List<CourseDetailData> _courses = const [];
   bool _loading = true;
   String? _error;
+
+  /// The chip list and counts for the courses they were built from. Rebuilt
+  /// only when the list changes, not on every frame.
+  List<CourseDetailData>? _chipsSource;
+  List<(IconData, String)> _chipsCache = const [];
+  Map<String, int> _counts = const {};
 
   /// The chip row: the four design skills, then every other category the
   /// catalogue actually has, most-used first.
@@ -85,6 +95,7 @@ class _SkillCoursesPageState extends ConsumerState<SkillCoursesPage> {
   /// moment it is published. The four known chips stay even at zero — they are
   /// part of the screen's design, and an empty chip explains itself.
   List<(IconData, String)> get _chips {
+    if (identical(_chipsSource, _courses)) return _chipsCache;
     final counts = <String, int>{};
     for (final course in _courses) {
       final category = course.category.trim();
@@ -99,10 +110,13 @@ class _SkillCoursesPageState extends ConsumerState<SkillCoursesPage> {
         return byCount != 0 ? byCount : a.compareTo(b);
       });
 
-    return [
+    _chipsSource = _courses;
+    _counts = counts;
+    _chipsCache = [
       ..._knownSkills,
       for (final label in extra) (_iconFor(label), label),
     ];
+    return _chipsCache;
   }
 
   /// The selected label, resolved against the current chip list.
@@ -131,11 +145,10 @@ class _SkillCoursesPageState extends ConsumerState<SkillCoursesPage> {
     }).toList();
   }
 
-  int _countFor(String skill) => _courses.where((course) {
-    final category = course.category.trim();
-    if (skill == _otherSkill) return category.isEmpty;
-    return category == skill;
-  }).length;
+  int _countFor(String skill) {
+    _chips;
+    return _counts[skill] ?? 0;
+  }
 
   /// A glyph for a category the design did not name.
   ///
@@ -172,26 +185,11 @@ class _SkillCoursesPageState extends ConsumerState<SkillCoursesPage> {
   }
 
   Future<void> _load() async {
-    setState(() {
-      _loading = true;
-      _error = null;
-    });
+    ref.invalidate(skillCatalogueProvider);
     try {
-      final page = await ref
-          .read(courseApiProvider)
-          .list(courseType: 'skill', pageSize: 50);
-      if (!mounted) return;
-      setState(() {
-        _courses = page.courses;
-        _loading = false;
-      });
-      _revealSelectedChip();
-    } on ApiException catch (error) {
-      if (!mounted) return;
-      setState(() {
-        _loading = false;
-        _error = error.displayMessage;
-      });
+      await ref.read(skillCatalogueProvider.future);
+    } on ApiException {
+      // The list area shows the error with its own retry.
     }
   }
 
@@ -205,7 +203,16 @@ class _SkillCoursesPageState extends ConsumerState<SkillCoursesPage> {
   void initState() {
     super.initState();
     _selectedSkill = widget.initialSkill;
-    _load();
+    // Shows the cached list at once when there is one, and asks for a fresh
+    // copy behind it.
+    if (ref.read(skillCatalogueProvider).hasValue) {
+      Future.microtask(() {
+        if (mounted) ref.invalidate(skillCatalogueProvider);
+      });
+    }
+    ref.listenManual(skillCatalogueProvider, (previous, next) {
+      if (next.hasValue && previous?.hasValue != true) _revealSelectedChip();
+    }, fireImmediately: true);
   }
 
   /// Scrolls a preselected chip into view once the chip list exists.
@@ -229,12 +236,25 @@ class _SkillCoursesPageState extends ConsumerState<SkillCoursesPage> {
 
   @override
   void dispose() {
+    _hoveredSkill.dispose();
     _chipScrollController.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
+    final catalogue = ref.watch(skillCatalogueProvider);
+    _courses = catalogue.valueOrNull ?? const [];
+    _loading = !catalogue.hasValue && !catalogue.hasError;
+    final error = catalogue.hasValue ? null : catalogue.error;
+    _error = error == null
+        ? null
+        : (error is ApiException
+              ? error.displayMessage
+              : 'Skill courses could not be loaded.');
+    final visible = _visibleSkillCourses;
+    final showList = !_loading && _error == null && visible.isNotEmpty;
+
     return Scaffold(
       backgroundColor: _cream,
       body: SafeArea(
@@ -243,20 +263,44 @@ class _SkillCoursesPageState extends ConsumerState<SkillCoursesPage> {
           children: [
             _buildAppHeader(context),
             Expanded(
-              child: SingleChildScrollView(
-                padding: const EdgeInsets.only(top: 12, bottom: 96),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    _buildSkillsGrid(),
-                    const SizedBox(height: 20),
-                    _buildSectionHeader('Top Course'),
-                    const SizedBox(height: 18),
-                    _buildTopCoursesCarousel(),
-                    const SizedBox(height: 16),
-                    _buildSectionHeader('Course'),
-                    const SizedBox(height: 32),
-                    _buildTopRatedList(),
+              child: RefreshIndicator(
+                onRefresh: _load,
+                child: CustomScrollView(
+                  physics: const AlwaysScrollableScrollPhysics(),
+                  slivers: [
+                    SliverPadding(
+                      padding: const EdgeInsets.only(top: 12),
+                      sliver: SliverToBoxAdapter(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            _buildSkillsGrid(),
+                            const SizedBox(height: 20),
+                            _buildSectionHeader('Top Course'),
+                            const SizedBox(height: 18),
+                            _buildTopCoursesCarousel(),
+                            const SizedBox(height: 16),
+                            _buildSectionHeader('Course'),
+                            const SizedBox(height: 32),
+                            if (!showList) _buildTopRatedList(),
+                          ],
+                        ),
+                      ),
+                    ),
+                    if (showList)
+                      SliverPadding(
+                        padding: const EdgeInsets.symmetric(horizontal: 16),
+                        sliver: SliverList.builder(
+                          itemCount: visible.length,
+                          itemBuilder: (context, index) => Padding(
+                            padding: const EdgeInsets.only(bottom: 14),
+                            child: RepaintBoundary(
+                              child: _buildListCard(visible[index]),
+                            ),
+                          ),
+                        ),
+                      ),
+                    const SliverToBoxAdapter(child: SizedBox(height: 96)),
                   ],
                 ),
               ),
@@ -353,124 +397,127 @@ class _SkillCoursesPageState extends ConsumerState<SkillCoursesPage> {
       padding: const EdgeInsets.only(top: 8),
       child: SizedBox(
         height: 60,
-        child: ListView.separated(
-          controller: _chipScrollController,
-          scrollDirection: Axis.horizontal,
-          padding: const EdgeInsets.symmetric(horizontal: 16),
-          itemCount: chips.length,
-          separatorBuilder: (_, _) => const SizedBox(width: 14),
-          itemBuilder: (context, index) {
-            final s = chips[index];
-            final isSelected = index == selected;
-            final isHovered = index == _hoveredSkillIndex;
-            final isActive = isSelected || isHovered;
-            final count = _countFor(s.$2);
+        child: ValueListenableBuilder<int>(
+          valueListenable: _hoveredSkill,
+          builder: (context, hoveredSkill, _) => ListView.separated(
+            controller: _chipScrollController,
+            scrollDirection: Axis.horizontal,
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            itemCount: chips.length,
+            separatorBuilder: (_, _) => const SizedBox(width: 14),
+            itemBuilder: (context, index) {
+              final s = chips[index];
+              final isSelected = index == selected;
+              final isHovered = index == hoveredSkill;
+              final isActive = isSelected || isHovered;
+              final count = _countFor(s.$2);
 
-            return Padding(
-              padding: EdgeInsets.zero,
-              child: MouseRegion(
-                cursor: SystemMouseCursors.click,
-                onEnter: (_) => setState(() => _hoveredSkillIndex = index),
-                onExit: (_) => setState(() => _hoveredSkillIndex = -1),
-                child: GestureDetector(
-                  onTap: () => setState(() => _selectedSkill = s.$2),
-                  child: AnimatedScale(
-                    scale: isHovered ? 1.05 : 1.0,
-                    duration: const Duration(milliseconds: 180),
-                    curve: Curves.easeOut,
-                    child: AnimatedContainer(
+              return Padding(
+                padding: EdgeInsets.zero,
+                child: MouseRegion(
+                  cursor: SystemMouseCursors.click,
+                  onEnter: (_) => _hoveredSkill.value = index,
+                  onExit: (_) => _hoveredSkill.value = -1,
+                  child: GestureDetector(
+                    onTap: () => setState(() => _selectedSkill = s.$2),
+                    child: AnimatedScale(
+                      scale: isHovered ? 1.05 : 1.0,
                       duration: const Duration(milliseconds: 180),
                       curve: Curves.easeOut,
-                      width: 140,
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 12,
-                        vertical: 10,
-                      ),
-                      decoration: BoxDecoration(
-                        gradient: LinearGradient(
-                          begin: Alignment.topCenter,
-                          end: Alignment.bottomCenter,
-                          colors: isActive
-                              ? [
-                                  Colors.white.withValues(alpha: 0.98),
-                                  const Color(
-                                    0xFFF2F4F7,
-                                  ).withValues(alpha: 0.7),
+                      child: AnimatedContainer(
+                        duration: const Duration(milliseconds: 180),
+                        curve: Curves.easeOut,
+                        width: 140,
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 10,
+                        ),
+                        decoration: BoxDecoration(
+                          gradient: LinearGradient(
+                            begin: Alignment.topCenter,
+                            end: Alignment.bottomCenter,
+                            colors: isActive
+                                ? [
+                                    Colors.white.withValues(alpha: 0.98),
+                                    const Color(
+                                      0xFFF2F4F7,
+                                    ).withValues(alpha: 0.7),
+                                  ]
+                                : const [Color(0xFFFAFAFA), Color(0xFFF7F7F8)],
+                          ),
+                          borderRadius: BorderRadius.circular(14),
+                          border: Border.all(
+                            color: Colors.white.withValues(
+                              alpha: isActive ? 0.9 : 0.55,
+                            ),
+                          ),
+                          boxShadow: isActive
+                              ? const [
+                                  BoxShadow(
+                                    color: Color(0x24000000),
+                                    blurRadius: 10,
+                                    offset: Offset(0, 3),
+                                  ),
+                                  BoxShadow(
+                                    color: Color(0xCCFFFFFF),
+                                    blurRadius: 2,
+                                    offset: Offset(0, -1),
+                                  ),
                                 ]
-                              : const [Color(0xFFFAFAFA), Color(0xFFF7F7F8)],
+                              : const [],
                         ),
-                        borderRadius: BorderRadius.circular(14),
-                        border: Border.all(
-                          color: Colors.white.withValues(
-                            alpha: isActive ? 0.9 : 0.55,
-                          ),
+                        child: Row(
+                          children: [
+                            Container(
+                              height: 36,
+                              width: 36,
+                              decoration: const BoxDecoration(
+                                color: Color(0xFFFFF4C7),
+                                shape: BoxShape.circle,
+                              ),
+                              child: Icon(
+                                s.$1,
+                                size: 18,
+                                color: const Color(0xFFE6BD1E),
+                              ),
+                            ),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  Text(
+                                    s.$2,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: GoogleFonts.manrope(
+                                      fontSize: 11,
+                                      fontWeight: FontWeight.w700,
+                                      color: _titleInk,
+                                    ),
+                                  ),
+                                  Text(
+                                    '$count Courses',
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: GoogleFonts.figtree(
+                                      fontSize: 9,
+                                      color: _gray,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
                         ),
-                        boxShadow: isActive
-                            ? const [
-                                BoxShadow(
-                                  color: Color(0x24000000),
-                                  blurRadius: 10,
-                                  offset: Offset(0, 3),
-                                ),
-                                BoxShadow(
-                                  color: Color(0xCCFFFFFF),
-                                  blurRadius: 2,
-                                  offset: Offset(0, -1),
-                                ),
-                              ]
-                            : const [],
-                      ),
-                      child: Row(
-                        children: [
-                          Container(
-                            height: 36,
-                            width: 36,
-                            decoration: const BoxDecoration(
-                              color: Color(0xFFFFF4C7),
-                              shape: BoxShape.circle,
-                            ),
-                            child: Icon(
-                              s.$1,
-                              size: 18,
-                              color: const Color(0xFFE6BD1E),
-                            ),
-                          ),
-                          const SizedBox(width: 10),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: [
-                                Text(
-                                  s.$2,
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: GoogleFonts.manrope(
-                                    fontSize: 11,
-                                    fontWeight: FontWeight.w700,
-                                    color: _titleInk,
-                                  ),
-                                ),
-                                Text(
-                                  '$count Courses',
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: GoogleFonts.figtree(
-                                    fontSize: 9,
-                                    color: _gray,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ],
                       ),
                     ),
                   ),
                 ),
-              ),
-            );
-          },
+              );
+            },
+          ),
         ),
       ),
     );
@@ -638,14 +685,8 @@ class _SkillCoursesPageState extends ConsumerState<SkillCoursesPage> {
   Widget _buildTopRatedList() {
     if (_loading) {
       return const Padding(
-        padding: EdgeInsets.symmetric(vertical: 48),
-        child: Center(
-          child: SizedBox(
-            width: 22,
-            height: 22,
-            child: CircularProgressIndicator(strokeWidth: 2),
-          ),
-        ),
+        padding: EdgeInsets.symmetric(horizontal: 16),
+        child: CourseListSkeleton(),
       );
     }
 

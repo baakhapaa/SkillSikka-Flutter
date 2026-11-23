@@ -70,13 +70,14 @@ class BootcampApi {
       '/lessons/',
       query: {'course': id},
     );
+    final resourcesCall = _resourcesOrEmpty(id);
     final course = await courseCall;
     final lessons = _rows(await lessonsCall);
 
     return BootcampDetail.fromWire(
       course: course,
       lessons: lessons,
-      resources: await _resourcesOrEmpty(id),
+      resources: await resourcesCall,
     );
   }
 
@@ -105,4 +106,10 @@ final bootcampsProvider = FutureProvider<List<BootcampCard>>(
 
 final bootcampApiProvider = Provider<BootcampApi>(
   (ref) => BootcampApi(ref.watch(apiClientProvider)),
+);
+
+/// One camp's full record, kept per id so reopening it is instant.
+final bootcampDetailProvider = FutureProvider.family<BootcampDetail, int>(
+  (ref, id) => ref.watch(bootcampApiProvider).detail(id),
+  dependencies: [bootcampApiProvider],
 );

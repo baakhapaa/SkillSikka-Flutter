@@ -12,6 +12,7 @@ import '../../quiz/data/quiz_api.dart';
 import '../../short/data/short.dart';
 import '../../short/data/shorts_api.dart';
 import '../../short/presentation/saved_shorts_page.dart';
+import '../../../core/routing/instructor_route.dart';
 import '../../../core/widgets/course_cover_tile.dart';
 import '../../../core/network/api_error.dart';
 import '../data/profile_role.dart';
@@ -911,9 +912,11 @@ class _InstructorProfilePageState extends State<InstructorProfilePage> {
   /// there can publish, unpublish or delete, so the grid reloads after it
   /// closes.
   Future<void> _openAllCourses() async {
-    await Navigator.of(
+    await openInstructorRoute<void>(
       context,
-    ).push<void>(MaterialPageRoute(builder: (_) => const MyCoursesPage()));
+      '/instructor/courses',
+      fallback: (_) => const MyCoursesPage(),
+    );
     if (!mounted) return;
     await _refreshCourses();
   }
@@ -927,14 +930,14 @@ class _InstructorProfilePageState extends State<InstructorProfilePage> {
     final container = _profileContainer;
     if (container == null) return;
 
-    await Navigator.of(context).push<bool>(
-      MaterialPageRoute(
-        builder: (_) => CourseBuilderPage(
-          api: container.read(courseBuilderApiProvider),
-          quizApi: container.read(quizApiProvider),
-          instructorVerified: container.read(userProfileProvider).canPublish,
-          courseId: course.id,
-        ),
+    await openInstructorRoute<bool>(
+      context,
+      '/instructor/courses/${course.id}/edit',
+      fallback: (_) => CourseBuilderPage(
+        api: container.read(courseBuilderApiProvider),
+        quizApi: container.read(quizApiProvider),
+        instructorVerified: container.read(userProfileProvider).canPublish,
+        courseId: course.id,
       ),
     );
     if (!mounted) return;
@@ -1032,13 +1035,13 @@ class _InstructorProfilePageState extends State<InstructorProfilePage> {
     // Both dependencies are read here rather than inside the builder so the
     // builder itself needs no provider scope — which is what lets a widget test
     // drive it with a fake API and no container.
-    final published = await Navigator.of(context).push<bool>(
-      MaterialPageRoute(
-        builder: (_) => CourseBuilderPage(
-          api: container.read(courseBuilderApiProvider),
-          quizApi: container.read(quizApiProvider),
-          instructorVerified: container.read(userProfileProvider).canPublish,
-        ),
+    final published = await openInstructorRoute<bool>(
+      context,
+      '/instructor/courses/new',
+      fallback: (_) => CourseBuilderPage(
+        api: container.read(courseBuilderApiProvider),
+        quizApi: container.read(quizApiProvider),
+        instructorVerified: container.read(userProfileProvider).canPublish,
       ),
     );
     if (published == true && mounted) {

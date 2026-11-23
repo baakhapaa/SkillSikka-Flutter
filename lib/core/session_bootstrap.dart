@@ -54,15 +54,16 @@ class SessionBootstrap {
       final profile = await _ref.read(authRepositoryProvider).fetchMe();
       if (profile == null) return false;
       _loadedFor = key;
-      // Resolved **before** `_apply`, and separately from it, so a reference-data
-      // failure can cost the geographic fields alone. Applying first and
-      // resolving after would mean the merge happened before the names existed.
-      final locationNames = await _resolveLocationNames(profile);
-      _apply(profile, locationNames);
-      // After `_apply`, and separately from it: the avatar is a second request
-      // that can fail on its own, and it must not be able to undo the fields
-      // already merged above.
-      await _applyPhoto(profile);
+      // The fields are on screen immediately. The names and the photo are
+      // separate requests and finish on their own, so one failing does not
+      // hide the other.
+      _apply(profile);
+      await Future.wait([
+        _resolveLocationNames(profile).then((names) {
+          if (names.isNotEmpty) _apply(profile, names);
+        }),
+        _applyPhoto(profile),
+      ]);
       return true;
     } on Object {
       // Swallowed on purpose — see the class doc. Logged nowhere because the app
@@ -130,12 +131,25 @@ class SessionBootstrap {
 
     try {
       final api = _ref.read(referenceDataApiProvider);
+      final (
+        grades,
+        provinces,
+        districts,
+        municipalities,
+        schools,
+      ) = await (
+        api.grades(),
+        api.provinces(),
+        api.districts(),
+        api.municipalities(),
+        api.schools(),
+      ).wait;
       final resolved = resolveLocationNames(
-        grades: await api.grades(),
-        provinces: await api.provinces(),
-        districts: await api.districts(),
-        municipalities: await api.municipalities(),
-        schools: await api.schools(),
+        grades: grades,
+        provinces: provinces,
+        districts: districts,
+        municipalities: municipalities,
+        schools: schools,
         gradeId: profile.gradeId,
         provinceId: profile.provinceId,
         districtId: profile.districtId,
@@ -181,12 +195,25 @@ class SessionBootstrap {
     if (values.isNotEmpty) notifier.save(values);
     final role = profile.role;
     if (role != null) notifier.setRole(role);
+    _syncRole(profile);
     // Read here rather than fetched by the course builder: the builder's publish
     // gate needs it before the user starts, and `/me/` has already been called.
     notifier.setVerificationStatus(profile.verificationStatus);
     // The profile grid asks `/courses/?instructor=<id>`, so the id has to be in
     // the store before the grid can load anything.
     notifier.setId(profile.userId);
+  }
+
+  /// Keeps the saved session's role in step with `/me/`.
+  ///
+  /// A mismatch is written back, which the persistence listener stores. Equal
+  /// values are left alone so a launch does not rewrite the Keystore.
+  void _syncRole(MeProfile profile) {
+    final role = profile.role?.wireValue;
+    if (role == null) return;
+    final session = _ref.read(sessionProvider);
+    if (session == null || session.role == role) return;
+    _ref.read(sessionProvider.notifier).state = session.withRole(role);
   }
 
   /// Identifies the session `/me/` was last loaded for.

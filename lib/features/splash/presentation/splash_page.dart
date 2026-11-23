@@ -1,15 +1,18 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:google_fonts/google_fonts.dart';
 
-class SplashPage extends StatefulWidget {
+import '../../../core/session_persistence.dart';
+
+class SplashPage extends ConsumerStatefulWidget {
   const SplashPage({super.key});
 
   @override
-  State<SplashPage> createState() => _SplashPageState();
+  ConsumerState<SplashPage> createState() => _SplashPageState();
 }
 
-class _SplashPageState extends State<SplashPage>
+class _SplashPageState extends ConsumerState<SplashPage>
     with SingleTickerProviderStateMixin {
   late final AnimationController _controller;
   late final Animation<double> _logoAnimation;
@@ -35,7 +38,29 @@ class _SplashPageState extends State<SplashPage>
       parent: _controller,
       curve: const Interval(0.52, 1.0, curve: Curves.easeOutCubic),
     );
-    _controller.forward();
+  }
+
+  bool _precached = false;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (_precached) return;
+    _precached = true;
+    precacheImage(
+      const AssetImage('assets/figma/onboarding_1.webp'),
+      context,
+    );
+    precacheImage(
+      const AssetImage('assets/figma/skillsikka_wordmark.png'),
+      context,
+    );
+  }
+
+  int? _cachePixels(double logical) {
+    final pixels = logical * View.of(context).devicePixelRatio;
+    if (!pixels.isFinite || pixels <= 0) return null;
+    return pixels.round();
   }
 
   @override
@@ -46,6 +71,14 @@ class _SplashPageState extends State<SplashPage>
 
   @override
   Widget build(BuildContext context) {
+    final restored = ref.watch(sessionRestoredProvider);
+    if (restored && !_controller.isAnimating && _controller.value == 0) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted && !_controller.isAnimating && _controller.value == 0) {
+          _controller.forward();
+        }
+      });
+    }
     return Scaffold(
       backgroundColor: const Color(0xFFFAF9F6),
       body: SafeArea(
@@ -85,6 +118,7 @@ class _SplashPageState extends State<SplashPage>
                                     'assets/figma/academic_cap.png',
                                     width: 350,
                                     height: 350,
+                                    cacheWidth: _cachePixels(350),
                                     fit: BoxFit.contain,
                                   ),
                                 ),
@@ -106,6 +140,7 @@ class _SplashPageState extends State<SplashPage>
                                     'assets/figma/skillsikka_wordmark.png',
                                     width: 250,
                                     height: 70,
+                                    cacheWidth: _cachePixels(250),
                                     fit: BoxFit.contain,
                                   ),
                                 ),

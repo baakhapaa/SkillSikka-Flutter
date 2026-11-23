@@ -17,6 +17,7 @@ import '../../../core/widgets/course_detail_view.dart';
 import '../data/enrollment.dart';
 import '../data/lesson_watch_reporter.dart';
 import '../data/learning_api.dart';
+import '../data/my_learning.dart';
 import '../../quiz/data/module_quiz.dart';
 import '../../quiz/data/quiz_api.dart';
 import '../../quiz/presentation/module_quiz_page.dart';
@@ -216,6 +217,7 @@ class _CoursePlayerPageState extends ConsumerState<CoursePlayerPage> {
   @override
   void dispose() {
     _watch.dispose();
+    _warmController?.dispose();
     final player = _videoController;
     _videoController = null;
     player?.removeListener(_onVideoTick);
@@ -243,11 +245,24 @@ class _CoursePlayerPageState extends ConsumerState<CoursePlayerPage> {
     _videoError = null;
     previous?.removeListener(_onVideoTick);
     previous?.dispose();
-    if (!videoPlaybackSupported) return;
+    if (!videoPlaybackSupported || _lessons.isEmpty) {
+      _dropWarm();
+      return;
+    }
 
-    if (_lessons.isEmpty) return;
     final lesson = _lessons[_currentIndex];
+    final warm = _warmController;
+    final warmMatches =
+        warm != null && lesson.id != null && _warmLessonId == lesson.id;
+    if (!warmMatches) _dropWarm();
     if (lesson.kind != CourseLessonKind.video) return;
+    if (warmMatches) {
+      final adopted = warm;
+      _warmController = null;
+      _warmLessonId = null;
+      _attachPlayer(adopted, alreadyInitializing: true);
+      return;
+    }
 
     final remote = lesson.contentUrl?.trim() ?? '';
     final asset = lesson.videoAsset?.trim() ?? '';
@@ -261,10 +276,23 @@ class _CoursePlayerPageState extends ConsumerState<CoursePlayerPage> {
     }
     if (controller == null) return;
 
-    // Promoted to a non-null local: the closure below captures it, and
-    // null-promotion does not survive into a closure.
-    final player = controller;
+    _attachPlayer(controller, alreadyInitializing: false);
+  }
+
+  /// Takes over [player]. A warmed controller is already initializing, so this
+  /// does not call `initialize` again.
+  void _attachPlayer(
+    VideoPlayerController player, {
+    required bool alreadyInitializing,
+  }) {
     _videoController = player;
+    if (player.value.isInitialized) {
+      player.addListener(_onVideoTick);
+      _videoReady = true;
+      if (_autoPlay) player.play();
+      return;
+    }
+    if (alreadyInitializing) return;
     player
         .initialize()
         .then((_) {
@@ -286,6 +314,13 @@ class _CoursePlayerPageState extends ConsumerState<CoursePlayerPage> {
         });
   }
 
+  void _dropWarm() {
+    final warm = _warmController;
+    _warmController = null;
+    _warmLessonId = null;
+    warm?.dispose();
+  }
+
   /// `Auto Next` lives here: the lecture is finished when its video is.
   void _onVideoTick() {
     final controller = _videoController;
@@ -296,7 +331,48 @@ class _CoursePlayerPageState extends ConsumerState<CoursePlayerPage> {
         value.position >= value.duration &&
         !value.isPlaying;
     _syncWatch();
+    _warmNext(value);
     if (finished && _autoNext) _go(1, countPrevious: true);
+  }
+
+  VideoPlayerController? _warmController;
+  int? _warmLessonId;
+
+  /// Starts the next lesson's video once this one is mostly done, so Auto
+  /// Next does not wait on a cold load. Dropped if the student goes elsewhere.
+  void _warmNext(VideoPlayerValue value) {
+    if (!_autoNext || !videoPlaybackSupported) return;
+    if (value.duration <= Duration.zero) return;
+    final ratio = value.position.inMilliseconds / value.duration.inMilliseconds;
+    if (ratio < 0.8) return;
+    final next = _currentIndex + 1;
+    if (next >= _lessons.length) return;
+    final lesson = _lessons[next];
+    final id = lesson.id;
+    final url = lesson.contentUrl?.trim() ?? '';
+    if (id == null || !url.startsWith('http') || _warmLessonId == id) return;
+    _dropWarm();
+    _warmLessonId = id;
+    final player = VideoPlayerController.networkUrl(Uri.parse(url));
+    _warmController = player;
+    player.initialize().then(
+      (_) {
+        if (!mounted || _videoController != player) return;
+        if (player.value.isInitialized) {
+          player.addListener(_onVideoTick);
+          setState(() => _videoReady = true);
+          if (_autoPlay && !player.value.isPlaying) player.play();
+        }
+      },
+      onError: (Object _) {
+        if (_warmController == player) {
+          _warmController = null;
+          _warmLessonId = null;
+        }
+        if (_videoController == player) _videoController = null;
+        player.dispose();
+      },
+    );
   }
 
   /// Video counts while it plays. Anything else counts while that lesson is open.
@@ -528,13 +604,31 @@ class _CoursePlayerPageState extends ConsumerState<CoursePlayerPage> {
   ///
   /// A catalogue course has no id, so nothing is fetched and the local store
   /// stays the only source.
+  /// The lesson My Learning already named, so we do not download that payload
+  /// again just to find one id.
+  int? _resumeFromLearning(MyLearning learning, int courseId) {
+    for (final row in [...learning.all, ...learning.completed]) {
+      if (row.course.id == courseId) return row.nextLessonId;
+    }
+    return null;
+  }
+
   Future<void> _loadServerProgress() async {
     final id = _course.id;
     if (id == null) return;
     final api = ref.read(courseApiProvider);
     try {
-      final progress = await api.progress(id);
-      final nextId = await api.nextLessonId(id);
+      final progressCall = api.progress(id);
+      // Reading the provider when nothing has loaded it would start a second
+      // `/my-learning/` request. Use the cache only when it is already there.
+      final cached = ref.exists(myLearningProvider)
+          ? ref.read(myLearningProvider).valueOrNull
+          : null;
+      final nextCall = cached == null
+          ? api.nextLessonId(id)
+          : Future<int?>.value(_resumeFromLearning(cached, id));
+      final progress = await progressCall;
+      final nextId = await nextCall;
       if (!mounted) return;
 
       final nextIndex = nextId == null

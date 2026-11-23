@@ -3,6 +3,7 @@ import 'dart:async';
 import 'instructor_carousel.dart';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/physics.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:skillsikka/core/widgets/course_detail_view.dart';
@@ -50,10 +51,6 @@ class _HomePageState extends State<HomePage>
   late final ScrollController _bootcampController;
   Timer? _promoTimer;
   int _activePromoIndex = 0;
-  double _heroPos = 2;
-  double _heroSnapStart = 0;
-  double _heroSnapTarget = 0;
-  bool _heroAnimating = false;
   int _selectedClassIndex = 0;
   final List<GlobalKey> _classChipKeys = List<GlobalKey>.generate(
     6,
@@ -224,19 +221,7 @@ class _HomePageState extends State<HomePage>
     super.initState();
     _promoController = PageController();
     _bootcampController = ScrollController()..addListener(_onBootcampScroll);
-    _heroController =
-        AnimationController(
-          vsync: this,
-          duration: const Duration(milliseconds: 420),
-        )..addStatusListener((status) {
-          if (status == AnimationStatus.completed && _heroAnimating) {
-            setState(() {
-              _heroPos = _heroSnapTarget;
-              _heroAnimating = false;
-            });
-            _heroController.reset();
-          }
-        });
+    _heroController = AnimationController.unbounded(vsync: this, value: 2);
     _promoTimer = Timer.periodic(const Duration(seconds: 4), (_) {
       if (!_promoController.hasClients) return;
       final nextPage = (_activePromoIndex + 1) % _promoSlides.length;
@@ -257,16 +242,26 @@ class _HomePageState extends State<HomePage>
     super.dispose();
   }
 
-  void _finishHeroDrag() {
-    if (_heroAnimating) return;
-    _heroAnimating = true;
-    _heroSnapStart = _heroPos;
-    _heroSnapTarget = _heroPos.roundToDouble();
-    if (_heroSnapTarget == _heroPos) {
-      _heroAnimating = false;
-      return;
+  void _settleHero(DragEndDetails details) {
+    final raw = -(details.primaryVelocity ?? 0) / _heroDragUnit;
+    final current = _heroController.value;
+    final double target;
+    if (raw.abs() < 0.7) {
+      target = current.roundToDouble();
+    } else {
+      final dir = raw.sign;
+      target =
+          (dir > 0 ? current.floorToDouble() + 1 : current.ceilToDouble() - 1) +
+          (raw.abs() > 3.2 ? dir : 0);
     }
-    _heroController.forward(from: 0.0);
+    _heroController.animateWith(
+      SpringSimulation(
+        const SpringDescription(mass: 0.55, stiffness: 280, damping: 24),
+        current,
+        target,
+        raw.clamp(-2.4, 2.4),
+      ),
+    );
   }
 
   @override
@@ -475,10 +470,7 @@ class _HomePageState extends State<HomePage>
     ];
 
     Widget heroStack() {
-      final t = Curves.easeInOutCubic.transform(_heroController.value);
-      final pos = _heroAnimating
-          ? _heroSnapStart + (_heroSnapTarget - _heroSnapStart) * t
-          : _heroPos;
+      final pos = _heroController.value;
 
       final cards = <(double, double, Widget)>[];
       for (var i = 0; i < heroItems.length; i++) {
@@ -497,9 +489,11 @@ class _HomePageState extends State<HomePage>
             Positioned(
               left: layout.left,
               top: layout.top,
-              child: _HeroBookCard(
-                layout: layout,
-                onTap: _openPremiumCourseDetails,
+              child: RepaintBoundary(
+                child: _HeroBookCard(
+                  layout: layout,
+                  onTap: _openPremiumCourseDetails,
+                ),
               ),
             ),
           ));
@@ -538,12 +532,11 @@ class _HomePageState extends State<HomePage>
         width: double.infinity,
         child: GestureDetector(
           behavior: HitTestBehavior.opaque,
-          onHorizontalDragUpdate: _heroAnimating
-              ? null
-              : (details) => setState(
-                  () => _heroPos -= details.delta.dx / _heroDragUnit,
-                ),
-          onHorizontalDragEnd: _heroAnimating ? null : (_) => _finishHeroDrag(),
+          onHorizontalDragStart: (_) => _heroController.stop(),
+          onHorizontalDragUpdate: (details) {
+            _heroController.value -= details.delta.dx / _heroDragUnit;
+          },
+          onHorizontalDragEnd: _settleHero,
           child: AnimatedBuilder(
             animation: _heroController,
             builder: (context, child) => heroStack(),
@@ -790,7 +783,11 @@ class _HomePageState extends State<HomePage>
                 onTap: () {
                   Navigator.of(context).push(
                     MaterialPageRoute(
-                      builder: (_) => IctBootcampPage(courseId: camp.id),
+                      builder: (_) => IctBootcampPage(
+                        courseId: camp.id,
+                        previewTitle: camp.title,
+                        previewImage: camp.image,
+                      ),
                     ),
                   );
                 },
@@ -2561,7 +2558,7 @@ class _HeroCardLayout {
   static _HeroCardLayout lerp(_HeroCardLayout a, _HeroCardLayout b, double t) {
     double mix(double from, double to) => from + (to - from) * t;
     double fontMix(double from, double to) =>
-        mix(from, to).clamp(0.5, double.infinity).toDouble();
+        mix(from, to).clamp(0.01, double.infinity).toDouble();
     return _HeroCardLayout(
       left: mix(a.left, b.left),
       top: mix(a.top, b.top),

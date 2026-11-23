@@ -72,3 +72,9 @@ class MyCoursesApi {
 final myCoursesApiProvider = Provider<MyCoursesApi>(
   (ref) => MyCoursesApi(ref.watch(apiClientProvider)),
 );
+
+/// The instructor's courses, kept per instructor id.
+final myCoursesProvider = FutureProvider.family<List<CourseSummary>, String>(
+  (ref, instructorId) => ref.watch(myCoursesApiProvider).list(instructorId),
+  dependencies: [myCoursesApiProvider],
+);

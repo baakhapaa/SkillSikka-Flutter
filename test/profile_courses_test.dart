@@ -279,6 +279,20 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.byType(MyCoursesPage), findsOneWidget);
+      // The library builds rows as they scroll in, so the last course is not
+      // in the tree until the list reaches it.
+      await tester.scrollUntilVisible(
+        find.text('Course 9'),
+        300,
+        scrollable: find.descendant(
+          of: find.byType(MyCoursesPage),
+          matching: find.byWidgetPredicate(
+            (widget) =>
+                widget is Scrollable &&
+                axisDirectionToAxis(widget.axisDirection) == Axis.vertical,
+          ),
+        ),
+      );
       expect(find.text('Course 9'), findsWidgets);
     });
   });

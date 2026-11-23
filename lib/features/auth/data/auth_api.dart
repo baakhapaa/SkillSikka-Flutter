@@ -44,7 +44,10 @@ class AuthApi {
   /// One request rather than "create the account, then upload the photo",
   /// because the photo is mandatory for both roles: a two-step flow would leave
   /// an account and an orphaned upload behind every abandoned signup.
-  Future<RegisteredAccount> register(RegistrationRequest request) async {
+  Future<RegisteredAccount> register(
+    RegistrationRequest request, {
+    void Function(int sent, int total)? onSendProgress,
+  }) async {
     final body = await _client.postMultipart<Map<String, dynamic>>(
       _registerPaths[request.role]!,
       fields: request.fields,
@@ -62,6 +65,7 @@ class AuthApi {
             fileName: entry.value.fileName,
           ),
       },
+      onSendProgress: onSendProgress,
     );
 
     final account = RegisteredAccount.tryParse(body);

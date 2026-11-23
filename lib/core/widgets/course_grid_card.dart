@@ -179,32 +179,78 @@ class CourseCardGrid extends StatelessWidget {
     return Column(
       children: [
         for (var i = 0; i < courses.length; i += 2)
-          Padding(
-            padding: EdgeInsets.only(bottom: i + 2 < courses.length ? 12 : 0),
-            child: IntrinsicHeight(
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  Expanded(
-                    child: CourseGridCard(
-                      course: courses[i],
-                      onTap: () => onTap(courses[i]),
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: i + 1 < courses.length
-                        ? CourseGridCard(
-                            course: courses[i + 1],
-                            onTap: () => onTap(courses[i + 1]),
-                          )
-                        : const SizedBox.shrink(),
-                  ),
-                ],
+          CourseCardRow(courses: courses, start: i, onTap: onTap),
+      ],
+    );
+  }
+}
+
+/// The same grid as [CourseCardGrid], built one row at a time as it scrolls
+/// into view. For long lists inside a [CustomScrollView].
+class SliverCourseCardGrid extends StatelessWidget {
+  const SliverCourseCardGrid({
+    super.key,
+    required this.courses,
+    required this.onTap,
+  });
+
+  final List<CourseDetailData> courses;
+  final void Function(CourseDetailData course) onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return SliverList.builder(
+      itemCount: (courses.length + 1) ~/ 2,
+      itemBuilder: (context, row) =>
+          CourseCardRow(courses: courses, start: row * 2, onTap: onTap),
+    );
+  }
+}
+
+/// Cards [start] and `start + 1` side by side, the row as tall as the taller.
+class CourseCardRow extends StatelessWidget {
+  const CourseCardRow({
+    super.key,
+    required this.courses,
+    required this.start,
+    required this.onTap,
+  });
+
+  final List<CourseDetailData> courses;
+  final int start;
+  final void Function(CourseDetailData course) onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final i = start;
+    return Padding(
+      padding: EdgeInsets.only(bottom: i + 2 < courses.length ? 12 : 0),
+      child: IntrinsicHeight(
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Expanded(
+              child: RepaintBoundary(
+                child: CourseGridCard(
+                  course: courses[i],
+                  onTap: () => onTap(courses[i]),
+                ),
               ),
             ),
-          ),
-      ],
+            const SizedBox(width: 12),
+            Expanded(
+              child: i + 1 < courses.length
+                  ? RepaintBoundary(
+                      child: CourseGridCard(
+                        course: courses[i + 1],
+                        onTap: () => onTap(courses[i + 1]),
+                      ),
+                    )
+                  : const SizedBox.shrink(),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }

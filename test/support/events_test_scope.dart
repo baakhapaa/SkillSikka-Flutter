@@ -43,6 +43,7 @@ Widget eventsTestScope({
   List<BootcampCard> bootcamps = const <BootcampCard>[],
   List<CourseDetailData> premium = const <CourseDetailData>[],
   List<CourseDetailData> academic = const <CourseDetailData>[],
+  List<CourseDetailData> skills = const <CourseDetailData>[],
   MyLearning? learning,
 }) {
   return ProviderScope(
@@ -53,7 +54,7 @@ Widget eventsTestScope({
         (ref, classIndex) async => academic,
       ),
       homePremiumCoursesProvider.overrideWith((ref) async => premium),
-      skillCatalogueProvider.overrideWith((ref) async => const []),
+      skillCatalogueProvider.overrideWith((ref) async => skills),
       myLearningProvider.overrideWith(
         (ref) async => learning ?? const MyLearning(),
       ),

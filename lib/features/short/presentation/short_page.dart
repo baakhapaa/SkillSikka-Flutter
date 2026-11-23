@@ -845,10 +845,20 @@ class _ShortStageState extends State<_ShortStage> with WidgetsBindingObserver {
   var _backgrounded = false;
   var _routeCurrent = true;
 
+  /// Held in the middle of the video: paused until the finger lifts.
+  var _holdPaused = false;
+
+  /// Held on the left or right edge: playing at 2x until the finger lifts.
+  var _fastForward = false;
+
   bool get _shouldLoad => widget.active || widget.warm;
 
   bool get _shouldPlay =>
-      widget.active && _routeCurrent && !_pausedByUser && !_backgrounded;
+      widget.active &&
+      _routeCurrent &&
+      !_pausedByUser &&
+      !_backgrounded &&
+      !_holdPaused;
 
   @override
   void initState() {
@@ -861,6 +871,7 @@ class _ShortStageState extends State<_ShortStage> with WidgetsBindingObserver {
   void didUpdateWidget(_ShortStage old) {
     super.didUpdateWidget(old);
     final shouldLoad = widget.active || widget.warm;
+    if (old.videoUrl != widget.videoUrl || !widget.active) _resetHold();
     if (old.videoUrl != widget.videoUrl) {
       _pausedByUser = false;
       _failed = false;
@@ -898,6 +909,7 @@ class _ShortStageState extends State<_ShortStage> with WidgetsBindingObserver {
         state == AppLifecycleState.detached ||
         state == AppLifecycleState.hidden) {
       _backgrounded = true;
+      _resetHold();
       _controller?.pause();
       return;
     }
@@ -1005,6 +1017,35 @@ class _ShortStageState extends State<_ShortStage> with WidgetsBindingObserver {
     player.seekTo(Duration(milliseconds: ms));
   }
 
+  /// The left and right 30% speed up; the middle pauses, as Instagram does.
+  void _startHold(LongPressStartDetails details, double width) {
+    final player = _controller;
+    if (!_ready || player == null || width <= 0) return;
+    final x = details.localPosition.dx / width;
+    HapticFeedback.lightImpact();
+    if (x < 0.3 || x > 0.7) {
+      player.setPlaybackSpeed(2.0);
+      setState(() => _fastForward = true);
+    } else {
+      setState(() => _holdPaused = true);
+      _applyPlay();
+    }
+  }
+
+  void _endHold() {
+    if (!_fastForward && !_holdPaused) return;
+    setState(_resetHold);
+    _applyPlay();
+  }
+
+  /// Drops any hold without a rebuild, so it is safe from lifecycle callbacks.
+  /// The next short must never start at 2x.
+  void _resetHold() {
+    if (_fastForward) _controller?.setPlaybackSpeed(1.0);
+    _fastForward = false;
+    _holdPaused = false;
+  }
+
   void _togglePause() {
     if (_failed || (_controller == null && !_ready)) {
       setState(() => _failed = false);
@@ -1022,40 +1063,53 @@ class _ShortStageState extends State<_ShortStage> with WidgetsBindingObserver {
     return Stack(
       fit: StackFit.expand,
       children: [
-        GestureDetector(
-          behavior: HitTestBehavior.opaque,
-          onTap: _togglePause,
-          onDoubleTapDown: widget.onDoubleTapDown,
-          onDoubleTap: widget.onDoubleTap,
-          child: Stack(
-            fit: StackFit.expand,
-            children: [
-              if (!_ready) _shortImage(widget.poster, fit: widget.posterFit),
-              if (_ready && player != null)
-                Positioned.fill(child: _cover(player)),
-              if (_pausedByUser || _failed)
-                Center(
-                  child: DecoratedBox(
-                    decoration: const BoxDecoration(
-                      color: Color.fromRGBO(0, 0, 0, 0.45),
-                      shape: BoxShape.circle,
-                    ),
-                    child: SizedBox(
-                      width: 72,
-                      height: 72,
-                      child: Icon(
-                        _failed
-                            ? Icons.refresh_rounded
-                            : Icons.play_arrow_rounded,
-                        color: Colors.white,
-                        size: 46,
+        LayoutBuilder(
+          builder: (context, constraints) => GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onTap: _togglePause,
+            onDoubleTapDown: widget.onDoubleTapDown,
+            onDoubleTap: widget.onDoubleTap,
+            onLongPressStart: (details) =>
+                _startHold(details, constraints.maxWidth),
+            onLongPressEnd: (_) => _endHold(),
+            onLongPressCancel: _endHold,
+            child: Stack(
+              fit: StackFit.expand,
+              children: [
+                if (!_ready) _shortImage(widget.poster, fit: widget.posterFit),
+                if (_ready && player != null)
+                  Positioned.fill(child: _cover(player)),
+                if (_pausedByUser || _failed)
+                  Center(
+                    child: DecoratedBox(
+                      decoration: const BoxDecoration(
+                        color: Color.fromRGBO(0, 0, 0, 0.45),
+                        shape: BoxShape.circle,
+                      ),
+                      child: SizedBox(
+                        width: 72,
+                        height: 72,
+                        child: Icon(
+                          _failed
+                              ? Icons.refresh_rounded
+                              : Icons.play_arrow_rounded,
+                          color: Colors.white,
+                          size: 46,
+                        ),
                       ),
                     ),
                   ),
-                ),
-            ],
+              ],
+            ),
           ),
         ),
+        if (_fastForward)
+          const Positioned(
+            top: 104,
+            left: 0,
+            right: 0,
+            child: IgnorePointer(child: Center(child: _FastForwardPill())),
+          ),
         Positioned(
           left: 0,
           right: 0,
@@ -2277,24 +2331,7 @@ class _ActionItem extends StatelessWidget {
       behavior: HitTestBehavior.opaque,
       child: Column(
         children: [
-          ClipOval(
-            child: BackdropFilter(
-              filter: ImageFilter.blur(sigmaX: 16, sigmaY: 16),
-              child: Container(
-                width: 48,
-                height: 48,
-                alignment: Alignment.center,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  color: const Color.fromRGBO(255, 255, 255, 0.18),
-                  border: Border.all(
-                    color: const Color.fromRGBO(255, 255, 255, 0.45),
-                  ),
-                ),
-                child: Icon(icon, color: iconColor, size: 22),
-              ),
-            ),
-          ),
+          _LiquidGlassDisc(child: Icon(icon, color: iconColor, size: 22)),
           const SizedBox(height: 6),
           Text(
             label,
@@ -2310,6 +2347,161 @@ class _ActionItem extends StatelessWidget {
       ),
     );
   }
+}
+
+/// Shown while an edge of the short is held.
+class _FastForwardPill extends StatelessWidget {
+  const _FastForwardPill();
+
+  @override
+  Widget build(BuildContext context) {
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: Colors.black.withValues(alpha: 0.55),
+        borderRadius: BorderRadius.circular(100),
+      ),
+      child: const Padding(
+        padding: EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              '2x',
+              style: TextStyle(
+                fontFamily: 'Figtree',
+                color: Colors.white,
+                fontSize: 13,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+            SizedBox(width: 4),
+            Icon(Icons.fast_forward_rounded, color: Colors.white, size: 16),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// One shared lens program. Each disc still gets its own shader instance,
+/// because a backdrop filter keeps the shader it was given.
+class _LiquidGlassProgram {
+  static Future<FragmentProgram?>? _loading;
+
+  static Future<FragmentProgram?> load() {
+    if (!ImageFilter.isShaderFilterSupported) {
+      return Future<FragmentProgram?>.value(null);
+    }
+    return _loading ??= FragmentProgram.fromAsset('shaders/liquid_glass.frag')
+        .then<FragmentProgram?>((program) => program)
+        .catchError((Object _) => null);
+  }
+}
+
+/// A round lens: the video behind it bends and picks up a rim of light.
+///
+/// A plain blurred circle is what a CSS `backdrop-filter` draws. This uses a
+/// fragment shader that refracts the backdrop, and falls back to a painted
+/// lens where that shader is not available.
+class _LiquidGlassDisc extends StatefulWidget {
+  const _LiquidGlassDisc({required this.child});
+
+  final Widget child;
+
+  @override
+  State<_LiquidGlassDisc> createState() => _LiquidGlassDiscState();
+}
+
+class _LiquidGlassDiscState extends State<_LiquidGlassDisc> {
+  FragmentShader? _shader;
+
+  @override
+  void initState() {
+    super.initState();
+    _LiquidGlassProgram.load().then((program) {
+      if (!mounted || program == null) return;
+      setState(() => _shader = program.fragmentShader());
+    });
+  }
+
+  @override
+  void dispose() {
+    _shader?.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final shader = _shader;
+    if (shader != null) shader.setFloat(2, 1);
+    final ImageFilter filter = shader != null
+        ? ImageFilter.shader(shader)
+        : ImageFilter.blur(sigmaX: 10, sigmaY: 10);
+    return Container(
+      width: 48,
+      height: 48,
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.28),
+            blurRadius: 12,
+            offset: const Offset(0, 5),
+          ),
+        ],
+      ),
+      child: ClipOval(
+        child: Stack(
+          fit: StackFit.expand,
+          children: [
+            BackdropFilter(filter: filter, child: const SizedBox.expand()),
+            const CustomPaint(painter: _LensRimPainter()),
+            Center(child: widget.child),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _LensRimPainter extends CustomPainter {
+  const _LensRimPainter();
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final rect = Offset.zero & size;
+    final center = size.center(Offset.zero);
+    final radius = size.width / 2 - 0.7;
+    final rim = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1.3
+      ..shader = SweepGradient(
+        startAngle: -2.6,
+        endAngle: 3.7,
+        colors: [
+          Colors.white.withValues(alpha: 0.95),
+          Colors.white.withValues(alpha: 0.18),
+          Colors.white.withValues(alpha: 0.04),
+          const Color(0x66000000),
+          Colors.white.withValues(alpha: 0.72),
+        ],
+      ).createShader(rect);
+    canvas.drawCircle(center, radius, rim);
+
+    final shine = Paint()
+      ..shader = RadialGradient(
+        center: const Alignment(-0.4, -0.65),
+        radius: 0.7,
+        colors: [
+          Colors.white.withValues(alpha: 0.38),
+          Colors.white.withValues(alpha: 0),
+        ],
+      ).createShader(rect);
+    canvas.drawCircle(center, size.width / 2, shine);
+  }
+
+  @override
+  bool shouldRepaint(covariant _LensRimPainter oldDelegate) => false;
 }
 
 class AnswerOption {

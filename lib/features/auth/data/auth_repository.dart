@@ -34,7 +34,10 @@ abstract interface class AuthRepository {
   /// The role is still adopted from the response here, before any token check,
   /// so the OTP screen knows which endpoint to use — see
   /// [DioAuthRepository._adopt].
-  Future<RegisteredAccount> register(RegistrationRequest request);
+  Future<RegisteredAccount> register(
+    RegistrationRequest request, {
+    void Function(int sent, int total)? onSendProgress,
+  });
 
   /// Signs in with email and password, and adopts the session.
   ///
@@ -234,8 +237,14 @@ class DioAuthRepository implements AuthRepository {
   final UserProfileNotifier? _profile;
 
   @override
-  Future<RegisteredAccount> register(RegistrationRequest request) async {
-    final account = await _api.register(request);
+  Future<RegisteredAccount> register(
+    RegistrationRequest request, {
+    void Function(int sent, int total)? onSendProgress,
+  }) async {
+    final account = await _api.register(
+      request,
+      onSendProgress: onSendProgress,
+    );
     _adopt(account);
     return account;
   }
@@ -374,7 +383,11 @@ class DioAuthRepository implements AuthRepository {
 
     final access = account.accessToken;
     if (access == null || access.isEmpty) return;
-    _session.state = Session(access: access, refresh: account.refreshToken);
+    _session.state = Session(
+      access: access,
+      refresh: account.refreshToken,
+      role: role?.wireValue,
+    );
   }
 }
 
@@ -416,6 +429,10 @@ class FakeAuthRepository implements AuthRepository {
   /// screen ends up rendering.
   final UserProfileNotifier? _profile;
 
+  /// The role [logIn] adopts. Defaults to a student, which is what the existing
+  /// login tests assume. A journey test sets this to walk through as an instructor.
+  ProfileRole loginRole = ProfileRole.student;
+
   /// How long each call takes, so a test can observe the submitting state.
   Duration latency;
 
@@ -450,7 +467,10 @@ class FakeAuthRepository implements AuthRepository {
   int logOuts = 0;
 
   @override
-  Future<RegisteredAccount> register(RegistrationRequest request) async {
+  Future<RegisteredAccount> register(
+    RegistrationRequest request, {
+    void Function(int sent, int total)? onSendProgress,
+  }) async {
     await _wait();
     _throwIfFailing();
     registrations.add(request);
@@ -483,7 +503,7 @@ class FakeAuthRepository implements AuthRepository {
     final account = RegisteredAccount(
       email: email,
       userId: 'fake-user-1',
-      role: ProfileRole.student,
+      role: loginRole,
       status: 'not_applicable',
       accessToken: 'fake-access-token',
       refreshToken: 'fake-refresh-token',
@@ -735,7 +755,11 @@ class FakeAuthRepository implements AuthRepository {
 
     final access = account.accessToken;
     if (access == null || access.isEmpty) return;
-    _session?.state = Session(access: access, refresh: account.refreshToken);
+    _session?.state = Session(
+      access: access,
+      refresh: account.refreshToken,
+      role: role?.wireValue,
+    );
   }
 
   /// Only waits when there is something to wait for. A zero delay would still

@@ -41,6 +41,9 @@ class _SkillCourseDetailPageState extends State<SkillCourseDetailPage> {
   /// `CourseDetailPage._canReview`.
   bool? _canReview;
 
+  /// The server's enrolment. The in-memory list is empty after a restart.
+  CourseEnrollment? _enrollment;
+
   @override
   void initState() {
     super.initState();
@@ -56,33 +59,33 @@ class _SkillCourseDetailPageState extends State<SkillCourseDetailPage> {
     if (container == null) return;
     final api = container.read(courseApiProvider);
     final localEnrolment = isCourseEnrolled(context, _course);
+    final enrollmentCall = api.enrollmentFor(id).then<CourseEnrollment?>(
+      (value) => value,
+      onError: (Object _) => null,
+    );
+    final detailCall = api.detail(id).then<CourseDetailData?>(
+      (value) => value,
+      onError: (Object _) => null,
+    );
+    final enrollment = await enrollmentCall;
+    if (mounted) setState(() => _enrollment = enrollment);
+    final detail = await detailCall;
+    if (detail == null || !mounted) return;
+    Map<String, dynamic>? mine;
     try {
-      final detail = await api.detail(id);
-      Map<String, dynamic>? mine;
-      try {
-        mine = await api.myReview(id);
-      } on ApiException {
-        mine = null;
-      }
-      var canReview = localEnrolment;
-      if (!canReview) {
-        try {
-          await api.progress(id);
-          canReview = true;
-        } on ApiException {
-          canReview = false;
-        }
-      }
-      if (!mounted) return;
-      setState(() {
-        _detail = detail;
-        _myReview = mine;
-        _canReview = canReview;
-      });
+      mine = await api.myReview(id);
     } on ApiException {
-      // The summary is already on screen and is a truthful subset — see the
-      // same decision in `CourseDetailPage`.
+      mine = null;
     }
+    final canReview =
+        localEnrolment ||
+        detail.isEnrolled ||
+        (enrollment?.grantsAccess ?? false);
+    setState(() {
+      _detail = detail;
+      _myReview = mine;
+      _canReview = canReview;
+    });
   }
 
   /// Opens the review sheet, then reloads so the new average and review row come
@@ -112,7 +115,10 @@ class _SkillCourseDetailPageState extends State<SkillCourseDetailPage> {
 
   @override
   Widget build(BuildContext context) {
-    final enrolled = isCourseEnrolled(context, _course);
+    final enrolled =
+        isCourseEnrolled(context, _course) ||
+        _course.isEnrolled ||
+        (_enrollment?.grantsAccess ?? false);
     final id = _course.id;
     return CourseDetailView(
       data: _course,

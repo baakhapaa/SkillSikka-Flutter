@@ -10,6 +10,14 @@ import 'core/session_persistence.dart';
 class SkillSikkaApp extends ConsumerWidget {
   const SkillSikkaApp({super.key});
 
+  /// Built once. `GoogleFonts.manropeTextTheme()` reads the bundled face; doing
+  /// it on every rebuild of this widget repeated that work for no change.
+  static final ThemeData theme = ThemeData(
+    colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xFFE6B800)),
+    textTheme: GoogleFonts.manropeTextTheme(),
+    useMaterial3: true,
+  );
+
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     // Restores a session saved on a previous launch, and saves every change after
@@ -49,11 +57,7 @@ class SkillSikkaApp extends ConsumerWidget {
     // belongs is how they end up disagreeing, so this is deliberately empty.
     return MaterialApp.router(
       title: 'Skill Sikka',
-      theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xFFE6B800)),
-        textTheme: GoogleFonts.manropeTextTheme(),
-        useMaterial3: true,
-      ),
+      theme: theme,
       routerConfig: ref.watch(appRouterProvider),
     );
   }

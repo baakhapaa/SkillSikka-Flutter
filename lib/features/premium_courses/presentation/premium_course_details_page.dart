@@ -37,6 +37,7 @@ class _PremiumCourseDetailsPageState
   CourseDetailData? _course;
   bool _loading = false;
   String? _error;
+  CourseEnrollment? _enrollment;
 
   /// Whichever course this screen is showing: the fetched one, or the demo.
   CourseDetailData get _showing => _course ?? _premiumCourseDetail;
@@ -53,10 +54,19 @@ class _PremiumCourseDetailsPageState
       _error = null;
     });
     try {
-      final course = await ref.read(courseApiProvider).detail(id);
+      final api = ref.read(courseApiProvider);
+      final enrollmentCall = api.enrollmentFor(id);
+      final course = await api.detail(id);
+      CourseEnrollment? enrollment;
+      try {
+        enrollment = await enrollmentCall;
+      } on ApiException {
+        enrollment = null;
+      }
       if (!mounted) return;
       setState(() {
         _course = course;
+        _enrollment = enrollment;
         _loading = false;
       });
     } on ApiException catch (error) {
@@ -120,9 +130,15 @@ class _PremiumCourseDetailsPageState
         ),
       );
     }
+    final enrolled =
+        isCourseEnrolled(context, _showing) ||
+        _showing.isEnrolled ||
+        (_enrollment?.grantsAccess ?? false);
+    final awaiting = !enrolled && (_enrollment?.awaitsPayment ?? false);
     return CourseDetailView(
       data: _showing,
-      isEnrolled: isCourseEnrolled(context, _showing),
+      isEnrolled: enrolled,
+      ctaLabel: awaiting ? 'Continue payment' : null,
       onEnrol: _enrol,
       onContinue: () => continueCourse(context, _showing),
     );

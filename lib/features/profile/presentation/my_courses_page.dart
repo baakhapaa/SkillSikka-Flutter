@@ -1,9 +1,13 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 import '../../../core/network/api_error.dart';
+import '../../../core/routing/instructor_route.dart';
 import '../../../core/widgets/course_image.dart';
+import '../../../core/widgets/loading_skeleton.dart';
 import '../../courses/data/course_builder_api.dart';
 import '../../courses/data/course_summary.dart';
 import '../../courses/data/my_courses_api.dart';
@@ -41,12 +45,17 @@ class MyCoursesPage extends ConsumerStatefulWidget {
 
 class _MyCoursesPageState extends ConsumerState<MyCoursesPage> {
   final _search = TextEditingController();
+  Timer? _searchDebounce;
   List<CourseSummary> _courses = const [];
   bool _loading = true;
   String? _error;
   _CourseFilter _filter = _CourseFilter.all;
   _LibraryGroup _group = _LibraryGroup.category;
   _CourseSort _sort = _CourseSort.recent;
+  String _query = '';
+  Object? _libraryKey;
+  List<CourseSummary> _sortedVisible = const [];
+  List<MapEntry<String, List<CourseSummary>>> _libraryGroups = const [];
 
   @override
   void initState() {
@@ -56,15 +65,12 @@ class _MyCoursesPageState extends ConsumerState<MyCoursesPage> {
 
   @override
   void dispose() {
+    _searchDebounce?.cancel();
     _search.dispose();
     super.dispose();
   }
 
   Future<void> _load() async {
-    setState(() {
-      _loading = true;
-      _error = null;
-    });
     final id = ref.read(userProfileProvider).id;
     if (id == null) {
       setState(() {
@@ -73,15 +79,28 @@ class _MyCoursesPageState extends ConsumerState<MyCoursesPage> {
       });
       return;
     }
+    final cached = ref.read(myCoursesProvider(id)).valueOrNull;
+    if (cached != null) {
+      setState(() {
+        _courses = cached;
+        _loading = false;
+        _error = null;
+      });
+    } else {
+      setState(() {
+        _loading = true;
+        _error = null;
+      });
+    }
     try {
-      final courses = await ref.read(myCoursesApiProvider).list(id);
+      final courses = await ref.refresh(myCoursesProvider(id).future);
       if (!mounted) return;
       setState(() {
         _courses = courses;
         _loading = false;
       });
     } on ApiException catch (error) {
-      if (!mounted) return;
+      if (!mounted || _courses.isNotEmpty) return;
       setState(() {
         _loading = false;
         _error = error.displayMessage;
@@ -92,41 +111,64 @@ class _MyCoursesPageState extends ConsumerState<MyCoursesPage> {
   /// Opens the course details screen, then reloads in case Edit published,
   /// unpublished, or deleted the course.
   Future<void> _open(CourseSummary course) async {
-    await Navigator.of(context).push<void>(
-      MaterialPageRoute(
-        builder: (_) => InstructorCourseDetailsPage(course: course),
-      ),
+    await openInstructorRoute<void>(
+      context,
+      '/instructor/courses/${course.id}',
+      extra: course,
+      fallback: (_) => InstructorCourseDetailsPage(course: course),
     );
     if (!mounted) return;
     await _load();
   }
 
   Future<void> _create() async {
-    await Navigator.of(context).push<bool>(
-      MaterialPageRoute(
-        builder: (_) => CourseBuilderPage(
-          api: ref.read(courseBuilderApiProvider),
-          quizApi: ref.read(quizApiProvider),
-          instructorVerified: ref.read(userProfileProvider).canPublish,
-        ),
+    await openInstructorRoute<bool>(
+      context,
+      '/instructor/courses/new',
+      fallback: (_) => CourseBuilderPage(
+        api: ref.read(courseBuilderApiProvider),
+        quizApi: ref.read(quizApiProvider),
+        instructorVerified: ref.read(userProfileProvider).canPublish,
       ),
     );
     if (!mounted) return;
     await _load();
   }
 
-  List<CourseSummary> get _visible {
-    final query = _search.text.trim().toLowerCase();
-    return [
+  bool get _showLibrary =>
+      !_loading && _error == null && _sortedVisible.isNotEmpty;
+
+  /// Sort and grouping run when the list, the filter, or the search changes,
+  /// not on every rebuild.
+  void _ensureLibrary() {
+    final key = Object.hash(
+      identityHashCode(_courses),
+      _courses.length,
+      _filter,
+      _query,
+      _sort,
+      _group,
+    );
+    if (key == _libraryKey) return;
+    _libraryKey = key;
+    final visible = [
       for (final course in _courses)
         if (_filter.matches(course) &&
-            (query.isEmpty || course.title.toLowerCase().contains(query)))
+            (_query.isEmpty || course.title.toLowerCase().contains(_query)))
           course,
     ];
+    _sortedVisible = _sorted(visible);
+    final groups = <String, List<CourseSummary>>{};
+    for (final course in _sortedVisible) {
+      groups.putIfAbsent(course.category, () => []).add(course);
+    }
+    _libraryGroups = groups.entries.toList()
+      ..sort((a, b) => a.key.toLowerCase().compareTo(b.key.toLowerCase()));
   }
 
   @override
   Widget build(BuildContext context) {
+    _ensureLibrary();
     final lessons = _courses.fold<int>(
       0,
       (sum, course) => sum + (course.lessonCount ?? 0),
@@ -145,9 +187,15 @@ class _MyCoursesPageState extends ConsumerState<MyCoursesPage> {
           child: Column(
             children: [
               Expanded(
-                child: ListView(
-                  padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
-                  children: [
+                child: RefreshIndicator(
+                  onRefresh: _load,
+                  child: CustomScrollView(
+                    physics: const AlwaysScrollableScrollPhysics(),
+                    slivers: [
+                      SliverPadding(
+                        padding: const EdgeInsets.fromLTRB(20, 16, 20, 0),
+                        sliver: SliverList(
+                          delegate: SliverChildListDelegate([
                     Row(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
@@ -230,7 +278,18 @@ class _MyCoursesPageState extends ConsumerState<MyCoursesPage> {
                     const SizedBox(height: 16),
                     TextField(
                       controller: _search,
-                      onChanged: (_) => setState(() {}),
+                      onChanged: (_) {
+                        _searchDebounce?.cancel();
+                        _searchDebounce = Timer(
+                          const Duration(milliseconds: 250),
+                          () {
+                            if (!mounted) return;
+                            setState(
+                              () => _query = _search.text.trim().toLowerCase(),
+                            );
+                          },
+                        );
+                      },
                       style: GoogleFonts.manrope(fontSize: 14, color: _ink),
                       decoration: InputDecoration(
                         isDense: true,
@@ -269,8 +328,14 @@ class _MyCoursesPageState extends ConsumerState<MyCoursesPage> {
                       ],
                     ),
                     const SizedBox(height: 16),
-                    _body(),
-                  ],
+                    if (!_showLibrary) _body(),
+                          ]),
+                        ),
+                      ),
+                      if (_showLibrary) ..._librarySlivers(),
+                      const SliverToBoxAdapter(child: SizedBox(height: 24)),
+                    ],
+                  ),
                 ),
               ),
             ],
@@ -340,18 +405,6 @@ class _MyCoursesPageState extends ConsumerState<MyCoursesPage> {
     );
   }
 
-  List<MapEntry<String, List<CourseSummary>>> _grouped(
-    List<CourseSummary> courses,
-  ) {
-    final groups = <String, List<CourseSummary>>{};
-    for (final course in _sorted(courses)) {
-      groups.putIfAbsent(course.category, () => []).add(course);
-    }
-    final entries = groups.entries.toList()
-      ..sort((a, b) => a.key.toLowerCase().compareTo(b.key.toLowerCase()));
-    return entries;
-  }
-
   List<CourseSummary> _sorted(List<CourseSummary> courses) {
     final next = [...courses];
     next.sort((a, b) {
@@ -374,37 +427,6 @@ class _MyCoursesPageState extends ConsumerState<MyCoursesPage> {
       }
     });
     return next;
-  }
-
-  Widget _grid(List<CourseSummary> courses) {
-    return Column(
-      children: [
-        for (var i = 0; i < courses.length; i += 2)
-          Padding(
-            padding: const EdgeInsets.only(bottom: 16),
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Expanded(
-                  child: _CourseCard(
-                    course: courses[i],
-                    onTap: () => _open(courses[i]),
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: i + 1 < courses.length
-                      ? _CourseCard(
-                          course: courses[i + 1],
-                          onTap: () => _open(courses[i + 1]),
-                        )
-                      : const SizedBox.shrink(),
-                ),
-              ],
-            ),
-          ),
-      ],
-    );
   }
 
   Widget _menu<T>({
@@ -481,13 +503,7 @@ class _MyCoursesPageState extends ConsumerState<MyCoursesPage> {
 
   Widget _body() {
     if (_loading) {
-      return const Center(
-        child: SizedBox(
-          width: 22,
-          height: 22,
-          child: CircularProgressIndicator(strokeWidth: 2),
-        ),
-      );
+      return const CourseListSkeleton(rows: 4, thumb: 72);
     }
     if (_error != null) {
       return Center(
@@ -518,8 +534,7 @@ class _MyCoursesPageState extends ConsumerState<MyCoursesPage> {
         ),
       );
     }
-    final visible = _visible;
-    if (visible.isEmpty) {
+    if (_sortedVisible.isEmpty) {
       return Padding(
         padding: const EdgeInsets.symmetric(vertical: 32),
         child: Text(
@@ -529,84 +544,138 @@ class _MyCoursesPageState extends ConsumerState<MyCoursesPage> {
         ),
       );
     }
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Row(
-          children: [
-            Flexible(
-              child: Align(
-                alignment: Alignment.centerLeft,
-                child: FittedBox(
-                  fit: BoxFit.scaleDown,
+    return const SizedBox.shrink();
+  }
+
+  List<Widget> _librarySlivers() {
+    return [
+      SliverPadding(
+        padding: const EdgeInsets.fromLTRB(20, 0, 20, 12),
+        sliver: SliverToBoxAdapter(
+          child: Row(
+            children: [
+              Flexible(
+                child: Align(
                   alignment: Alignment.centerLeft,
-                  child: _menu<_LibraryGroup>(
-                    icon: Icons.folder_open,
-                    label: _group.label,
-                    items: _LibraryGroup.values,
-                    selected: _group,
-                    itemLabel: (item) => item.label,
-                    onSelected: (item) => setState(() => _group = item),
-                  ),
-                ),
-              ),
-            ),
-            const SizedBox(width: 8),
-            Flexible(
-              child: Align(
-                alignment: Alignment.centerRight,
-                child: FittedBox(
-                  fit: BoxFit.scaleDown,
-                  alignment: Alignment.centerRight,
-                  child: _menu<_CourseSort>(
-                    icon: null,
-                    label: _sort.label,
-                    items: _CourseSort.values,
-                    selected: _sort,
-                    itemLabel: (item) => item.label,
-                    onSelected: (item) => setState(() => _sort = item),
-                  ),
-                ),
-              ),
-            ),
-          ],
-        ),
-        const SizedBox(height: 12),
-        if (_group == _LibraryGroup.category)
-          for (final entry in _grouped(visible)) ...[
-            Row(
-              children: [
-                Expanded(
-                  child: Text(
-                    entry.key,
-                    style: GoogleFonts.manrope(
-                      fontSize: 16,
-                      fontWeight: FontWeight.w800,
-                      color: _ink,
+                  child: FittedBox(
+                    fit: BoxFit.scaleDown,
+                    alignment: Alignment.centerLeft,
+                    child: _menu<_LibraryGroup>(
+                      icon: Icons.folder_open,
+                      label: _group.label,
+                      items: _LibraryGroup.values,
+                      selected: _group,
+                      itemLabel: (item) => item.label,
+                      onSelected: (item) => setState(() => _group = item),
                     ),
                   ),
                 ),
-                Text(
-                  entry.value.length == 1
-                      ? '1 course'
-                      : '${entry.value.length} courses',
-                  style: GoogleFonts.figtree(fontSize: 12, color: _gray),
+              ),
+              const SizedBox(width: 8),
+              Flexible(
+                child: Align(
+                  alignment: Alignment.centerRight,
+                  child: FittedBox(
+                    fit: BoxFit.scaleDown,
+                    alignment: Alignment.centerRight,
+                    child: _menu<_CourseSort>(
+                      icon: null,
+                      label: _sort.label,
+                      items: _CourseSort.values,
+                      selected: _sort,
+                      itemLabel: (item) => item.label,
+                      onSelected: (item) => setState(() => _sort = item),
+                    ),
+                  ),
                 ),
-              ],
+              ),
+            ],
+          ),
+        ),
+      ),
+      if (_group == _LibraryGroup.category)
+        for (final entry in _libraryGroups) ...[
+          SliverPadding(
+            padding: const EdgeInsets.fromLTRB(20, 0, 20, 10),
+            sliver: SliverToBoxAdapter(
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      entry.key,
+                      style: GoogleFonts.manrope(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w800,
+                        color: _ink,
+                      ),
+                    ),
+                  ),
+                  Text(
+                    entry.value.length == 1
+                        ? '1 course'
+                        : '${entry.value.length} courses',
+                    style: GoogleFonts.figtree(fontSize: 12, color: _gray),
+                  ),
+                ],
+              ),
             ),
-            const SizedBox(height: 10),
-            _grid(entry.value),
-            const SizedBox(height: 8),
-          ]
-        else
-          _grid(_sorted(visible)),
-        Center(
+          ),
+          _pairSliver(entry.value),
+          const SliverToBoxAdapter(child: SizedBox(height: 8)),
+        ]
+      else
+        _pairSliver(_sortedVisible),
+      SliverToBoxAdapter(
+        child: Center(
           child: Text(
-            'All ${visible.length} courses',
+            'All ${_sortedVisible.length} courses',
             style: GoogleFonts.figtree(fontSize: 12, color: _gray),
           ),
         ),
-      ],
+      ),
+    ];
+  }
+
+  Widget _pairSliver(List<CourseSummary> courses) {
+    final rows = (courses.length / 2).ceil();
+    return SliverPadding(
+      padding: const EdgeInsets.symmetric(horizontal: 20),
+      sliver: SliverList.builder(
+        itemCount: rows,
+        itemBuilder: (context, index) {
+          final left = index * 2;
+          final right = left + 1;
+          return Padding(
+            padding: const EdgeInsets.only(bottom: 16),
+            child: IntrinsicHeight(
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Expanded(
+                    child: RepaintBoundary(
+                      child: _CourseCard(
+                        course: courses[left],
+                        onTap: () => _open(courses[left]),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: right < courses.length
+                        ? RepaintBoundary(
+                            child: _CourseCard(
+                              course: courses[right],
+                              onTap: () => _open(courses[right]),
+                            ),
+                          )
+                        : const SizedBox.shrink(),
+                  ),
+                ],
+              ),
+            ),
+          );
+        },
+      ),
     );
   }
 }

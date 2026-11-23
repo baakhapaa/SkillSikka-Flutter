@@ -48,13 +48,13 @@ class _CourseDetailPageState extends ConsumerState<CourseDetailPage> {
   bool? _canReview;
 
   /// This student's enrolment, straight from the server.
-  ///
-  /// **The local store cannot answer this**, and for a paid course the answer is
-  /// the whole call to action: `pending_payment` means "Continue payment",
-  /// `active` means "Continue Learning", no row means "Buy". The store only knows
-  /// about enrolments made since the app started, so a returning student would be
-  /// sold a course they had already paid for.
   CourseEnrollment? _enrollment;
+
+  /// Academic courses have no enrolment. Progress says whether they started.
+  bool _started = false;
+
+  /// The cached full record, when this course was opened before.
+  CourseDetailData? _cachedDetail;
 
   @override
   void initState() {
@@ -62,62 +62,68 @@ class _CourseDetailPageState extends ConsumerState<CourseDetailPage> {
     _loadDetail();
   }
 
-  CourseDetailData get _course => _detail ?? widget.course;
+  CourseDetailData get _course => _detail ?? _cachedDetail ?? widget.course;
 
   Future<void> _loadDetail() async {
     final id = widget.course.id;
     if (id == null) return;
     final api = ref.read(courseApiProvider);
     final localEnrolment = isCourseEnrolled(context, _course);
+    final summaryEnrolled = widget.course.isEnrolled;
 
-    // **Read first, and independently of the detail fetch.** A paid course's call
-    // to action is `Buy` or `Continue payment` depending on this row, and that
-    // must be right even when the curriculum call fails — the bar is the thing
-    // the user taps, and it is the only place the enrolment is visible.
-    CourseEnrollment? enrollment;
-    try {
-      enrollment = await api.enrollmentFor(id);
-    } on ApiException {
-      enrollment = null;
-    }
+    // Attach the handlers immediately. A future that fails before it is
+    // awaited is reported as uncaught, which fails the test that opened the page.
+    final current = ref.read(courseDetailProvider(id));
+    final enrollmentCall = api.enrollmentFor(id).then<CourseEnrollment?>(
+      (value) => value,
+      onError: (Object _) => null,
+    );
+    // A course opened before is already in [courseDetailProvider]. Refresh it.
+    // The first open just reads the future the build method already started.
+    final detailCall =
+        (current.hasValue || current.hasError
+                ? ref.refresh(courseDetailProvider(id).future)
+                : ref.read(courseDetailProvider(id).future))
+            .then<CourseDetailData?>(
+              (value) => value,
+              onError: (Object _) => null,
+            );
+
+    final enrollment = await enrollmentCall;
     if (mounted) setState(() => _enrollment = enrollment);
 
+    final detail = await detailCall;
+    if (detail == null || !mounted) return;
+    Map<String, dynamic>? mine;
     try {
-      final detail = await api.detail(id);
-      // Best effort: a failed `reviews/me/` must not cost the whole page. It
-      // 404s for every student who has not reviewed yet, which is most of them.
-      Map<String, dynamic>? mine;
-      try {
-        mine = await api.myReview(id);
-      } on ApiException {
-        mine = null;
-      }
-      // The enrolment read is also the review probe's first half: an `active`
-      // row means the student may review without asking `/progress/` at all. It
-      // cannot replace the probe outright, because an **academic** course has no
-      // enrolment row and is still accessible by grade.
-      var canReview = localEnrolment || (enrollment?.grantsAccess ?? false);
-      if (!canReview) {
-        try {
-          await api.progress(id);
-          canReview = true;
-        } on ApiException {
-          // 403 `NOT_ENROLLED` — see [_canReview].
-          canReview = false;
-        }
-      }
-      if (!mounted) return;
-      setState(() {
-        _detail = detail;
-        _myReview = mine;
-        _canReview = canReview;
-      });
+      mine = await api.myReview(id);
     } on ApiException {
-      // The summary is already on screen and is a truthful subset. Failing the
-      // whole screen because the curriculum did not load would hide a course the
-      // user can see in the grid — and an empty curriculum reads as "no lessons
-      // published yet", which is the honest state of a half-filled course.
+      mine = null;
     }
+    var started = false;
+    var progressOk = false;
+    try {
+      final progress = await api.progress(id);
+      started = progress.hasStarted;
+      // A successful progress read is the enrolment probe: the endpoint
+      // refuses anyone who cannot review. `hasStarted` is separate — an
+      // academic course can be open without the student having watched it.
+      progressOk = true;
+    } on ApiException {
+      started = false;
+    }
+    final canReview =
+        localEnrolment ||
+        summaryEnrolled ||
+        (enrollment?.grantsAccess ?? false) ||
+        progressOk;
+    if (!mounted) return;
+    setState(() {
+      _detail = detail;
+      _myReview = mine;
+      _canReview = canReview;
+      _started = started;
+    });
   }
 
   /// Opens the review sheet, then reloads so the new average and review row are
@@ -164,9 +170,15 @@ class _CourseDetailPageState extends ConsumerState<CourseDetailPage> {
 
   @override
   Widget build(BuildContext context) {
+    final id = widget.course.id;
+    _cachedDetail = id == null
+        ? null
+        : ref.watch(courseDetailProvider(id)).valueOrNull;
     final enrolled =
         isCourseEnrolled(context, _course) ||
-        (_enrollment?.grantsAccess ?? false);
+        _course.isEnrolled ||
+        (_enrollment?.grantsAccess ?? false) ||
+        (_course.isAcademic && _started);
     final awaiting = !enrolled && (_enrollment?.awaitsPayment ?? false);
     return CourseDetailView(
       data: _course,

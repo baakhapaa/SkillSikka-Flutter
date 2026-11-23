@@ -99,21 +99,22 @@ void main() {
     expect(api.calls.last.grade, 7);
   });
 
-  testWidgets('a class with no grade behind it says so instead of showing all', (
-    tester,
-  ) async {
-    final api = FakeCourseApi(catalogue: _page([_row()]));
-    await tester.pumpWidget(app(api, grades: <dynamic>[]));
-    await tester.pumpAndSettle();
+  testWidgets(
+    'a class with no grade behind it says so instead of showing all',
+    (tester) async {
+      final api = FakeCourseApi(catalogue: _page([_row()]));
+      await tester.pumpWidget(app(api, grades: <dynamic>[]));
+      await tester.pumpAndSettle();
 
-    await tester.tap(find.text('Class 8'));
-    await tester.pumpAndSettle();
+      await tester.tap(find.text('Class 8'));
+      await tester.pumpAndSettle();
 
-    // No grade 8 in the list, so the chip cannot be honoured. Showing the
-    // unfiltered catalogue under a `Class 8` heading would be a lie.
-    expect(find.text('Class 8 has no courses yet.'), findsOneWidget);
-    expect(api.calls, hasLength(1));
-  });
+      // No grade 8 in the list, so the chip cannot be honoured. Showing the
+      // unfiltered catalogue under a `Class 8` heading would be a lie.
+      expect(find.text('Class 8 has no courses yet.'), findsOneWidget);
+      expect(api.calls, hasLength(1));
+    },
+  );
 
   testWidgets('a failed load is an error state with a retry', (tester) async {
     final api = FakeCourseApi(

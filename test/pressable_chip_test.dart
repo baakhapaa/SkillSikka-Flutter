@@ -68,15 +68,13 @@ void main() {
   testWidgets('drops the top highlight while depressed', (tester) async {
     await pumpChip(tester, onTap: () {});
 
-    int highlightLayers() => tester
-        .widgetList<DecoratedBox>(find.byType(DecoratedBox))
-        .where((box) {
+    int highlightLayers() =>
+        tester.widgetList<DecoratedBox>(find.byType(DecoratedBox)).where((box) {
           final decoration = box.decoration as BoxDecoration;
           final gradient = decoration.gradient;
           return gradient is LinearGradient &&
               gradient.colors.first == Colors.white.withValues(alpha: 0.58);
-        })
-        .length;
+        }).length;
 
     expect(highlightLayers(), 1, reason: 'idle chip shows its specular edge');
 
@@ -94,11 +92,14 @@ void main() {
   testWidgets('scales up on hover', (tester) async {
     await pumpChip(tester, onTap: () {});
 
-    double scale() => tester.widget<AnimatedScale>(find.byType(AnimatedScale)).scale;
+    double scale() =>
+        tester.widget<AnimatedScale>(find.byType(AnimatedScale)).scale;
     expect(scale(), 1.0);
 
     final pointer = TestPointer(1, PointerDeviceKind.mouse);
-    await tester.sendEventToBinding(pointer.hover(tester.getCenter(find.byType(PressableChip))));
+    await tester.sendEventToBinding(
+      pointer.hover(tester.getCenter(find.byType(PressableChip))),
+    );
     await tester.pump();
 
     expect(scale(), 1.06);

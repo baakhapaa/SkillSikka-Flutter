@@ -31,6 +31,7 @@ dependencies:
   flutter:
     sdk: flutter
 
+  cached_network_image: ^3.4.1
   dio: ^5.8.0+1
   flutter_svg: ^2.0.17
   flutter_riverpod: ^2.6.1
@@ -94,7 +95,11 @@ flutter:
   # the material Icons class.
   uses-material-design: true
 
+  shaders:
+    - shaders/liquid_glass.frag
+
   assets:
+    - assets/google_fonts/
     - assets/figma/
     - assets/figma/footer/
     - assets/images/

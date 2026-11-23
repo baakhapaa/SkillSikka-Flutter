@@ -27,7 +27,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 /// absolute-lifetime note above before writing any UI copy about staying signed in.
 @immutable
 class Session {
-  const Session({required this.access, this.refresh});
+  const Session({required this.access, this.refresh, this.role});
 
   /// Sent as `Authorization: Bearer <access>`.
   final String access;
@@ -46,12 +46,21 @@ class Session {
   /// to ask; `refresh != null` is not, because it is always true in production.
   final String? refresh;
 
+  /// The account kind, stored with the tokens so a restart knows it before
+  /// `GET /me/` returns. A wire value (`student` or `instructor`), or null when
+  /// this session was saved before the role was kept.
+  final String? role;
+
   /// True when this session can be renewed without a new sign-in.
   bool get canRefresh => refresh != null && refresh!.isNotEmpty;
 
   /// The same session with a fresh access token, keeping the refresh token.
   Session withAccess(String newAccess) =>
-      Session(access: newAccess, refresh: refresh);
+      Session(access: newAccess, refresh: refresh, role: role);
+
+  /// The same session with a role, keeping both tokens.
+  Session withRole(String? newRole) =>
+      Session(access: access, refresh: refresh, role: newRole);
 
   /// The stored form of this session.
   ///
@@ -66,6 +75,7 @@ class Session {
   Map<String, dynamic> toJson() => {
     'access': access,
     if (refresh != null) 'refresh': refresh,
+    if (role != null) 'role': role,
   };
 
   /// Rebuilds a session from [toJson]'s output.
@@ -87,20 +97,25 @@ class Session {
       throw const FormatException('Stored session has no usable access token.');
     }
     final refresh = json['refresh'];
+    final role = json['role'];
     return Session(
       access: access.trim(),
       refresh: refresh is String && refresh.trim().isNotEmpty
           ? refresh.trim()
           : null,
+      role: role is String && role.trim().isNotEmpty ? role.trim() : null,
     );
   }
 
   @override
   bool operator ==(Object other) =>
-      other is Session && other.access == access && other.refresh == refresh;
+      other is Session &&
+      other.access == access &&
+      other.refresh == refresh &&
+      other.role == role;
 
   @override
-  int get hashCode => Object.hash(access, refresh);
+  int get hashCode => Object.hash(access, refresh, role);
 
   /// Reports only whether the tokens are present. A `toString` that printed them
   /// would put a bearer token into any log or crash report that formats a

@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:dio/dio.dart';
 
 import 'session.dart';
@@ -68,9 +70,20 @@ class AuthRefreshInterceptor extends Interceptor {
   final Session? Function() _readSession;
   final void Function(Session?) _writeSession;
 
-  /// The refresh currently in flight, or null. Shared by every caller that fails
-  /// while it runs, which is what makes the refresh single-flight.
+  /// The refresh currently in flight, or null. Shared by every caller that
+  /// fails while it runs, which is what makes the refresh single-flight.
   Future<_RefreshOutcome>? _inFlight;
+
+  /// True when [access] runs out within a minute, so the request can carry a
+  /// fresh token instead of failing once and being sent again.
+  ///
+  /// A token whose expiry cannot be read returns false: the 401 path still
+  /// refreshes it.
+  bool _expiresSoon(String access) {
+    final expiry = accessTokenExpiry(access);
+    if (expiry == null) return false;
+    return !expiry.isAfter(DateTime.now().toUtc().add(const Duration(seconds: 60)));
+  }
 
   /// Attaches the current access token, unless this is the refresh call — which
   /// needs no `Authorization` header, and would otherwise carry the expired token
@@ -83,7 +96,20 @@ class AuthRefreshInterceptor extends Interceptor {
   }
 
   @override
-  void onRequest(RequestOptions options, RequestInterceptorHandler handler) {
+  void onRequest(RequestOptions options, RequestInterceptorHandler handler) async {
+    final skip =
+        options.extra[kSkipAuthRefreshKey] == true ||
+        options.extra[kAuthRetryKey] == true;
+    if (!skip) {
+      final running = _inFlight;
+      if (running != null) await running;
+      final session = _readSession();
+      if (session != null &&
+          session.canRefresh &&
+          _expiresSoon(session.access)) {
+        await _refreshOnce(session);
+      }
+    }
     attachToken(options);
     handler.next(options);
   }
@@ -242,4 +268,28 @@ String? _accessFrom(Object? body) {
   final access = body.cast<String, dynamic>()['access'];
   if (access is String && access.trim().isNotEmpty) return access.trim();
   return null;
+}
+
+/// The `exp` claim of a JWT, or null when the token is not one we can read.
+///
+/// Only the middle section is decoded. The signature is not checked: this is
+/// a clock the app already trusts because the server issued the token.
+DateTime? accessTokenExpiry(String token) {
+  final parts = token.split('.');
+  if (parts.length < 2) return null;
+  try {
+    var payload = parts[1];
+    final remainder = payload.length % 4;
+    if (remainder != 0) payload += '=' * (4 - remainder);
+    final decoded = jsonDecode(utf8.decode(base64Url.decode(payload)));
+    if (decoded is! Map) return null;
+    final exp = decoded['exp'];
+    if (exp is! num) return null;
+    return DateTime.fromMillisecondsSinceEpoch(
+      exp.toInt() * 1000,
+      isUtc: true,
+    );
+  } on Object {
+    return null;
+  }
 }

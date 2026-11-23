@@ -12,6 +12,8 @@ import 'package:skillsikka/features/events/data/event_page.dart';
 import 'package:skillsikka/features/events/data/events_providers.dart';
 import 'package:skillsikka/features/learning/data/learning_api.dart';
 import 'package:skillsikka/features/learning/data/my_learning.dart';
+import 'package:skillsikka/features/profile/data/profile_role.dart';
+import 'package:skillsikka/features/profile/data/user_profile.dart';
 
 import 'support/home_page_font_harness.dart';
 
@@ -376,6 +378,74 @@ void main() {
 
       expect(currentPath(router), '/');
       expect(tester.takeException(), isNull);
+    });
+  });
+
+  group('instructor routes', () {
+    for (final path in [
+      '/instructor/courses',
+      '/instructor/courses/new',
+      '/instructor/courses/5/edit',
+      '/instructor/courses/5',
+    ]) {
+      testWidgets('a student is sent home from $path', (tester) async {
+        final (:router, :container) = routerFor(session: signedIn);
+        container
+            .read(userProfileProvider.notifier)
+            .setRole(ProfileRole.student);
+        router.go(path);
+
+        await pumpRouter(tester, router, container);
+
+        expect(currentPath(router), '/');
+      });
+    }
+
+    testWidgets('an instructor reaches the course list', (tester) async {
+      final (:router, :container) = routerFor(session: signedIn);
+      container
+          .read(userProfileProvider.notifier)
+          .setRole(ProfileRole.instructor);
+      router.go('/instructor/courses');
+
+      await pumpRouter(tester, router, container);
+
+      expect(currentPath(router), '/instructor/courses');
+    });
+
+    testWidgets('an unknown role waits, then a student is sent home', (
+      tester,
+    ) async {
+      final (:router, :container) = routerFor(session: signedIn);
+      router.go('/instructor/courses');
+
+      await pumpRouter(tester, router, container);
+
+      expect(currentPath(router), '/instructor/courses');
+      expect(find.text('Checking your account'), findsOneWidget);
+
+      container.read(userProfileProvider.notifier).setRole(ProfileRole.student);
+      await tester.pumpAndSettle();
+
+      expect(currentPath(router), '/');
+    });
+
+    testWidgets('an unknown role waits, then an instructor sees the page', (
+      tester,
+    ) async {
+      final (:router, :container) = routerFor(session: signedIn);
+      router.go('/instructor/courses');
+
+      await pumpRouter(tester, router, container);
+      expect(find.text('Checking your account'), findsOneWidget);
+
+      container
+          .read(userProfileProvider.notifier)
+          .setRole(ProfileRole.instructor);
+      await tester.pumpAndSettle();
+
+      expect(currentPath(router), '/instructor/courses');
+      expect(find.text('Checking your account'), findsNothing);
     });
   });
 }

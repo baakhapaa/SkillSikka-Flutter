@@ -57,8 +57,9 @@ class _SignupVerificationPageState
   bool _isResending = false;
 
   /// Seconds left before the code can be asked for again. Zero means the resend
-  /// action is live.
-  int _secondsLeft = _resendCooldownSeconds;
+  /// action is live. Only the resend label listens, so a tick does not rebuild
+  /// the page.
+  final _secondsLeft = ValueNotifier<int>(_resendCooldownSeconds);
 
   /// Drives [_secondsLeft]. Held so it can be cancelled — see [dispose].
   Timer? _cooldown;
@@ -77,7 +78,7 @@ class _SignupVerificationPageState
   /// [initState] as well as from inside a setState callback.
   void _startCooldown() {
     _cooldown?.cancel();
-    _secondsLeft = _resendCooldownSeconds;
+    _secondsLeft.value = _resendCooldownSeconds;
     _cooldown = Timer.periodic(const Duration(seconds: 1), (timer) {
       if (!mounted) {
         // Cannot happen with the cancel in dispose, but a tick that outlives
@@ -85,21 +86,22 @@ class _SignupVerificationPageState
         timer.cancel();
         return;
       }
-      if (_secondsLeft <= 1) {
+      final left = _secondsLeft.value;
+      if (left <= 1) {
         timer.cancel();
-        setState(() => _secondsLeft = 0);
+        _secondsLeft.value = 0;
         return;
       }
-      setState(() => _secondsLeft--);
+      _secondsLeft.value = left - 1;
     });
   }
 
   /// `mm:ss`, so raising [_resendCooldownSeconds] past a minute still reads
   /// correctly instead of showing `00:75`.
-  String get _countdownLabel {
-    final minutes = (_secondsLeft ~/ 60).toString().padLeft(2, '0');
-    final seconds = (_secondsLeft % 60).toString().padLeft(2, '0');
-    return '$minutes:$seconds';
+  String _countdownLabel(int seconds) {
+    final minutes = (seconds ~/ 60).toString().padLeft(2, '0');
+    final remainder = (seconds % 60).toString().padLeft(2, '0');
+    return '$minutes:$remainder';
   }
 
   void _showSnack(String message) {
@@ -126,7 +128,7 @@ class _SignupVerificationPageState
   /// [AuthApi.resendOtp] — which is why the confirmation message is worded as a
   /// possibility rather than a receipt.
   Future<void> _resend() async {
-    if (_isResending || _secondsLeft > 0) return;
+    if (_isResending || _secondsLeft.value > 0) return;
 
     final profile = ref.read(userProfileProvider);
     final email = profile.email;
@@ -216,12 +218,15 @@ class _SignupVerificationPageState
     // The code boxes' controllers and focus nodes are no longer disposed here —
     // `OtpCodeField` owns them and disposes them itself.
     _cooldown?.cancel();
+    _secondsLeft.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
-    final draftEmail = ref.watch(userProfileProvider).email;
+    final draftEmail = ref.watch(
+      userProfileProvider.select((profile) => profile.email),
+    );
 
     return Scaffold(
       backgroundColor: const Color(0xFFFAF9F6),
@@ -286,42 +291,44 @@ class _SignupVerificationPageState
                         enabled: !_isSubmitting,
                       ),
                       const SizedBox(height: 24),
-                      if (_secondsLeft > 0)
-                        Text.rich(
-                          TextSpan(
-                            style: GoogleFonts.manrope(
-                              color: const Color(0xFF4B5563),
-                              fontSize: 14,
-                            ),
-                            children: [
-                              const TextSpan(text: 'Resend code in '),
+                      ValueListenableBuilder<int>(
+                        valueListenable: _secondsLeft,
+                        builder: (context, seconds, _) {
+                          if (seconds > 0) {
+                            return Text.rich(
                               TextSpan(
-                                text: _countdownLabel,
-                                style: const TextStyle(
-                                  color: Color(0xFFB59100),
-                                  fontWeight: FontWeight.w700,
+                                style: GoogleFonts.manrope(
+                                  color: const Color(0xFF4B5563),
+                                  fontSize: 14,
                                 ),
+                                children: [
+                                  const TextSpan(text: 'Resend code in '),
+                                  TextSpan(
+                                    text: _countdownLabel(seconds),
+                                    style: const TextStyle(
+                                      color: Color(0xFFB59100),
+                                      fontWeight: FontWeight.w700,
+                                    ),
+                                  ),
+                                ],
                               ),
-                            ],
-                          ),
-                        )
-                      else
-                        // A real button rather than a tappable span: it carries
-                        // its own disabled state and hit target, and there is no
-                        // gesture recogniser to dispose.
-                        TextButton(
-                          onPressed: _isResending ? null : _resend,
-                          child: Text(
-                            _isResending
-                                ? 'Sending a new code…'
-                                : 'Resend code',
-                            style: GoogleFonts.manrope(
-                              color: const Color(0xFFB59100),
-                              fontSize: 14,
-                              fontWeight: FontWeight.w700,
+                            );
+                          }
+                          return TextButton(
+                            onPressed: _isResending ? null : _resend,
+                            child: Text(
+                              _isResending
+                                  ? 'Sending a new code…'
+                                  : 'Resend code',
+                              style: GoogleFonts.manrope(
+                                color: const Color(0xFFB59100),
+                                fontSize: 14,
+                                fontWeight: FontWeight.w700,
+                              ),
                             ),
-                          ),
-                        ),
+                          );
+                        },
+                      ),
                     ],
                   ),
                 ),

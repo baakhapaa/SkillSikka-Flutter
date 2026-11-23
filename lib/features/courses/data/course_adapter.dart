@@ -154,6 +154,7 @@ class CourseMapper {
       resources: resources,
       price: _price(course),
       isPaid: course['is_paid'] == true,
+      isEnrolled: course['is_enrolled'] == true,
     );
   }
 

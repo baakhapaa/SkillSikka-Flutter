@@ -6,6 +6,7 @@ import 'package:skillsikka/features/auth/data/auth_repository.dart';
 import 'package:skillsikka/features/bootcamp/data/bootcamp_api.dart';
 import 'package:skillsikka/features/bootcamp/presentation/bootcamp_page.dart';
 import 'package:skillsikka/features/courses/data/course_api.dart';
+import 'package:skillsikka/features/quiz/data/quiz_api.dart';
 import 'package:skillsikka/features/learning/presentation/course_player_page.dart';
 import 'package:skillsikka/features/learning/data/learning_api.dart';
 import 'package:skillsikka/features/learning/data/my_learning.dart';
@@ -656,6 +657,7 @@ void main() {
             overrides: [
               bootcampApiProvider.overrideWithValue(api),
               courseApiProvider.overrideWithValue(FakeCourseApi()),
+              quizApiProvider.overrideWithValue(EmptyQuizApi()),
             ],
             child: const MaterialApp(home: MyLearningPage()),
           ),

@@ -147,7 +147,12 @@ Future<void> startCourse(
 
   if (!context.mounted) return;
   if (_isBootcamp(course)) {
-    await openBootcamp(context, course.id!);
+    await openBootcamp(
+      context,
+      course.id!,
+      title: course.title,
+      image: course.image,
+    );
     return;
   }
   await Navigator.of(context).push<void>(
@@ -177,7 +182,12 @@ Future<void> continueCourse(
   // summary row carries no modules. That was the blank screen a bootcamp
   // opened from My Learning.
   if (_isBootcamp(course)) {
-    await openBootcamp(context, course.id!);
+    await openBootcamp(
+      context,
+      course.id!,
+      title: course.title,
+      image: course.image,
+    );
     return;
   }
 
@@ -206,8 +216,19 @@ bool _isBootcamp(CourseDetailData course) =>
 ///
 /// The page enrols itself and reads its own payload, so there is nothing to
 /// pass but the id — the same way the home rail opens it.
-Future<void> openBootcamp(BuildContext context, int courseId) async {
+Future<void> openBootcamp(
+  BuildContext context,
+  int courseId, {
+  String? title,
+  String? image,
+}) async {
   await Navigator.of(context).push<void>(
-    MaterialPageRoute(builder: (_) => IctBootcampPage(courseId: courseId)),
+    MaterialPageRoute(
+      builder: (_) => IctBootcampPage(
+        courseId: courseId,
+        previewTitle: title,
+        previewImage: image,
+      ),
+    ),
   );
 }

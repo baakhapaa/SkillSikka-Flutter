@@ -94,8 +94,18 @@ void main() {
     drainUnrelatedOverflows(tester);
 
     // TypeScript is not one of Coding's first three, so its title is unique to
-    // the list — no `.first` disambiguation needed.
+    // the list — no `.first` disambiguation needed. The list is lazy, so the
+    // card is not built until it scrolls into view.
     final card = find.text(_typescriptTitle);
+    await tester.scrollUntilVisible(
+      card,
+      400,
+      scrollable: find.byWidgetPredicate(
+        (widget) =>
+            widget is Scrollable &&
+            axisDirectionToAxis(widget.axisDirection) == Axis.vertical,
+      ),
+    );
     expect(card, findsOneWidget);
 
     await tester.ensureVisible(card);
@@ -173,10 +183,7 @@ void main() {
   testWidgets('the tab opens on the skill it was handed', (tester) async {
     // The home rail's skill cards push this page with a skill, so tapping
     // "Music" must land on Music rather than on the first chip.
-    await pumpAtPhoneSize(
-      tester,
-      _tab(initialSkill: 'Music'),
-    );
+    await pumpAtPhoneSize(tester, _tab(initialSkill: 'Music'));
     await tester.pump();
     drainUnrelatedOverflows(tester);
 
@@ -207,7 +214,10 @@ void main() {
             courses: skillCoursePool,
           ),
         ),
-        child: eventsTestScope(child: const MaterialApp(home: HomePage())),
+        child: eventsTestScope(
+          skills: skillCoursePool,
+          child: const MaterialApp(home: HomePage()),
+        ),
       ),
     );
     await tester.pump();

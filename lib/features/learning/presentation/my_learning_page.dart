@@ -5,6 +5,7 @@ import 'package:flutter_svg/flutter_svg.dart';
 import '../../../core/network/api_error.dart';
 import '../../../core/widgets/api_error_snack.dart';
 import '../../../core/widgets/course_image.dart';
+import '../../../core/widgets/loading_skeleton.dart';
 import '../../auth/data/auth_repository.dart';
 import '../../payment/data/payment_api.dart';
 import '../../profile/data/user_profile.dart';
@@ -47,36 +48,27 @@ class MyLearningPage extends ConsumerWidget {
         bottom: false,
         child: RefreshIndicator(
           onRefresh: () => ref.refresh(myLearningProvider.future),
-          child: SingleChildScrollView(
-            padding: const EdgeInsets.fromLTRB(16, 60, 16, 100),
+          child: CustomScrollView(
             physics: const AlwaysScrollableScrollPhysics(),
-            child: learning.when(
-              loading: () => const _Loading(),
-              // A failure keeps a retry rather than an empty screen: "no courses
-              // in progress" and "we could not load your courses" are different
-              // statements, and only one of them is true.
-              error: (error, _) => _LoadFailed(
-                error: error,
-                onRetry: () => ref.invalidate(myLearningProvider),
-                onSignInAgain: () => _signInAgain(context),
+            slivers: [
+              SliverPadding(
+                padding: const EdgeInsets.fromLTRB(16, 60, 16, 100),
+                sliver: learning.when(
+                  loading: () => const SliverToBoxAdapter(child: _Loading()),
+                  // A failure keeps a retry rather than an empty screen: "no
+                  // courses in progress" and "we could not load your courses"
+                  // are different statements, and only one of them is true.
+                  error: (error, _) => SliverToBoxAdapter(
+                    child: _LoadFailed(
+                      error: error,
+                      onRetry: () => ref.invalidate(myLearningProvider),
+                      onSignInAgain: () => _signInAgain(context),
+                    ),
+                  ),
+                  data: (data) => _LearningSlivers(learning: data),
+                ),
               ),
-              data: (data) => Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  if (data.pending.isNotEmpty) ...[
-                    _PaymentPending(pending: data.pending),
-                    const SizedBox(height: 24),
-                  ],
-                  _ContinueLearning(learning: data),
-                  const SizedBox(height: 24),
-                  _LearningStats(learning: data),
-                  const SizedBox(height: 28),
-                  _Certificates(certificates: data.certificates),
-                  const SizedBox(height: 28),
-                  _CompletedCourses(courses: data.completed),
-                ],
-              ),
-            ),
+            ],
           ),
         ),
       ),
@@ -89,14 +81,8 @@ class _Loading extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => const Padding(
-    padding: EdgeInsets.symmetric(vertical: 80),
-    child: Center(
-      child: SizedBox(
-        width: 22,
-        height: 22,
-        child: CircularProgressIndicator(strokeWidth: 2),
-      ),
-    ),
+    padding: EdgeInsets.fromLTRB(16, 24, 16, 0),
+    child: CourseListSkeleton(rows: 4),
   );
 }
 
@@ -243,8 +229,9 @@ class _LoadFailed extends StatelessWidget {
   }
 }
 
-class _ContinueLearning extends StatelessWidget {
-  const _ContinueLearning({required this.learning});
+/// The dashboard as slivers, so the course rows are built as they scroll in.
+class _LearningSlivers extends StatelessWidget {
+  const _LearningSlivers({required this.learning});
 
   final MyLearning learning;
 
@@ -252,23 +239,58 @@ class _ContinueLearning extends StatelessWidget {
   Widget build(BuildContext context) {
     final hero = learning.continueLearning;
     final rest = learning.courses;
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        const _SectionTitle('Continue Learning'),
-        const SizedBox(height: 12),
-        if (hero == null)
-          // Nothing resumable. Distinct from an empty account: `rest` can still
-          // hold courses, they just have no next lesson.
-          const _NothingInProgress()
-        else
-          _CourseInProgress(learning: hero),
-        for (final course in rest)
-          Padding(
-            padding: const EdgeInsets.only(top: 10),
-            child: _MiniCourse(learning: course),
+    final completed = learning.completed;
+    return SliverMainAxisGroup(
+      slivers: [
+        SliverToBoxAdapter(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              if (learning.pending.isNotEmpty) ...[
+                _PaymentPending(pending: learning.pending),
+                const SizedBox(height: 24),
+              ],
+              const _SectionTitle('Continue Learning'),
+              const SizedBox(height: 12),
+              if (hero == null)
+                const _NothingInProgress()
+              else
+                RepaintBoundary(child: _CourseInProgress(learning: hero)),
+            ],
           ),
+        ),
+        SliverList.builder(
+          itemCount: rest.length,
+          itemBuilder: (context, index) => Padding(
+            padding: const EdgeInsets.only(top: 10),
+            child: RepaintBoundary(child: _MiniCourse(learning: rest[index])),
+          ),
+        ),
+        SliverToBoxAdapter(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              const SizedBox(height: 24),
+              _LearningStats(learning: learning),
+              const SizedBox(height: 28),
+              _Certificates(certificates: learning.certificates),
+              if (completed.isNotEmpty) ...[
+                const SizedBox(height: 28),
+                const _SectionTitle('Completed Courses'),
+                const SizedBox(height: 12),
+              ],
+            ],
+          ),
+        ),
+        SliverList.builder(
+          itemCount: completed.length,
+          itemBuilder: (context, index) => Padding(
+            padding: const EdgeInsets.only(bottom: 10),
+            child: RepaintBoundary(
+              child: _CompletedCard(learning: completed[index]),
+            ),
+          ),
+        ),
       ],
     );
   }
@@ -653,30 +675,6 @@ class _Certificate extends StatelessWidget {
           ),
         ],
       ),
-    );
-  }
-}
-
-class _CompletedCourses extends StatelessWidget {
-  const _CompletedCourses({required this.courses});
-
-  final List<LearningCourse> courses;
-
-  @override
-  Widget build(BuildContext context) {
-    if (courses.isEmpty) return const SizedBox.shrink();
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        const _SectionTitle('Completed Courses'),
-        const SizedBox(height: 12),
-        for (final course in courses)
-          Padding(
-            padding: const EdgeInsets.only(bottom: 10),
-            child: _CompletedCard(learning: course),
-          ),
-      ],
     );
   }
 }

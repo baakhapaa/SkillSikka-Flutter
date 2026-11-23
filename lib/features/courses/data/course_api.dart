@@ -78,18 +78,20 @@ class CourseApi {
   /// got the course should still render if the reviews call fails, and
   /// `/instructors/{id}/` 404s for an instructor who has no published course yet.
   Future<CourseDetailData> detail(int id) async {
-    // Started together so the two required calls overlap; awaited in order so
-    // the course's own 404 surfaces before a lessons failure can mask it.
+    // The three reads start together. The instructor call needs the course
+    // row's id, so it starts the moment that row arrives, still overlapping
+    // the lessons and reviews.
     final courseCall = _client.get<Map<String, dynamic>>('/courses/$id/');
     final lessonsCall = _client.get<List<dynamic>>(
       '/lessons/',
       query: {'course': id},
     );
+    final reviewsCall = _rowsOrEmpty('/courses/$id/reviews/');
     final course = await courseCall;
+    final instructorCall = _instructorOrNull(course['instructor']);
     final lessons = _rows(await lessonsCall);
-
-    final reviews = await _rowsOrEmpty('/courses/$id/reviews/');
-    final instructor = await _instructorOrNull(course['instructor']);
+    final reviews = await reviewsCall;
+    final instructor = await instructorCall;
 
     return CourseMapper.detail(
       course: course,
@@ -378,6 +380,7 @@ class CourseProgress {
     required this.completedLessons,
     required this.percentage,
     required this.isCompleted,
+    this.hasStarted = false,
   });
 
   final int courseId;
@@ -388,6 +391,11 @@ class CourseProgress {
   final double percentage;
 
   final bool isCompleted;
+
+  /// True once the student has opened the course: any lesson progress or
+  /// watched time. Academic courses have no enrolment, so this is what makes
+  /// the button say Continue Learning after a restart.
+  final bool hasStarted;
 
   /// `68%`, matching the My Learning cards.
   String get percentLabel => '${percentage.round()}%';
@@ -407,6 +415,7 @@ class CourseProgress {
           : 0,
       percentage: percentage is num ? percentage.toDouble() : 0,
       isCompleted: body['is_completed'] == true,
+      hasStarted: body['has_started'] == true,
     );
   }
 }
@@ -490,24 +499,142 @@ final homeAcademicCoursesProvider = FutureProvider.autoDispose
       return page.courses;
     });
 
-/// The two premium courses on the home rail. Same list the Premium Courses
-/// page reads, just the first two.
+/// The two premium courses on the home rail: the first two of the same list
+/// the Premium Courses page shows, so opening See All costs no new request.
 final homePremiumCoursesProvider =
     FutureProvider.autoDispose<List<CourseDetailData>>((ref) async {
-      final page = await ref
-          .watch(courseApiProvider)
-          .list(courseType: 'premium', pageSize: 2);
-      return page.courses;
+      final courses = await ref.watch(premiumCatalogueProvider.future);
+      return courses.take(2).toList();
     });
 
 /// Every published skill course, the same list the Skill Courses tab counts.
 ///
-/// The home rail's "12 Courses" used to come from the bundled sample pool, so
-/// the card and the tab could not agree. One request, the same category names.
-final skillCatalogueProvider =
-    FutureProvider.autoDispose<List<CourseDetailData>>((ref) async {
-      final page = await ref
-          .watch(courseApiProvider)
-          .list(courseType: 'skill', pageSize: 50);
-      return page.courses;
-    });
+/// Kept alive, so the home rail and the tab share one request and going back
+/// to either shows the list at once.
+final skillCatalogueProvider = FutureProvider<List<CourseDetailData>>((
+  ref,
+) async {
+  final page = await ref
+      .watch(courseApiProvider)
+      .list(courseType: 'skill', pageSize: 50);
+  return page.courses;
+}, dependencies: [courseApiProvider]);
+
+/// The premium catalogue, first page of 50. Kept alive like the skill list.
+final premiumCatalogueProvider = FutureProvider<List<CourseDetailData>>((
+  ref,
+) async {
+  final page = await ref
+      .watch(courseApiProvider)
+      .list(courseType: 'premium', pageSize: 50);
+  return page.courses;
+}, dependencies: [courseApiProvider]);
+
+/// The full record behind a course detail screen.
+///
+/// Kept per course id, so reopening a course shows the curriculum at once
+/// while the screen asks for a fresh copy.
+final courseDetailProvider = FutureProvider.family<CourseDetailData, int>(
+  (ref, id) => ref.watch(courseApiProvider).detail(id),
+  dependencies: [courseApiProvider],
+);
+
+/// Which Courses tab list: the course type, and the class chip (0 is All).
+typedef CatalogueQuery = ({String type, int classIndex});
+
+/// One loaded run of the Courses tab: every page fetched so far.
+class CatalogueState {
+  const CatalogueState({
+    required this.courses,
+    this.next,
+    this.loadingMore = false,
+    this.emptyMessage,
+  });
+
+  final List<CourseDetailData> courses;
+
+  /// The server's `next` URL, or null on the last page.
+  final String? next;
+  final bool loadingMore;
+
+  /// Set when the chip names a class the server has no grade for. The grid
+  /// then says so rather than showing the unfiltered catalogue.
+  final String? emptyMessage;
+
+  CatalogueState copyWith({
+    List<CourseDetailData>? courses,
+    String? next,
+    bool clearNext = false,
+    bool? loadingMore,
+  }) => CatalogueState(
+    courses: courses ?? this.courses,
+    next: clearNext ? null : (next ?? this.next),
+    loadingMore: loadingMore ?? this.loadingMore,
+    emptyMessage: emptyMessage,
+  );
+}
+
+/// The Courses tab list for one chip. Kept alive, so going back to the tab
+/// or to a chip already seen paints the cards immediately.
+class CatalogueController
+    extends FamilyAsyncNotifier<CatalogueState, CatalogueQuery> {
+  static const pageSize = 20;
+
+  @override
+  Future<CatalogueState> build(CatalogueQuery query) async {
+    int? gradeId;
+    if (query.classIndex > 0) {
+      final grades = await ref.watch(gradesProvider.future);
+      final wanted = 'grade ${query.classIndex + 5}';
+      for (final grade in grades) {
+        if (grade.name.trim().toLowerCase() == wanted) {
+          gradeId = int.tryParse(grade.id);
+          break;
+        }
+      }
+      if (gradeId == null) {
+        return CatalogueState(
+          courses: const [],
+          emptyMessage: 'Class ${query.classIndex + 5} has no courses yet.',
+        );
+      }
+    }
+    final page = await ref
+        .read(courseApiProvider)
+        .list(courseType: query.type, grade: gradeId, pageSize: pageSize);
+    return CatalogueState(courses: page.courses, next: page.next);
+  }
+
+  /// Appends the next page. A failed page leaves the loaded ones on screen
+  /// and rethrows so the caller can say so.
+  Future<void> loadMore() async {
+    final current = state.valueOrNull;
+    final next = current?.next;
+    if (current == null || next == null || current.loadingMore) return;
+    state = AsyncData(current.copyWith(loadingMore: true));
+    try {
+      final page = await ref.read(courseApiProvider).nextPage(next);
+      state = AsyncData(
+        current.copyWith(
+          courses: [...current.courses, ...page.courses],
+          next: page.next,
+          clearNext: page.next == null,
+          loadingMore: false,
+        ),
+      );
+    } on ApiException {
+      state = AsyncData(current.copyWith(loadingMore: false));
+      rethrow;
+    }
+  }
+}
+
+final catalogueProvider =
+    AsyncNotifierProvider.family<
+      CatalogueController,
+      CatalogueState,
+      CatalogueQuery
+    >(
+      CatalogueController.new,
+      dependencies: [courseApiProvider, gradesProvider],
+    );

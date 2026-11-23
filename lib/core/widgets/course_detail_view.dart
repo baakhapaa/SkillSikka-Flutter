@@ -1441,6 +1441,7 @@ class CourseDetailData {
     this.bannerVideoAsset,
     this.price = '',
     this.isPaid = false,
+    this.isEnrolled = false,
     this.badge = '',
     this.resources = const <CourseResource>[],
     this.discussions = const <CourseDiscussion>[],
@@ -1577,6 +1578,10 @@ class CourseDetailData {
   /// or `completed` enrolment, and inferring "free" from a missing string is
   /// exactly how a student would get in without paying.
   final bool isPaid;
+
+  /// `is_enrolled` from a list row: an active or completed enrolment. False
+  /// until the list says otherwise, and for a course opened with no id.
+  final bool isEnrolled;
 
   /// What a card prints in its price slot: the price, or `Free`.
   ///

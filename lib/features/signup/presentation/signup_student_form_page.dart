@@ -75,6 +75,10 @@ class _SignupStudentFormPageState extends ConsumerState<SignupStudentFormPage> {
   /// second tap registers twice.
   bool _isSubmitting = false;
 
+  /// Upload fraction while the photo is being sent, or null otherwise.
+  /// The button listens on its own, so a tick does not rebuild the form.
+  final _upload = ValueNotifier<double?>(null);
+
   /// Field messages the server sent, keyed the way the wire names them.
   ///
   /// Kept so a validator can show them: the alternative is a snack bar that
@@ -117,6 +121,7 @@ class _SignupStudentFormPageState extends ConsumerState<SignupStudentFormPage> {
     for (final controller in _controllers.values) {
       controller.dispose();
     }
+    _upload.dispose();
     super.dispose();
   }
 
@@ -241,15 +246,21 @@ class _SignupStudentFormPageState extends ConsumerState<SignupStudentFormPage> {
               dob: isoDateOf(_controller('dob').text) ?? '',
               photo: PickedDocument(bytes: photo, fileName: photoName),
             ),
+            onSendProgress: (sent, total) {
+              if (total <= 0) return;
+              _upload.value = sent / total;
+            },
           );
       if (!mounted) return;
       // Cleared before navigating, not after: this screen stays on the stack
       // behind the OTP step, so coming back would otherwise find the button
       // still disabled.
+      _upload.value = null;
       setState(() => _isSubmitting = false);
       context.push('/signup/verify');
     } on ApiException catch (error) {
       if (!mounted) return;
+      _upload.value = null;
       setState(() => _isSubmitting = false);
       _applyServerFieldErrors(error);
       showSignupErrorSnack(
@@ -301,7 +312,9 @@ class _SignupStudentFormPageState extends ConsumerState<SignupStudentFormPage> {
 
   @override
   Widget build(BuildContext context) {
-    final profile = ref.watch(userProfileProvider);
+    final photoBytes = ref.watch(
+      userProfileProvider.select((profile) => profile.photoBytes),
+    );
 
     return Scaffold(
       backgroundColor: const Color(0xFFFAF9F6),
@@ -320,7 +333,7 @@ class _SignupStudentFormPageState extends ConsumerState<SignupStudentFormPage> {
                     child: Column(
                       children: [
                         ProfilePhotoPicker(
-                          photoBytes: profile.photoBytes,
+                          photoBytes: photoBytes,
                           onTap: _pickProfilePhoto,
                         ),
                         const SizedBox(height: 24),
@@ -430,22 +443,41 @@ class _SignupStudentFormPageState extends ConsumerState<SignupStudentFormPage> {
                               disabledBackgroundColor: const Color(0xFFE6B800),
                               disabledForegroundColor: const Color(0xFF111827),
                             ),
-                            child: _isSubmitting
-                                ? const SizedBox(
+                            child: ValueListenableBuilder<double?>(
+                              valueListenable: _upload,
+                              builder: (context, progress, _) {
+                                if (progress != null) {
+                                  final percent = (progress.clamp(0, 1) * 100)
+                                      .round();
+                                  return Text(
+                                    percent >= 100
+                                        ? 'Creating account…'
+                                        : 'Uploading $percent%',
+                                    style: GoogleFonts.manrope(
+                                      fontSize: 16,
+                                      fontWeight: FontWeight.w700,
+                                    ),
+                                  );
+                                }
+                                if (_isSubmitting) {
+                                  return const SizedBox(
                                     width: 22,
                                     height: 22,
                                     child: CircularProgressIndicator(
                                       strokeWidth: 2.5,
                                       color: Color(0xFF111827),
                                     ),
-                                  )
-                                : Text(
-                                    'Create Account',
-                                    style: GoogleFonts.manrope(
-                                      fontSize: 16,
-                                      fontWeight: FontWeight.w700,
-                                    ),
+                                  );
+                                }
+                                return Text(
+                                  'Create Account',
+                                  style: GoogleFonts.manrope(
+                                    fontSize: 16,
+                                    fontWeight: FontWeight.w700,
                                   ),
+                                );
+                              },
+                            ),
                           ),
                         ),
                       ],

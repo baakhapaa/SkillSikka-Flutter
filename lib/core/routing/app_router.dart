@@ -1,4 +1,4 @@
-import 'package:flutter/foundation.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
@@ -14,7 +14,16 @@ import '../../features/signup/presentation/signup_interests_page.dart';
 import '../../features/signup/presentation/signup_verification_page.dart';
 import '../../features/short/presentation/foryou_page.dart';
 import '../../features/short/presentation/short_page.dart';
+import '../../features/courses/data/course_builder_api.dart';
+import '../../features/courses/data/course_summary.dart';
+import '../../features/courses/presentation/course_builder_page.dart';
+import '../../features/profile/data/profile_role.dart';
+import '../../features/profile/data/user_profile.dart';
+import '../../features/profile/presentation/instructor_course_insights.dart';
+import '../../features/profile/presentation/my_courses_page.dart';
+import '../../features/quiz/data/quiz_api.dart';
 import '../network/session.dart';
+import '../widgets/loading_skeleton.dart';
 
 /// Routes reachable with no session.
 ///
@@ -65,6 +74,12 @@ class _RouterRefresh extends ChangeNotifier {
     ref.listen<Session?>(sessionProvider, (previous, next) {
       if ((previous != null) != (next != null)) notifyListeners();
     });
+    ref.listen<ProfileRole?>(
+      userProfileProvider.select((profile) => profile.role),
+      (previous, next) {
+        if (previous != next) notifyListeners();
+      },
+    );
   }
 }
 
@@ -102,45 +117,13 @@ final appRouterProvider = Provider<GoRouter>((ref) {
       // on them signed in is how a user ends up in a loop.
       if (path == '/login-screen' || path == '/forgot-password') return '/';
 
-      // `/signup/verify` used to be redirected to `/` here, because registration
-      // returned a session immediately and that screen's endpoint did not exist —
-      // a signed-in user on it had nowhere to go.
-      //
-      // **That rule is gone as of 2026-10-07, and re-adding it would break
-      // signup.** The backend now withholds the session until the emailed code is
-      // confirmed, for *both* roles, so the user is signed **out** the whole time
-      // they are on `/signup/verify` and the guard leaves them there correctly.
-      // The session appears only when verification succeeds, and the screen then
-      // pushes to `/signup/interests` — which is inside the public `/signup/`
-      // family, so it is not redirected either.
-      //
-      // Nothing replaces the rule. A signed-in user who navigates back to
-      // `/signup/verify` simply sits on a screen whose code they no longer have;
-      // there is no loop and no dead end, because `/signup/*` is public in both
-      // directions.
-
-      // ---- The role clause: where "role-based" would actually live ----
-      //
-      // No route is role-gated yet — the router has one entry per screen and
-      // none of them are instructor-only. When one is added, deny by default:
-      //
-      //   if (path.startsWith('/instructor/') &&
-      //       ref.read(userProfileProvider).role != ProfileRole.instructor) {
-      //     return '/';
-      //   }
-      //
-      // Read the **nullable** `UserProfile.role`, never `effectiveRole`. That
-      // getter is `role ?? ProfileRole.student` — right for a display label,
-      // wrong for a guard, because an unknown role (exactly what
-      // `ProfileRole.tryParse` returns on a contract drift) would be granted
-      // student access instead of failing closed.
-      //
-      // And no role check can be added before the guard has a role to read. The
-      // role lives in the in-memory `userProfileProvider`, which starts empty on
-      // every launch, while the server sends it in `GET /me/` — a fetch that
-      // does not exist yet. So a session restored from disk boots with no role
-      // at all, and an instructor would be denied their own routes until that
-      // fetch lands. This is the seam for it; it is intentionally inert.
+      // Instructor screens. A known student is sent home. An unknown role
+      // stays, and the page shows a checking state until `/me/` lands — a
+      // real instructor is not bounced away for the moment before that.
+      if (path == '/instructor' || path.startsWith('/instructor/')) {
+        final role = ref.read(userProfileProvider).role;
+        if (role != null && role != ProfileRole.instructor) return '/';
+      }
 
       return null;
     },
@@ -196,6 +179,47 @@ final appRouterProvider = Provider<GoRouter>((ref) {
         builder: (context, state) => const AppShell(),
       ),
       GoRoute(
+        path: '/instructor/courses/new',
+        name: 'instructor-course-new',
+        builder: (context, state) => _InstructorGate(
+          child: _courseBuilder(context),
+        ),
+      ),
+      GoRoute(
+        path: '/instructor/courses/:id/edit',
+        name: 'instructor-course-edit',
+        redirect: (context, state) {
+          final id = int.tryParse(state.pathParameters['id'] ?? '');
+          if (id == null) return '/instructor/courses';
+          return null;
+        },
+        builder: (context, state) => _InstructorGate(
+          child: _courseBuilder(
+            context,
+            courseId: int.parse(state.pathParameters['id']!),
+          ),
+        ),
+      ),
+      GoRoute(
+        path: '/instructor/courses/:id',
+        name: 'instructor-course',
+        redirect: (context, state) {
+          if (state.extra is! CourseSummary) return '/instructor/courses';
+          return null;
+        },
+        builder: (context, state) => _InstructorGate(
+          child: InstructorCourseDetailsPage(
+            course: state.extra! as CourseSummary,
+          ),
+        ),
+      ),
+      GoRoute(
+        path: '/instructor/courses',
+        name: 'instructor-courses',
+        builder: (context, state) =>
+            const _InstructorGate(child: MyCoursesPage()),
+      ),
+      GoRoute(
         path: '/short',
         name: 'short',
         builder: (context, state) => const ShortPage(),
@@ -208,3 +232,40 @@ final appRouterProvider = Provider<GoRouter>((ref) {
     ],
   );
 });
+
+CourseBuilderPage _courseBuilder(BuildContext context, {int? courseId}) {
+  final container = ProviderScope.containerOf(context);
+  return CourseBuilderPage(
+    api: container.read(courseBuilderApiProvider),
+    quizApi: container.read(quizApiProvider),
+    instructorVerified: container.read(userProfileProvider).canPublish,
+    courseId: courseId,
+  );
+}
+
+/// Instructor pages wait here while the role is still unknown.
+class _InstructorGate extends ConsumerWidget {
+  const _InstructorGate({required this.child});
+
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final role = ref.watch(userProfileProvider.select((profile) => profile.role));
+    if (role == ProfileRole.instructor) return child;
+    return const Scaffold(
+      backgroundColor: Color(0xFFFAF9F6),
+      body: Padding(
+        padding: EdgeInsets.fromLTRB(16, 24, 16, 0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('Checking your account'),
+            SizedBox(height: 16),
+            CourseListSkeleton(rows: 3),
+          ],
+        ),
+      ),
+    );
+  }
+}

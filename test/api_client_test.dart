@@ -8,6 +8,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:skillsikka/core/config/app_config_provider.dart';
 import 'package:skillsikka/core/config/app_environment.dart';
 import 'package:skillsikka/core/network/api_client.dart';
+import 'package:skillsikka/core/network/auth_refresh_interceptor.dart';
 import 'package:skillsikka/core/network/api_error.dart';
 import 'package:skillsikka/core/network/session.dart';
 
@@ -540,10 +541,9 @@ void main() {
             status: refreshStatus,
           );
         }
-        return _json(
-          {'detail': 'Given token not valid for any token type'},
-          status: 401,
-        );
+        return _json({
+          'detail': 'Given token not valid for any token type',
+        }, status: 401);
       });
     }
 
@@ -564,14 +564,8 @@ void main() {
       expect(adapter.requests.first.path, '/me');
       expect(adapter.requests[1].path, contains('/token/refresh/'));
       // The refresh carries the refresh token and no bearer header.
-      expect(
-        adapter.requests[1].data,
-        {'refresh': 'refresh-abc'},
-      );
-      expect(
-        adapter.requests[1].headers,
-        isNot(contains('Authorization')),
-      );
+      expect(adapter.requests[1].data, {'refresh': 'refresh-abc'});
+      expect(adapter.requests[1].headers, isNot(contains('Authorization')));
       expect(scope.read(sessionProvider)?.access, 'fresh-access');
       // The refresh token is carried forward, not lost.
       expect(scope.read(sessionProvider)?.refresh, 'refresh-abc');
@@ -681,5 +675,118 @@ void main() {
 
       expect(adapter.requests, hasLength(1));
     });
+
+    test('refreshes a token that is about to expire before sending', () async {
+      final adapter = _FakeAdapter((options) {
+        if (options.path.contains('/token/refresh/')) {
+          return _json({'access': 'fresh-access'});
+        }
+        return _json({'ok': true});
+      });
+      final scope = _scopeFor(adapter);
+      addTearDown(scope.dispose);
+      scope.read(sessionProvider.notifier).state = Session(
+        access: _jwtExpiringIn(const Duration(seconds: 30)),
+        refresh: 'refresh-abc',
+      );
+
+      await scope.read(apiClientProvider).get<Map<String, dynamic>>('/me');
+
+      expect(adapter.requests, hasLength(2));
+      expect(adapter.requests.first.path, contains('/token/refresh/'));
+      expect(
+        adapter.requests.last.headers['Authorization'],
+        'Bearer fresh-access',
+      );
+    });
+
+    test('several requests share one refresh when the token is close to expiry',
+        () async {
+      final adapter = _FakeAdapter((options) {
+        if (options.path.contains('/token/refresh/')) {
+          return _json({'access': 'fresh-access'});
+        }
+        return _json({'ok': true});
+      });
+      final scope = _scopeFor(adapter);
+      addTearDown(scope.dispose);
+      scope.read(sessionProvider.notifier).state = Session(
+        access: _jwtExpiringIn(const Duration(seconds: 20)),
+        refresh: 'refresh-abc',
+      );
+      final client = scope.read(apiClientProvider);
+
+      await Future.wait([
+        client.get<Map<String, dynamic>>('/me'),
+        client.get<Map<String, dynamic>>('/courses'),
+      ]);
+
+      expect(
+        adapter.requests.where((request) => request.path.contains('/token/refresh/')),
+        hasLength(1),
+      );
+    });
+
+    test('a request started during a refresh waits for the new token', () async {
+      final gate = Completer<void>();
+      final adapter = _FakeAdapter((options) async {
+        if (options.path.contains('/token/refresh/')) {
+          await gate.future;
+          return _json({'access': 'fresh-access'});
+        }
+        return _json({'ok': true});
+      });
+      final scope = _scopeFor(adapter);
+      addTearDown(scope.dispose);
+      scope.read(sessionProvider.notifier).state = Session(
+        access: _jwtExpiringIn(const Duration(seconds: 10)),
+        refresh: 'refresh-abc',
+      );
+      final client = scope.read(apiClientProvider);
+      final first = client.get<Map<String, dynamic>>('/me');
+      await Future<void>.delayed(Duration.zero);
+      final second = client.get<Map<String, dynamic>>('/courses');
+      gate.complete();
+      await Future.wait([first, second]);
+
+      final sent = adapter.requests.where(
+        (request) => !request.path.contains('/token/refresh/'),
+      );
+      expect(sent, hasLength(2));
+      for (final request in sent) {
+        expect(request.headers['Authorization'], 'Bearer fresh-access');
+      }
+    });
+
+    test('an unreadable token is sent as it is', () async {
+      final adapter = _FakeAdapter((_) => _json({'ok': true}));
+      final scope = _scopeFor(adapter);
+      addTearDown(scope.dispose);
+      scope.read(sessionProvider.notifier).state = const Session(
+        access: 'not-a-jwt',
+        refresh: 'refresh-abc',
+      );
+
+      await scope.read(apiClientProvider).get<Map<String, dynamic>>('/me');
+
+      expect(adapter.requests, hasLength(1));
+      expect(
+        adapter.requests.single.headers['Authorization'],
+        'Bearer not-a-jwt',
+      );
+      expect(accessTokenExpiry('not-a-jwt'), isNull);
+    });
   });
+}
+
+String _jwtExpiringIn(Duration remaining) {
+  String part(Object value) {
+    return base64Url
+        .encode(utf8.encode(jsonEncode(value)))
+        .replaceAll('=', '');
+  }
+
+  final exp = DateTime.now().toUtc().add(remaining).millisecondsSinceEpoch ~/
+      1000;
+  return '${part({'alg': 'none'})}.${part({'exp': exp})}.sig';
 }

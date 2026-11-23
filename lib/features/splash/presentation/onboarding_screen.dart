@@ -14,19 +14,19 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
 
   final List<Map<String, String>> _pagesData = [
     {
-      'image': 'assets/figma/onboarding_1.png',
+      'image': 'assets/figma/onboarding_1.webp',
       'title': 'Learn from Expert Instructors',
       'subtitle':
           'Access thousands of video courses taught by certified educators in coding, science, math, and more.',
     },
     {
-      'image': 'assets/figma/onboarding_2.png',
+      'image': 'assets/figma/onboarding_2.webp',
       'title': 'Practice with Challenges',
       'subtitle':
           'Test your knowledge with quizzes, coding challenges, and earn certificates as you progress.',
     },
     {
-      'image': 'assets/figma/onboarding_3.png',
+      'image': 'assets/figma/onboarding_3.webp',
       'title': 'Track Your Progress',
       'subtitle':
           'Set learning goals, maintain your streak, and unlock achievements as you grow your skills.',
@@ -64,6 +64,8 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                       'assets/figma/academic_cap.png',
                       width: 50,
                       height: 50,
+                      cacheWidth: (50 * View.of(context).devicePixelRatio)
+                          .round(),
                       fit: BoxFit.cover,
                     ),
                   ),
@@ -74,6 +76,8 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                     child: Image.asset(
                       'assets/figma/skillsikka_wordmark.png',
                       fit: BoxFit.contain,
+                      cacheWidth: (150 * View.of(context).devicePixelRatio)
+                          .round(),
                       filterQuality: FilterQuality.high,
                     ),
                   ),
@@ -110,9 +114,19 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                           aspectRatio: 1,
                           child: ClipRRect(
                             borderRadius: BorderRadius.circular(24),
-                            child: Image.asset(
-                              _pagesData[_currentPageIndex]['image']!,
-                              fit: BoxFit.cover,
+                            child: LayoutBuilder(
+                              builder: (context, constraints) {
+                                final pixels =
+                                    constraints.maxWidth *
+                                    View.of(context).devicePixelRatio;
+                                return Image.asset(
+                                  _pagesData[_currentPageIndex]['image']!,
+                                  fit: BoxFit.cover,
+                                  cacheWidth: pixels.isFinite && pixels > 0
+                                      ? pixels.round()
+                                      : null,
+                                );
+                              },
                             ),
                           ),
                         ),

@@ -5,10 +5,10 @@ import 'package:skillsikka/core/network/api_error.dart';
 import 'package:skillsikka/core/widgets/api_error_snack.dart';
 import 'package:skillsikka/core/widgets/course_detail_view.dart';
 import 'package:skillsikka/core/widgets/course_grid_card.dart';
+import 'package:skillsikka/core/widgets/loading_skeleton.dart';
 import 'package:skillsikka/core/widgets/pressable_chip.dart';
 import 'package:skillsikka/features/courses/data/course_api.dart';
 import 'package:skillsikka/features/courses/presentation/course_details_page.dart';
-import 'package:skillsikka/features/profile/data/reference_data.dart';
 import 'package:skillsikka/features/search/presentation/search_page.dart';
 
 const _bg = Color(0xFFFAF9F6);
@@ -38,94 +38,34 @@ class _AllCoursesPageState extends ConsumerState<AllCoursesPage> {
     'Class 10',
   ];
 
-  static const _pageSize = 20;
-
-  List<CourseDetailData> _courses = const [];
-  String? _next;
-  bool _loading = true;
-  bool _loadingMore = false;
-  String? _error;
+  CatalogueQuery get _query => (type: 'academic', classIndex: _selectedChip);
 
   @override
   void initState() {
     super.initState();
-    _load();
-  }
-
-  /// The grade id the selected chip stands for.
-  ///
-  /// `Class 6` is the chip label; the server's grade is `Grade 6` and the filter
-  /// takes its **id**. Sending the label instead would be silently ignored —
-  /// unknown query values do not 400 — and the grid would show the whole
-  /// catalogue while looking filtered. That is the trap this resolves.
-  Future<int?> _gradeIdForChip() async {
-    if (_selectedChip == 0) return null;
-    final grades = await ref.read(gradesProvider.future);
-    final wanted = 'grade ${_selectedChip + 5}';
-    for (final grade in grades) {
-      // `ReferenceItem.id` is a String on that model; the course filter wants an
-      // int, so this is the one place the two vocabularies meet.
-      if (grade.name.trim().toLowerCase() == wanted) {
-        return int.tryParse(grade.id);
-      }
+    // Coming back to the tab: the cards already on screen are from the cache,
+    // so ask for a fresh copy without blanking them.
+    if (ref.read(catalogueProvider(_query)).hasValue) {
+      Future.microtask(() {
+        if (mounted) ref.invalidate(catalogueProvider(_query));
+      });
     }
-    return null;
   }
 
-  Future<void> _load() async {
-    setState(() {
-      _loading = true;
-      _error = null;
-    });
-
+  Future<void> _refresh() async {
+    ref.invalidate(catalogueProvider(_query));
     try {
-      final gradeId = await _gradeIdForChip();
-      // A class we cannot resolve is a real empty state, never "show
-      // everything": an unfiltered grid under a `Class 6` heading is a lie.
-      if (_selectedChip > 0 && gradeId == null) {
-        if (!mounted) return;
-        setState(() {
-          _courses = const [];
-          _next = null;
-          _loading = false;
-          _error = '${_chips[_selectedChip]} has no courses yet.';
-        });
-        return;
-      }
-
-      final page = await ref
-          .read(courseApiProvider)
-          .list(courseType: 'academic', grade: gradeId, pageSize: _pageSize);
-      if (!mounted) return;
-      setState(() {
-        _courses = page.courses;
-        _next = page.next;
-        _loading = false;
-      });
-    } on ApiException catch (error) {
-      if (!mounted) return;
-      setState(() {
-        _loading = false;
-        _error = error.displayMessage;
-      });
+      await ref.read(catalogueProvider(_query).future);
+    } on ApiException {
+      // The error state below says so, with its own retry.
     }
   }
 
   Future<void> _loadMore() async {
-    final next = _next;
-    if (next == null || _loadingMore) return;
-    setState(() => _loadingMore = true);
     try {
-      final page = await ref.read(courseApiProvider).nextPage(next);
-      if (!mounted) return;
-      setState(() {
-        _courses = [..._courses, ...page.courses];
-        _next = page.next;
-        _loadingMore = false;
-      });
+      await ref.read(catalogueProvider(_query).notifier).loadMore();
     } on ApiException catch (error) {
       if (!mounted) return;
-      setState(() => _loadingMore = false);
       // The page already on screen stays: losing it over a failed second page
       // would be a worse outcome than a snack.
       showApiErrorSnack(context, error);
@@ -135,11 +75,16 @@ class _AllCoursesPageState extends ConsumerState<AllCoursesPage> {
   void _selectChip(int index) {
     if (index == _selectedChip) return;
     setState(() => _selectedChip = index);
-    _load();
   }
 
   @override
   Widget build(BuildContext context) {
+    final catalogue = ref.watch(catalogueProvider(_query));
+    final state = catalogue.valueOrNull;
+    final Object? error = catalogue.hasError && state == null
+        ? catalogue.error
+        : null;
+
     return Scaffold(
       backgroundColor: _bg,
       body: SafeArea(
@@ -148,26 +93,52 @@ class _AllCoursesPageState extends ConsumerState<AllCoursesPage> {
           children: [
             _buildAppHeader(),
             Expanded(
-              child: SingleChildScrollView(
-                padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    _buildChips(),
-                    const SizedBox(height: 28),
-                    _buildSectionHeader(),
-                    const SizedBox(height: 16),
-                    if (_loading)
-                      _buildLoading()
-                    else if (_error != null)
-                      _buildError(_error!)
-                    else if (_courses.isEmpty)
-                      _buildEmptyState()
-                    else ...[
-                      _buildCoursesGrid(_courses),
-                      if (_next != null) _buildLoadMore(),
+              child: ScrollConfiguration(
+                behavior: ScrollConfiguration.of(
+                  context,
+                ).copyWith(overscroll: false),
+                child: RefreshIndicator(
+                  onRefresh: _refresh,
+                  child: CustomScrollView(
+                    physics: const AlwaysScrollableScrollPhysics(
+                      parent: ClampingScrollPhysics(),
+                    ),
+                    slivers: [
+                      SliverPadding(
+                        padding: const EdgeInsets.fromLTRB(16, 16, 16, 16),
+                        sliver: SliverToBoxAdapter(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              _buildChips(),
+                              const SizedBox(height: 28),
+                              _buildSectionHeader(),
+                            ],
+                          ),
+                        ),
+                      ),
+                      if (state == null && error == null)
+                        _boxed(const CourseGridSkeleton())
+                      else if (error != null)
+                        _boxed(_buildError(_errorText(error)))
+                      else if (state!.emptyMessage != null)
+                        _boxed(_buildError(state.emptyMessage!))
+                      else if (state.courses.isEmpty)
+                        _boxed(_buildEmptyState())
+                      else ...[
+                        SliverPadding(
+                          padding: const EdgeInsets.symmetric(horizontal: 16),
+                          sliver: SliverCourseCardGrid(
+                            courses: state.courses,
+                            onTap: _openCourse,
+                          ),
+                        ),
+                        if (state.next != null)
+                          _boxed(_buildLoadMore(state.loadingMore)),
+                      ],
+                      const SliverToBoxAdapter(child: SizedBox(height: 24)),
                     ],
-                  ],
+                  ),
                 ),
               ),
             ),
@@ -176,6 +147,19 @@ class _AllCoursesPageState extends ConsumerState<AllCoursesPage> {
       ),
     );
   }
+
+  Widget _boxed(Widget child) => SliverPadding(
+    padding: const EdgeInsets.symmetric(horizontal: 16),
+    sliver: SliverToBoxAdapter(child: child),
+  );
+
+  String _errorText(Object error) => error is ApiException
+      ? error.displayMessage
+      : 'Courses could not be loaded.';
+
+  void _openCourse(CourseDetailData course) => Navigator.of(
+    context,
+  ).push(MaterialPageRoute(builder: (_) => CourseDetailPage(course: course)));
 
   // ─────────────────────────────────────────────────────────────
   // APP HEADER
@@ -242,6 +226,7 @@ class _AllCoursesPageState extends ConsumerState<AllCoursesPage> {
         height: 44,
         child: ListView.separated(
           scrollDirection: Axis.horizontal,
+          physics: const ClampingScrollPhysics(),
           padding: const EdgeInsets.symmetric(horizontal: 4),
           itemCount: _chips.length,
           separatorBuilder: (_, _) => const SizedBox(width: 8),
@@ -253,6 +238,7 @@ class _AllCoursesPageState extends ConsumerState<AllCoursesPage> {
               fontSize: 12,
               fontWeight: FontWeight.w600,
               textColor: _ink,
+              glass: true,
             ),
           ),
         ),
@@ -296,19 +282,6 @@ class _AllCoursesPageState extends ConsumerState<AllCoursesPage> {
   // ─────────────────────────────────────────────────────────────
   // LOADING / ERROR / LOAD MORE
   // ─────────────────────────────────────────────────────────────
-  Widget _buildLoading() {
-    return const Center(
-      child: Padding(
-        padding: EdgeInsets.symmetric(vertical: 48),
-        child: SizedBox(
-          width: 22,
-          height: 22,
-          child: CircularProgressIndicator(strokeWidth: 2),
-        ),
-      ),
-    );
-  }
-
   /// A failed load gets its own state and a retry, so it cannot be mistaken for
   /// "this class has no courses".
   Widget _buildError(String message) {
@@ -326,18 +299,18 @@ class _AllCoursesPageState extends ConsumerState<AllCoursesPage> {
               style: GoogleFonts.figtree(fontSize: 13, color: _softGray),
             ),
             const SizedBox(height: 8),
-            TextButton(onPressed: _load, child: const Text('Try again')),
+            TextButton(onPressed: _refresh, child: const Text('Try again')),
           ],
         ),
       ),
     );
   }
 
-  Widget _buildLoadMore() {
+  Widget _buildLoadMore(bool loadingMore) {
     return Padding(
       padding: const EdgeInsets.only(top: 16),
       child: Center(
-        child: _loadingMore
+        child: loadingMore
             ? const SizedBox(
                 width: 20,
                 height: 20,
@@ -371,19 +344,6 @@ class _AllCoursesPageState extends ConsumerState<AllCoursesPage> {
             ),
           ],
         ),
-      ),
-    );
-  }
-
-  /// The same two-column grid the home rail draws.
-  ///
-  /// Rows size to the titles in them. A fixed aspect ratio used to leave a
-  /// white band under the title on any phone wider than the narrowest one.
-  Widget _buildCoursesGrid(List<CourseDetailData> courses) {
-    return CourseCardGrid(
-      courses: courses,
-      onTap: (course) => Navigator.of(context).push(
-        MaterialPageRoute(builder: (_) => CourseDetailPage(course: course)),
       ),
     );
   }

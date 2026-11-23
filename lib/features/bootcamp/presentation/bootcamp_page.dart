@@ -8,11 +8,16 @@ import '../../../core/network/api_error.dart';
 import '../../../core/video/video_playback.dart';
 import '../../../core/widgets/course_detail_view.dart';
 import '../../../core/widgets/course_image.dart';
+import '../../../core/widgets/loading_skeleton.dart';
 import '../../../core/widgets/video_transport_controls.dart';
 import '../../courses/data/course_api.dart';
 import '../../courses/data/course_discussions_api.dart';
 import '../../learning/data/learning_api.dart';
+import '../../learning/data/my_learning.dart';
 import '../../learning/data/lesson_watch_reporter.dart';
+import '../../quiz/data/module_quiz.dart';
+import '../../quiz/data/quiz_api.dart';
+import '../../quiz/presentation/module_quiz_page.dart';
 import '../data/bootcamp.dart';
 import '../data/bootcamp_api.dart';
 
@@ -35,10 +40,20 @@ const _softGray = Color(0xFF737D8C);
 /// tapped the card. A paid camp is left alone (`enroll` parks it in
 /// `pending_payment`) and the page degrades to a read-only curriculum.
 class IctBootcampPage extends ConsumerStatefulWidget {
-  const IctBootcampPage({super.key, required this.courseId});
+  const IctBootcampPage({
+    super.key,
+    required this.courseId,
+    this.previewTitle,
+    this.previewImage,
+  });
 
   /// `Course.id` — the card that opened this screen already has it.
   final int courseId;
+
+  /// Title and poster from the card that opened this screen, so the hero is
+  /// on screen before the full record arrives.
+  final String? previewTitle;
+  final String? previewImage;
 
   @override
   ConsumerState<IctBootcampPage> createState() => _IctBootcampPageState();
@@ -70,6 +85,14 @@ class _IctBootcampPageState extends ConsumerState<IctBootcampPage> {
   /// starting state; this is what the player adds to it, so a tick appears the
   /// moment a video ends rather than after the next fetch.
   final Set<int> _completed = <int>{};
+
+  /// Published quizzes for this camp. A quiz belongs under the section whose
+  /// title equals [ModuleQuiz.section]. A section with none has no quiz.
+  List<ModuleQuiz> _quizzes = const [];
+
+  /// Quiz ids whose prompt the student closed. Closing it does not lock the
+  /// next lesson.
+  final Set<int> _dismissedQuizPrompts = <int>{};
 
   VideoPlayerController? _videoController;
   bool _videoReady = false;
@@ -118,37 +141,110 @@ class _IctBootcampPageState extends ConsumerState<IctBootcampPage> {
   // ── loading ───────────────────────────────────────────────────────────────
 
   Future<void> _load() async {
-    setState(() {
-      _loading = true;
-      _error = null;
-    });
+    final cached = ref
+        .read(bootcampDetailProvider(widget.courseId))
+        .valueOrNull;
+    if (cached == null) {
+      setState(() {
+        _loading = true;
+        _error = null;
+      });
+    } else {
+      setState(() {
+        _detail = cached;
+        _selectedDay = cached.days.isEmpty ? 1 : cached.days.first.number;
+        _loading = false;
+        _error = null;
+      });
+    }
     try {
-      await _ensureEnrolled();
-      final detail = await ref
-          .read(bootcampApiProvider)
-          .detail(widget.courseId);
+      final enrolled = _ensureEnrolled();
+      final detail = cached == null
+          ? ref.read(bootcampDetailProvider(widget.courseId).future)
+          : ref.refresh(bootcampDetailProvider(widget.courseId).future);
+      await enrolled;
+      final value = await detail;
       if (!mounted) return;
       setState(() {
-        _detail = detail;
-        _selectedDay = detail.days.isEmpty ? 1 : detail.days.first.number;
+        _detail = value;
+        _selectedDay = value.days.isEmpty ? 1 : value.days.first.number;
         _loading = false;
       });
-      // Deliberately no `_syncVideo()` here: the camp opens on its poster and
-      // waits for a tap. The hero builds the controller on demand.
       _resumeFrom();
+      _loadQuizzes();
     } on ApiException catch (error) {
       if (!mounted) return;
+      if (_detail != null) return;
       setState(() {
         _loading = false;
         _error = error.message ?? 'This bootcamp could not be loaded.';
       });
     } catch (_) {
-      if (!mounted) return;
+      if (!mounted || _detail != null) return;
       setState(() {
         _loading = false;
         _error = 'This bootcamp could not be loaded.';
       });
     }
+  }
+
+  /// Published quizzes, after enrolment so the access check can pass.
+  ///
+  /// A failure leaves the curriculum as it is. No quiz is the same on screen
+  /// as a camp that was never given one.
+  Future<void> _loadQuizzes() async {
+    try {
+      final quizzes = await ref
+          .read(quizApiProvider)
+          .courseQuizzes(widget.courseId);
+      if (!mounted) return;
+      setState(() => _quizzes = quizzes);
+    } on ApiException {
+      // The lessons still play.
+    }
+  }
+
+  /// The quiz for this section, or null when the section has none.
+  ///
+  /// A blank title matches a quiz with no section, the same rule as the
+  /// course player.
+  ModuleQuiz? _quizFor(BootcampSection section) {
+    final name = section.title.trim();
+    final wanted = name.isEmpty ? null : name;
+    for (final quiz in _quizzes) {
+      if (quiz.section == wanted) return quiz;
+    }
+    return null;
+  }
+
+  /// One prompt for the day on screen, once that section's last lesson is done.
+  ///
+  /// It does not block the next lesson. Closing it only hides the prompt.
+  ModuleQuiz? _quizPrompt(BootcampDay? day) {
+    if (day == null) return null;
+    for (final section in day.sections) {
+      if (section.lessons.isEmpty) continue;
+      if (!_isComplete(section.lessons.last)) continue;
+      final quiz = _quizFor(section);
+      final id = quiz?.id;
+      if (quiz == null || id == null) continue;
+      if (_dismissedQuizPrompts.contains(id)) continue;
+      if (!quiz.isPassed && quiz.canRetry) return quiz;
+    }
+    return null;
+  }
+
+  void _openQuiz(ModuleQuiz quiz) {
+    Navigator.of(context)
+        .push<void>(
+          MaterialPageRoute<void>(
+            builder: (_) =>
+                ModuleQuizPage(api: ref.read(quizApiProvider), summary: quiz),
+          ),
+        )
+        .then((_) {
+          if (mounted) _loadQuizzes();
+        });
   }
 
   /// Joins the camp so the lessons and files open.
@@ -181,9 +277,12 @@ class _IctBootcampPageState extends ConsumerState<IctBootcampPage> {
     final lessons = _flatLessons;
     if (lessons.isEmpty) return;
     try {
-      final id = await ref
-          .read(courseApiProvider)
-          .nextLessonId(widget.courseId);
+      final cached = ref.exists(myLearningProvider)
+          ? ref.read(myLearningProvider).valueOrNull
+          : null;
+      final id = cached == null
+          ? await ref.read(courseApiProvider).nextLessonId(widget.courseId)
+          : _resumeId(cached, widget.courseId);
       if (!mounted || id == null) return;
       for (final lesson in lessons) {
         if (lesson.id != id || !lesson.isPlayable) continue;
@@ -198,6 +297,13 @@ class _IctBootcampPageState extends ConsumerState<IctBootcampPage> {
     } on ApiException {
       // Not enrolled, or the read failed: the poster is a fine place to start.
     }
+  }
+
+  int? _resumeId(MyLearning learning, int courseId) {
+    for (final row in [...learning.all, ...learning.completed]) {
+      if (row.course.id == courseId) return row.nextLessonId;
+    }
+    return null;
   }
 
   Future<void> _loadThreads() async {
@@ -625,14 +731,42 @@ class _IctBootcampPageState extends ConsumerState<IctBootcampPage> {
   }
 
   Widget _buildLoading() {
-    return const Scaffold(
+    final title = widget.previewTitle?.trim();
+    return Scaffold(
       backgroundColor: _bg,
-      body: Center(
-        child: SizedBox(
-          width: 24,
-          height: 24,
-          child: CircularProgressIndicator(strokeWidth: 2),
-        ),
+      body: ListView(
+        children: [
+          SizedBox(
+            height: 222,
+            child: CourseImage(
+              widget.previewImage ?? '',
+              fit: BoxFit.cover,
+              fallback: Image.asset(
+                'assets/figma/bootcamp/course-poster.png',
+                fit: BoxFit.cover,
+              ),
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
+            child: Text(
+              title == null || title.isEmpty ? 'Bootcamp' : title,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: GoogleFonts.manrope(
+                fontSize: 22,
+                fontWeight: FontWeight.w800,
+                color: _ink,
+                height: 1.2,
+              ),
+            ),
+          ),
+          const SizedBox(height: 16),
+          const Padding(
+            padding: EdgeInsets.symmetric(horizontal: 16),
+            child: CourseListSkeleton(rows: 3),
+          ),
+        ],
       ),
     );
   }
@@ -1224,6 +1358,8 @@ class _IctBootcampPageState extends ConsumerState<IctBootcampPage> {
               ),
             ),
           if (days.isNotEmpty) const SizedBox(height: 12),
+          if (_quizPrompt(day) case final ModuleQuiz prompt)
+            _buildQuizPrompt(prompt),
           if (day == null || day.lessonCount == 0)
             Padding(
               padding: const EdgeInsets.symmetric(vertical: 24),
@@ -1242,11 +1378,138 @@ class _IctBootcampPageState extends ConsumerState<IctBootcampPage> {
                   'lessons',
                 ),
               for (final lesson in section.lessons) _buildLessonRow(lesson),
+              if (_quizFor(section) case final ModuleQuiz quiz)
+                _buildQuizRow(quiz),
               const SizedBox(height: 6),
             ],
         ],
       ),
     );
+  }
+
+  Widget _buildQuizPrompt(ModuleQuiz quiz) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Container(
+        padding: const EdgeInsets.fromLTRB(12, 10, 8, 10),
+        decoration: BoxDecoration(
+          color: const Color(0xFFFFFBF0),
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: const Color(0xFFF1E4B8)),
+        ),
+        child: Row(
+          children: [
+            const Icon(Icons.quiz_outlined, size: 18, color: _yellow),
+            const SizedBox(width: 8),
+            Expanded(
+              child: GestureDetector(
+                onTap: () => _openQuiz(quiz),
+                behavior: HitTestBehavior.opaque,
+                child: Text(
+                  'Test yourself: take the module quiz',
+                  style: GoogleFonts.figtree(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w700,
+                    color: _ink,
+                  ),
+                ),
+              ),
+            ),
+            IconButton(
+              onPressed: () {
+                final id = quiz.id;
+                if (id == null) return;
+                setState(() => _dismissedQuizPrompts.add(id));
+              },
+              visualDensity: VisualDensity.compact,
+              icon: const Icon(Icons.close, size: 16, color: _softGray),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildQuizRow(ModuleQuiz quiz) {
+    final title = quiz.title.trim().isEmpty ? 'Section quiz' : quiz.title.trim();
+    final description = quiz.description.trim();
+    return Padding(
+      padding: const EdgeInsets.only(top: 8, bottom: 4),
+      child: Material(
+        color: const Color(0xFFFFFBF0),
+        borderRadius: BorderRadius.circular(12),
+        child: InkWell(
+          onTap: () => _openQuiz(quiz),
+          borderRadius: BorderRadius.circular(12),
+          child: Container(
+            padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: const Color(0xFFF1E4B8)),
+            ),
+            child: Row(
+              children: [
+                const Icon(Icons.quiz_outlined, size: 20, color: _yellow),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        title,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: GoogleFonts.figtree(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w700,
+                          color: _ink,
+                        ),
+                      ),
+                      if (description.isNotEmpty) ...[
+                        const SizedBox(height: 2),
+                        Text(
+                          description,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: GoogleFonts.figtree(fontSize: 11, color: _gray),
+                        ),
+                      ],
+                      const SizedBox(height: 2),
+                      Text(
+                        _quizMeta(quiz),
+                        style: GoogleFonts.figtree(fontSize: 11, color: _softGray),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Text(
+                  quiz.statusLabel,
+                  style: GoogleFonts.figtree(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w600,
+                    color: _gray,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// Question count, one clock for the attempt, and the pass mark.
+  String _quizMeta(ModuleQuiz quiz) {
+    final count = quiz.count;
+    final questions = count == 1 ? '1 question' : '$count questions';
+    final seconds = quiz.timeLimitSeconds;
+    final minutes = seconds ~/ 60;
+    final rest = seconds % 60;
+    final time = rest == 0
+        ? (minutes == 1 ? '1 min' : '$minutes min')
+        : '$minutes:${rest.toString().padLeft(2, '0')}';
+    return '$questions · $time · Pass ${quiz.passPercentage}%';
   }
 
   Widget _buildChapterHeader(String title, int count, String countLabel) {

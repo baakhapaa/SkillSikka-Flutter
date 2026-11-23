@@ -31,6 +31,7 @@ class PressableChip extends StatefulWidget {
     this.verticalPadding = 8,
     this.radius = 14,
     this.textColor = const Color(0xFF111827),
+    this.glass = false,
   });
 
   /// Text shown on the chip.
@@ -48,6 +49,9 @@ class PressableChip extends StatefulWidget {
   final double verticalPadding;
   final double radius;
   final Color textColor;
+
+  /// Refracts whatever is behind the chip. Size, radius, and label stay put.
+  final bool glass;
 
   @override
   State<PressableChip> createState() => _PressableChipState();
@@ -106,58 +110,100 @@ class _PressableChipState extends State<PressableChip> {
                 borderRadius: BorderRadius.circular(widget.radius),
                 child: Stack(
                   children: [
-                    Positioned.fill(
-                      child: ColoredBox(
-                        color: Colors.white.withValues(alpha: 0.72),
-                      ),
-                    ),
-                    Positioned.fill(
-                      child: IgnorePointer(
+                    if (widget.glass)
+                      const Positioned.fill(
                         child: DecoratedBox(
                           decoration: BoxDecoration(
                             gradient: LinearGradient(
                               begin: Alignment.topCenter,
                               end: Alignment.bottomCenter,
-                              colors: [
-                                Colors.white.withValues(
-                                  alpha: _hovered ? 0.96 : 0.82,
-                                ),
-                                const Color(0xFFF3F4F6).withValues(alpha: 0.55),
-                              ],
+                              colors: [Color(0xE6FFFFFF), Color(0x99FFFFFF)],
                             ),
                           ),
                         ),
                       ),
-                    ),
+                    if (widget.glass)
+                      Positioned.fill(
+                        child: IgnorePointer(
+                          child: CustomPaint(
+                            painter: _ChipGlassRimPainter(
+                              radius: widget.radius,
+                            ),
+                          ),
+                        ),
+                      ),
+                    if (widget.glass && _depressed)
+                      const Positioned.fill(
+                        child: IgnorePointer(
+                          child: DecoratedBox(
+                            decoration: BoxDecoration(
+                              gradient: LinearGradient(
+                                begin: Alignment.topCenter,
+                                end: Alignment.bottomCenter,
+                                colors: [Color(0x22000000), Color(0x00000000)],
+                                stops: [0, 0.55],
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    if (!widget.glass)
+                      Positioned.fill(
+                        child: ColoredBox(
+                          color: Colors.white.withValues(alpha: 0.72),
+                        ),
+                      ),
+                    if (!widget.glass)
+                      Positioned.fill(
+                        child: IgnorePointer(
+                          child: DecoratedBox(
+                            decoration: BoxDecoration(
+                              gradient: LinearGradient(
+                                begin: Alignment.topCenter,
+                                end: Alignment.bottomCenter,
+                                colors: [
+                                  Colors.white.withValues(
+                                    alpha: _hovered ? 0.96 : 0.82,
+                                  ),
+                                  const Color(
+                                    0xFFF3F4F6,
+                                  ).withValues(alpha: 0.55),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
                     // Inset shading — flips direction when depressed so the
                     // face looks carved into the surface rather than lit.
-                    Positioned.fill(
-                      child: IgnorePointer(
-                        child: DecoratedBox(
-                          decoration: BoxDecoration(
-                            gradient: LinearGradient(
-                              begin: _depressed
-                                  ? Alignment.topCenter
-                                  : Alignment.bottomCenter,
-                              end: _depressed
-                                  ? Alignment.bottomCenter
-                                  : Alignment.topCenter,
-                              colors: [
-                                _depressed
-                                    ? const Color(0x22000000)
-                                    : const Color(0x26000000),
-                                const Color(0x00000000),
-                              ],
-                              stops: _depressed
-                                  ? const [0, 0.55]
-                                  : const [0, 0.4],
+                    if (!widget.glass)
+                      Positioned.fill(
+                        child: IgnorePointer(
+                          child: DecoratedBox(
+                            decoration: BoxDecoration(
+                              gradient: LinearGradient(
+                                begin: _depressed
+                                    ? Alignment.topCenter
+                                    : Alignment.bottomCenter,
+                                end: _depressed
+                                    ? Alignment.bottomCenter
+                                    : Alignment.topCenter,
+                                colors: [
+                                  _depressed
+                                      ? const Color(0x22000000)
+                                      : const Color(0x26000000),
+                                  const Color(0x00000000),
+                                ],
+                                stops: _depressed
+                                    ? const [0, 0.55]
+                                    : const [0, 0.4],
+                              ),
                             ),
                           ),
                         ),
                       ),
-                    ),
                     // Specular highlight — removed while pressed.
-                    if (!_depressed || _hovered)
+                    if (!widget.glass && (!_depressed || _hovered))
                       Positioned.fill(
                         child: IgnorePointer(
                           child: DecoratedBox(
@@ -200,4 +246,30 @@ class _PressableChipState extends State<PressableChip> {
       ),
     );
   }
+}
+
+/// A light rim on the existing pill. It does not change the chip's size.
+class _ChipGlassRimPainter extends CustomPainter {
+  const _ChipGlassRimPainter({required this.radius});
+
+  final double radius;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final rect = Offset.zero & size;
+    const inset = 1.2;
+    final rrect = RRect.fromRectAndRadius(
+      rect.deflate(inset),
+      Radius.circular((radius - inset).clamp(0, radius)),
+    );
+    final rim = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1
+      ..color = Colors.white.withValues(alpha: 0.85);
+    canvas.drawRRect(rrect, rim);
+  }
+
+  @override
+  bool shouldRepaint(covariant _ChipGlassRimPainter oldDelegate) =>
+      oldDelegate.radius != radius;
 }

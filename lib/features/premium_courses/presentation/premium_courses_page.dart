@@ -4,6 +4,7 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:skillsikka/core/network/api_error.dart';
 import 'package:skillsikka/core/widgets/course_detail_view.dart';
 import 'package:skillsikka/core/widgets/course_image.dart';
+import 'package:skillsikka/core/widgets/loading_skeleton.dart';
 import 'package:skillsikka/core/widgets/pressable_chip.dart';
 import 'package:skillsikka/core/widgets/section_bar.dart';
 import 'package:skillsikka/features/courses/data/course_api.dart';
@@ -40,128 +41,126 @@ class _PremiumCoursesPageState extends ConsumerState<PremiumCoursesPage> {
   ];
   int selectedCategory = 0;
 
-  List<CourseDetailData> _courses = const [];
-  bool _loading = true;
-  String? _error;
-
   @override
   void initState() {
     super.initState();
-    _load();
+    if (ref.read(premiumCatalogueProvider).hasValue) {
+      Future.microtask(() {
+        if (mounted) ref.invalidate(premiumCatalogueProvider);
+      });
+    }
   }
 
   Future<void> _load() async {
-    setState(() {
-      _loading = true;
-      _error = null;
-    });
+    ref.invalidate(premiumCatalogueProvider);
     try {
-      final page = await ref
-          .read(courseApiProvider)
-          .list(courseType: 'premium', pageSize: 50);
-      if (!mounted) return;
-      setState(() {
-        _courses = page.courses;
-        _loading = false;
-      });
-    } on ApiException catch (error) {
-      if (!mounted) return;
-      setState(() {
-        _loading = false;
-        _error = error.displayMessage;
-      });
+      await ref.read(premiumCatalogueProvider.future);
+    } on ApiException {
+      // The error sliver below offers retry.
     }
   }
 
   /// What the selected chip shows. `All` is the absence of a filter, which is
   /// why it is index 0 rather than a category called "All" — the chips did
   /// nothing at all before this page had real data.
-  List<CourseDetailData> get _visible => selectedCategory == 0
-      ? _courses
+  List<CourseDetailData> _visible(List<CourseDetailData> courses) =>
+      selectedCategory == 0
+      ? courses
       : [
-          for (final course in _courses)
+          for (final course in courses)
             if (course.category == categories[selectedCategory]) course,
         ];
 
-  /// The carousel takes the first three and the list takes the rest, which is
-  /// how the design splits one shelf into two.
-  List<CourseDetailData> get _carousel => _visible.take(3).toList();
-  List<CourseDetailData> get _rest => _visible.skip(3).toList();
-
   @override
   Widget build(BuildContext context) {
+    final catalogue = ref.watch(premiumCatalogueProvider);
+    final courses = catalogue.valueOrNull ?? const <CourseDetailData>[];
+    final loading = !catalogue.hasValue && !catalogue.hasError;
+    final error = catalogue.hasValue
+        ? null
+        : (catalogue.error is ApiException
+              ? (catalogue.error! as ApiException).displayMessage
+              : catalogue.hasError
+              ? 'Premium courses could not be loaded.'
+              : null);
+    final visible = _visible(courses);
+    final carousel = visible.take(3).toList();
+    final rest = visible.skip(3).toList();
     return Scaffold(
       backgroundColor: _pageBackground,
       body: SafeArea(
-        child: CustomScrollView(
-          slivers: [
-            SliverToBoxAdapter(child: _topBar()),
-            SliverToBoxAdapter(child: _categoryBar()),
-            if (_loading)
-              const SliverToBoxAdapter(
-                child: Padding(
-                  padding: EdgeInsets.symmetric(vertical: 48),
-                  child: Center(
-                    child: SizedBox(
-                      width: 22,
-                      height: 22,
-                      child: CircularProgressIndicator(strokeWidth: 2),
+        child: RefreshIndicator(
+          onRefresh: _load,
+          child: CustomScrollView(
+            physics: const AlwaysScrollableScrollPhysics(),
+            slivers: [
+              SliverToBoxAdapter(child: _topBar()),
+              SliverToBoxAdapter(child: _categoryBar()),
+              if (loading)
+                const SliverToBoxAdapter(
+                  child: Padding(
+                    padding: EdgeInsets.fromLTRB(16, 8, 16, 32),
+                    child: CourseGridSkeleton(rows: 2),
+                  ),
+                )
+              else if (error != null)
+                SliverToBoxAdapter(
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 8, 16, 32),
+                    child: Column(
+                      children: [
+                        Text(
+                          error,
+                          textAlign: TextAlign.center,
+                          style: GoogleFonts.figtree(
+                            fontSize: 13,
+                            color: _muted,
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        TextButton(
+                          onPressed: _load,
+                          child: const Text('Try again'),
+                        ),
+                      ],
                     ),
                   ),
-                ),
-              )
-            else if (_error != null)
-              SliverToBoxAdapter(
-                child: Padding(
-                  padding: const EdgeInsets.fromLTRB(16, 8, 16, 32),
-                  child: Column(
-                    children: [
-                      Text(
-                        _error!,
-                        textAlign: TextAlign.center,
-                        style: GoogleFonts.figtree(fontSize: 13, color: _muted),
-                      ),
-                      const SizedBox(height: 8),
-                      TextButton(
-                        onPressed: _load,
-                        child: const Text('Try again'),
-                      ),
-                    ],
-                  ),
-                ),
-              )
-            else if (_visible.isEmpty)
-              SliverToBoxAdapter(
-                child: Padding(
-                  padding: const EdgeInsets.fromLTRB(16, 8, 16, 32),
-                  child: Text(
-                    selectedCategory == 0
-                        ? 'No premium courses yet.'
-                        : 'No courses in this category yet.',
-                    textAlign: TextAlign.center,
-                    style: GoogleFonts.figtree(fontSize: 13, color: _muted),
-                  ),
-                ),
-              )
-            else ...[
-              SliverToBoxAdapter(child: _sectionTitle('Top Courses')),
-              SliverToBoxAdapter(child: _topCourses(_carousel)),
-              if (_rest.isNotEmpty) ...[
-                SliverToBoxAdapter(child: _sectionTitle('Course', top: 24)),
-                SliverPadding(
-                  padding: const EdgeInsets.fromLTRB(16, 0, 16, 32),
-                  sliver: SliverList.builder(
-                    itemCount: _rest.length,
-                    itemBuilder: (context, index) => Padding(
-                      padding: const EdgeInsets.only(bottom: 14),
-                      child: _ListCourseCard(course: _rest[index]),
+                )
+              else if (visible.isEmpty)
+                SliverToBoxAdapter(
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 8, 16, 32),
+                    child: Text(
+                      selectedCategory == 0
+                          ? 'No premium courses yet.'
+                          : 'No courses in this category yet.',
+                      textAlign: TextAlign.center,
+                      style: GoogleFonts.figtree(fontSize: 13, color: _muted),
                     ),
                   ),
-                ),
-              ] else
-                const SliverToBoxAdapter(child: SizedBox(height: 32)),
+                )
+              else ...[
+                SliverToBoxAdapter(child: _sectionTitle('Top Courses')),
+                SliverToBoxAdapter(child: _topCourses(carousel)),
+                if (rest.isNotEmpty) ...[
+                  SliverToBoxAdapter(child: _sectionTitle('Course', top: 24)),
+                  SliverPadding(
+                    padding: const EdgeInsets.fromLTRB(16, 0, 16, 32),
+                    sliver: SliverList.builder(
+                      itemCount: rest.length,
+                      itemBuilder: (context, index) => Padding(
+                        padding: const EdgeInsets.only(bottom: 14),
+                        child: RepaintBoundary(
+                          child: _ListCourseCard(course: rest[index]),
+                        ),
+                      ),
+                    ),
+                  ),
+                ] else
+                  const SliverToBoxAdapter(child: SizedBox(height: 32)),
+              ],
             ],
-          ],
+          ),
         ),
       ),
     );

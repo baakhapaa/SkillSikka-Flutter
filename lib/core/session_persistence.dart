@@ -4,6 +4,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'network/session.dart';
 import 'network/session_store.dart';
+import '../features/profile/data/profile_role.dart';
+import '../features/profile/data/user_profile.dart';
 
 /// Keeps [sessionProvider] and the device's secure store in step, in both
 /// directions.
@@ -32,6 +34,12 @@ import 'network/session_store.dart';
 /// lifetime is absolute, measured from login, and refreshing the access token does
 /// not extend it. See [Session]'s own docs before promising a user anything.
 ///
+/// True once the saved session has been read, whether or not one was there.
+///
+/// The splash keeps its entrance paused until this is true, so a returning
+/// user does not see the animation start and then get cut away.
+final sessionRestoredProvider = StateProvider<bool>((ref) => false);
+
 /// Must be **watched** to run — `lib/app.dart` is the single place that does.
 final sessionPersistenceProvider = Provider<void>((ref) {
   final store = ref.watch(sessionStoreProvider);
@@ -62,16 +70,27 @@ final sessionPersistenceProvider = Provider<void>((ref) {
   });
 
   Future<void> restore() async {
-    final stored = await store.read();
-    // `read` never throws and never returns a half-session: a payload it cannot
-    // parse comes back as null, having been cleared. So there is nothing to
-    // validate here.
-    if (disposed || stored == null) return;
+    try {
+      final stored = await store.read();
+      // `read` never throws and never returns a half-session: a payload it cannot
+      // parse comes back as null, having been cleared. So there is nothing to
+      // validate here.
+      if (disposed || stored == null) return;
 
-    // Assigned *before* the state below, so the listener sees this as already
-    // known and does not echo it to disk.
-    known = stored;
-    ref.read(sessionProvider.notifier).state = stored;
+      final role = ProfileRole.tryParse(stored.role);
+      if (role != null) {
+        ref.read(userProfileProvider.notifier).setRole(role);
+      }
+
+      // Assigned *before* the state below, so the listener sees this as already
+      // known and does not echo it to disk.
+      known = stored;
+      ref.read(sessionProvider.notifier).state = stored;
+    } finally {
+      if (!disposed) {
+        ref.read(sessionRestoredProvider.notifier).state = true;
+      }
+    }
   }
 
   unawaited(restore());

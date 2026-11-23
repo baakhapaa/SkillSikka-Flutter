@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 import '../../../core/network/api_error.dart';
@@ -93,19 +94,31 @@ class _ModuleQuizPageState extends State<ModuleQuizPage> {
       if (_remaining <= 0) {
         timer.cancel();
         _onTimeUp();
+        return;
       }
+      if (_remaining <= 10) _pulseClock();
     });
+  }
+
+  /// A tick you can feel once the attempt is inside its last ten seconds.
+  void _pulseClock() {
+    if (_remaining == 10 || _remaining <= 3) {
+      HapticFeedback.mediumImpact();
+    } else {
+      HapticFeedback.selectionClick();
+    }
   }
 
   String get _clockLabel {
     final minutes = (_remaining ~/ 60).toString().padLeft(2, '0');
     final seconds = (_remaining % 60).toString().padLeft(2, '0');
-    return '$minutes:$seconds left';
+    return '$minutes:$seconds';
   }
 
   Future<void> _onTimeUp() async {
     if (_timeUp || _result != null) return;
     _timeUp = true;
+    HapticFeedback.heavyImpact();
     if (_checked == null && _selected != null && !_busy) {
       await _check();
     }
@@ -221,6 +234,11 @@ class _ModuleQuizPageState extends State<ModuleQuizPage> {
       ]);
       if (!mounted) return;
       _clock?.cancel();
+      if (result.isPassed) {
+        HapticFeedback.lightImpact();
+      } else {
+        HapticFeedback.mediumImpact();
+      }
       setState(() {
         _result = result;
         _attemptsUsed += 1;
@@ -246,6 +264,8 @@ class _ModuleQuizPageState extends State<ModuleQuizPage> {
                 quiz: _quiz ?? widget.summary,
                 result: result,
                 canRetry: _attemptsUsed < widget.summary.maxAttempts,
+                attemptsLeft: (widget.summary.maxAttempts - _attemptsUsed)
+                    .clamp(0, widget.summary.maxAttempts),
                 onExit: () => Navigator.of(context).pop(),
                 onRetry: _open,
               )
@@ -272,10 +292,7 @@ class _ModuleQuizPageState extends State<ModuleQuizPage> {
     final quiz = _quiz;
     final question = _question;
     if (_timeUp && _result == null) {
-      return _Message(
-        title: "Time's up",
-        body: 'The quiz time your instructor set has ended.',
-      );
+      return _TimeUp(onExit: () => Navigator.of(context).pop());
     }
     if (quiz == null || question == null) {
       if (_error != null) {
@@ -286,6 +303,7 @@ class _ModuleQuizPageState extends State<ModuleQuizPage> {
     final checked = _checked;
     final total = _questions.length;
     final topic = (quiz.section ?? widget.summary.section ?? '').trim();
+    final urgent = _remaining > 0 && _remaining <= 10;
     return Column(
       children: [
         Expanded(
@@ -299,28 +317,37 @@ class _ModuleQuizPageState extends State<ModuleQuizPage> {
                     style: GoogleFonts.figtree(
                       fontSize: 13,
                       fontWeight: FontWeight.w600,
-                      color: _gray,
+                      color: urgent ? _red : _gray,
                     ),
                   ),
                   const Spacer(),
-                  Text(
-                    checked != null ? 'Answer review' : _clockLabel,
-                    style: GoogleFonts.figtree(
-                      fontSize: 13,
-                      fontWeight: FontWeight.w600,
-                      color: checked == null && _remaining == 0 ? _red : _gray,
+                  if (checked != null && !urgent)
+                    Text(
+                      'Answer review',
+                      style: GoogleFonts.figtree(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
+                        color: _gray,
+                      ),
+                    )
+                  else
+                    _AttemptClock(
+                      label: _clockLabel,
+                      remaining: _remaining,
+                      urgent: urgent,
                     ),
-                  ),
                 ],
               ),
               const SizedBox(height: 10),
               ClipRRect(
                 borderRadius: BorderRadius.circular(100),
                 child: LinearProgressIndicator(
-                  value: total == 0 ? 0 : (_index + 1) / total,
-                  minHeight: 6,
-                  backgroundColor: const Color(0xFFF3F4F6),
-                  color: _gold,
+                  value: urgent
+                      ? _remaining / 10
+                      : (total == 0 ? 0 : (_index + 1) / total),
+                  minHeight: urgent ? 8 : 6,
+                  backgroundColor: urgent ? _redSoft : const Color(0xFFF3F4F6),
+                  color: urgent ? _red : _gold,
                 ),
               ),
               const SizedBox(height: 22),
@@ -732,11 +759,139 @@ class _Actions extends StatelessWidget {
   }
 }
 
-class _Results extends StatelessWidget {
+/// The attempt clock. Calm time stays a gray label. The last ten seconds
+/// become a red pill that bumps once a second, and the bar under it drains.
+class _AttemptClock extends StatelessWidget {
+  const _AttemptClock({
+    required this.label,
+    required this.remaining,
+    required this.urgent,
+  });
+
+  final String label;
+  final int remaining;
+  final bool urgent;
+
+  @override
+  Widget build(BuildContext context) {
+    final text = Text(
+      urgent ? label : '$label left',
+      style: GoogleFonts.figtree(
+        fontSize: urgent ? 14 : 13,
+        fontWeight: FontWeight.w800,
+        color: urgent ? Colors.white : _gray,
+        fontFeatures: const [FontFeature.tabularFigures()],
+      ),
+    );
+    if (!urgent) return text;
+    return TweenAnimationBuilder<double>(
+      key: ValueKey(remaining),
+      tween: Tween(begin: remaining <= 3 ? 1.14 : 1.08, end: 1),
+      duration: const Duration(milliseconds: 280),
+      curve: Curves.easeOut,
+      builder: (context, scale, child) => Transform.scale(
+        scale: scale,
+        alignment: Alignment.centerRight,
+        child: child,
+      ),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+        decoration: BoxDecoration(
+          color: _red,
+          borderRadius: BorderRadius.circular(20),
+        ),
+        child: text,
+      ),
+    );
+  }
+}
+
+class _TimeUp extends StatelessWidget {
+  const _TimeUp({required this.onExit});
+
+  final VoidCallback onExit;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(24, 12, 24, 16),
+      child: Column(
+        children: [
+          Expanded(
+            child: TweenAnimationBuilder<double>(
+              tween: Tween(begin: 0, end: 1),
+              duration: const Duration(milliseconds: 360),
+              curve: Curves.easeOutCubic,
+              builder: (context, t, child) => Opacity(
+                opacity: t,
+                child: Transform.translate(
+                  offset: Offset(0, (1 - t) * 16),
+                  child: child,
+                ),
+              ),
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Container(
+                    width: 84,
+                    height: 84,
+                    alignment: Alignment.center,
+                    decoration: const BoxDecoration(
+                      color: _redSoft,
+                      shape: BoxShape.circle,
+                    ),
+                    child: const Icon(
+                      Icons.timer_off_outlined,
+                      size: 36,
+                      color: _red,
+                    ),
+                  ),
+                  const SizedBox(height: 20),
+                  Text(
+                    '00:00',
+                    style: GoogleFonts.manrope(
+                      fontSize: 48,
+                      fontWeight: FontWeight.w800,
+                      color: _red,
+                      fontFeatures: const [FontFeature.tabularFigures()],
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    "Time's up",
+                    style: GoogleFonts.manrope(
+                      fontSize: 24,
+                      fontWeight: FontWeight.w800,
+                      color: _ink,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    'The clock ran out before every question was checked.',
+                    textAlign: TextAlign.center,
+                    style: GoogleFonts.figtree(
+                      fontSize: 15,
+                      height: 1.4,
+                      color: _gray,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          _GoldButton(label: 'Back to course', onTap: onExit),
+        ],
+      ),
+    );
+  }
+}
+
+class _Results extends StatefulWidget {
   const _Results({
     required this.quiz,
     required this.result,
     required this.canRetry,
+    required this.attemptsLeft,
     required this.onExit,
     required this.onRetry,
   });
@@ -744,74 +899,235 @@ class _Results extends StatelessWidget {
   final ModuleQuiz quiz;
   final QuizSubmitResult result;
   final bool canRetry;
+  final int attemptsLeft;
   final VoidCallback onExit;
   final VoidCallback onRetry;
 
   @override
+  State<_Results> createState() => _ResultsState();
+}
+
+class _ResultsState extends State<_Results>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _play;
+
+  @override
+  void initState() {
+    super.initState();
+    _play = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 900),
+    );
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      if (MediaQuery.disableAnimationsOf(context)) {
+        _play.value = 1;
+      } else {
+        _play.forward();
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _play.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
+    final quiz = widget.quiz;
+    final result = widget.result;
     final passed = result.isPassed;
+    final title = quiz.title.trim().isEmpty ? 'Quiz' : quiz.title.trim();
+    final attempts = widget.attemptsLeft == 1
+        ? '1 attempt left'
+        : '${widget.attemptsLeft} attempts left';
     return Padding(
-      padding: const EdgeInsets.fromLTRB(24, 24, 24, 16),
+      padding: const EdgeInsets.fromLTRB(24, 8, 24, 16),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            quiz.title.trim().isEmpty ? 'Quiz' : quiz.title.trim(),
+            title,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
             style: GoogleFonts.manrope(
               fontSize: 18,
               fontWeight: FontWeight.w800,
               color: _ink,
             ),
           ),
-          const Spacer(),
-          Text(
-            '${result.percentage.round()}%',
-            style: GoogleFonts.manrope(
-              fontSize: 56,
-              fontWeight: FontWeight.w800,
-              color: passed ? _green : _ink,
+          Expanded(
+            child: AnimatedBuilder(
+              animation: _play,
+              builder: (context, _) {
+                final t = Curves.easeOutCubic.transform(_play.value);
+                final shown = (result.percentage * t).round();
+                return Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      '$shown%',
+                      style: GoogleFonts.manrope(
+                        fontSize: 72,
+                        height: 1,
+                        fontWeight: FontWeight.w800,
+                        color: passed ? _green : _ink,
+                        fontFeatures: const [FontFeature.tabularFigures()],
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    Text(
+                      passed ? 'You passed' : 'Not passed',
+                      style: GoogleFonts.manrope(
+                        fontSize: 24,
+                        fontWeight: FontWeight.w800,
+                        color: _ink,
+                      ),
+                    ),
+                    const SizedBox(height: 18),
+                    _PassTrack(
+                      score: result.percentage,
+                      passMark: quiz.passPercentage,
+                      progress: t,
+                      passed: passed,
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      'Pass mark ${quiz.passPercentage}%',
+                      style: GoogleFonts.figtree(fontSize: 13, color: _gray),
+                    ),
+                    const SizedBox(height: 16),
+                    Text(
+                      '${result.pointsEarned} points earned',
+                      style: GoogleFonts.figtree(
+                        fontSize: 15,
+                        fontWeight: FontWeight.w600,
+                        color: _ink,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      attempts,
+                      style: GoogleFonts.figtree(fontSize: 14, color: _gray),
+                    ),
+                  ],
+                );
+              },
             ),
           ),
-          const SizedBox(height: 8),
-          Text(
-            passed ? 'You passed' : 'Not passed',
-            style: GoogleFonts.manrope(
-              fontSize: 22,
-              fontWeight: FontWeight.w800,
-              color: _ink,
-            ),
-          ),
-          const SizedBox(height: 6),
-          Text(
-            'Pass mark ${quiz.passPercentage}%. '
-            '${result.pointsEarned} points earned.',
-            style: GoogleFonts.figtree(fontSize: 14, color: _gray),
-          ),
-          const Spacer(),
-          if (canRetry) ...[
-            _GoldButton(label: 'Retry', onTap: onRetry),
-            const SizedBox(height: 10),
+          if (passed) ...[
+            _GoldButton(label: 'Back to course', onTap: widget.onExit),
+            if (widget.canRetry) ...[
+              const SizedBox(height: 10),
+              _OutlineButton(label: 'Retry', onTap: widget.onRetry),
+            ],
+          ] else ...[
+            if (widget.canRetry) ...[
+              _GoldButton(label: 'Retry', onTap: widget.onRetry),
+              const SizedBox(height: 10),
+            ],
+            if (widget.canRetry)
+              _OutlineButton(label: 'Back to course', onTap: widget.onExit)
+            else
+              _GoldButton(label: 'Back to course', onTap: widget.onExit),
           ],
-          GestureDetector(
-            onTap: onExit,
-            child: Container(
-              height: 52,
-              alignment: Alignment.center,
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(16),
-                border: Border.all(color: _line),
-              ),
-              child: Text(
-                'Back to course',
-                style: GoogleFonts.manrope(
-                  fontSize: 15,
-                  fontWeight: FontWeight.w800,
-                  color: _ink,
+        ],
+      ),
+    );
+  }
+}
+
+/// Score filling toward the right, with a tick where the pass mark sits.
+class _PassTrack extends StatelessWidget {
+  const _PassTrack({
+    required this.score,
+    required this.passMark,
+    required this.progress,
+    required this.passed,
+  });
+
+  final double score;
+  final int passMark;
+  final double progress;
+  final bool passed;
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      height: 22,
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final width = constraints.maxWidth;
+          final fill = width * (score.clamp(0, 100) / 100) * progress;
+          final mark = width * (passMark.clamp(0, 100) / 100);
+          return Stack(
+            clipBehavior: Clip.none,
+            children: [
+              Positioned(
+                left: 0,
+                right: 0,
+                top: 7,
+                child: Container(
+                  height: 8,
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFF3F4F6),
+                    borderRadius: BorderRadius.circular(100),
+                  ),
                 ),
               ),
-            ),
+              Positioned(
+                left: 0,
+                top: 7,
+                width: fill,
+                child: Container(
+                  height: 8,
+                  decoration: BoxDecoration(
+                    color: passed ? _green : _red,
+                    borderRadius: BorderRadius.circular(100),
+                  ),
+                ),
+              ),
+              Positioned(
+                left: (mark - 1).clamp(0, width - 2),
+                top: 2,
+                child: Container(width: 2, height: 18, color: _ink),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+}
+
+class _OutlineButton extends StatelessWidget {
+  const _OutlineButton({required this.label, required this.onTap});
+
+  final String label;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        height: 52,
+        alignment: Alignment.center,
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: _line),
+        ),
+        child: Text(
+          label,
+          style: GoogleFonts.manrope(
+            fontSize: 15,
+            fontWeight: FontWeight.w800,
+            color: _ink,
           ),
-        ],
+        ),
       ),
     );
   }
